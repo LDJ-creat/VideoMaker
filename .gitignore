@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Build outputs
+.next/
+dist/
+build/
+*.egg-info/
+
+# Local runtime artifacts
+storage/*
+!storage/.gitkeep
+
+# Local env
+.env
+.env.local
+
+# Worktrees
+.worktrees/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
