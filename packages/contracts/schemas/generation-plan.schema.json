@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/generation-plan.schema.json",
+  "title": "GenerationPlan",
+  "type": "object",
+  "required": ["id", "projectId", "structureId", "inventoryId", "gapReportId", "variant", "storyboard", "timeline", "packagingPlan", "completionActions"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "structureId": { "type": "string", "minLength": 1 },
+    "inventoryId": { "type": "string", "minLength": 1 },
+    "gapReportId": { "type": "string", "minLength": 1 },
+    "variant": { "type": "string", "enum": ["default", "high_click", "high_conversion", "fast_paced", "premium"] },
+    "storyboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "slotId", "startSec", "endSec", "visual", "script", "source"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "slotId": { "type": "string", "minLength": 1 },
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 },
+          "visual": { "type": "string" },
+          "script": { "type": "string" },
+          "source": { "type": "string", "enum": ["user_asset", "text_completion", "packaging_completion", "asset_reuse", "generated"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "timeline": { "$ref": "render-timeline.schema.json" },
+    "packagingPlan": {
+      "type": "object",
+      "required": ["styleSummary", "subtitle", "titleCards", "transitions"],
+      "properties": {
+        "styleSummary": { "type": "string" },
+        "subtitle": { "type": "object", "additionalProperties": true },
+        "titleCards": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "transitions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      },
+      "additionalProperties": false
+    },
+    "completionActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "slotId", "strategy", "reason", "outputRef"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "slotId": { "type": "string", "minLength": 1 },
+          "strategy": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] },
+          "reason": { "type": "string" },
+          "outputRef": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

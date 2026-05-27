@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/task-event.schema.json",
+  "title": "TaskEvent",
+  "type": "object",
+  "required": ["taskId", "status", "stage", "progress", "message", "updatedAt"],
+  "properties": {
+    "taskId": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "succeeded", "failed", "cancelled", "retrying"]
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "uploading",
+        "extracting_metadata",
+        "extracting_audio",
+        "transcribing",
+        "detecting_shots",
+        "extracting_keyframes",
+        "extracting_structure",
+        "analyzing_assets",
+        "mapping_slots",
+        "planning_completion",
+        "generating_storyboard",
+        "building_timeline",
+        "rendering",
+        "completed"
+      ]
+    },
+    "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "message": { "type": "string" },
+    "artifactRefs": {
+      "type": "array",
+      "items": { "$ref": "artifact-ref.schema.json" }
+    },
+    "error": { "$ref": "tool-error.schema.json" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

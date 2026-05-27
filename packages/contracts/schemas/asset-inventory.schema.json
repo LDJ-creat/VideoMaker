@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/asset-inventory.schema.json",
+  "title": "AssetInventory",
+  "type": "object",
+  "required": ["id", "projectId", "userBrief", "assets", "extractedFacts", "candidateMoments"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "userBrief": {
+      "type": "object",
+      "required": ["sellingPoints", "mustMention", "avoidMention"],
+      "properties": {
+        "topic": { "type": "string" },
+        "productName": { "type": "string" },
+        "sellingPoints": { "type": "array", "items": { "type": "string" } },
+        "targetAudience": { "type": "string" },
+        "tone": { "type": "string" },
+        "mustMention": { "type": "array", "items": { "type": "string" } },
+        "avoidMention": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "uri"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["video", "image", "text"] },
+          "uri": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "durationSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "extractedFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "text", "source"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "enum": ["selling_point", "audience", "scene", "constraint", "other"] },
+          "text": { "type": "string" },
+          "source": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "candidateMoments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "assetId", "startSec", "endSec", "description", "tags"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "assetId": { "type": "string", "minLength": 1 },
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 },
+          "description": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

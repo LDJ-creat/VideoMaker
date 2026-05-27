@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/tool-error.schema.json",
+  "title": "ToolError",
+  "type": "object",
+  "required": ["code", "message", "retryable"],
+  "properties": {
+    "code": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "details": {}
+  },
+  "additionalProperties": false
+}

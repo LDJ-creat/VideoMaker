@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/gap-report.schema.json",
+  "title": "GapReport",
+  "type": "object",
+  "required": ["id", "projectId", "structureId", "inventoryId", "slotMatches", "missingSlots", "weakSlots", "summary"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "structureId": { "type": "string", "minLength": 1 },
+    "inventoryId": { "type": "string", "minLength": 1 },
+    "slotMatches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "matchScore", "matchReason"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "assetId": { "type": "string" },
+          "momentId": { "type": "string" },
+          "matchScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "matchReason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "missingSlots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "reason", "impact", "suggestedFixes"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" },
+          "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "suggestedFixes": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "weakSlots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "reason", "impact", "suggestedFixes"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" },
+          "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "suggestedFixes": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": { "type": "string" }
+  },
+  "additionalProperties": false
+}

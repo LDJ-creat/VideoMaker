@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/artifact-ref.schema.json",
+  "title": "ArtifactRef",
+  "type": "object",
+  "required": ["id", "type", "uri", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": {
+      "type": "string",
+      "enum": ["video", "audio", "image", "json", "text", "html", "render"]
+    },
+    "uri": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
