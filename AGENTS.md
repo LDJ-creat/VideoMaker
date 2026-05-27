@@ -10,6 +10,11 @@ The competition brief is stored in `VideoMaker.md`. The user's original solution
 - `docs/superpowers/plans/2026-05-27-videomaker-p0-implementation-plan.md`
 - `docs/superpowers/plans/2026-05-27-contracts-foundation-plan.md`
 - `docs/superpowers/plans/2026-05-27-api-task-artifacts-plan.md`
+- `docs/superpowers/plans/2026-05-27-worker-video-analysis-plan.md`
+- `docs/superpowers/plans/2026-05-27-web-workbench-plan.md`
+- `docs/superpowers/plans/2026-05-27-agent-generation-plan.md`
+- `docs/superpowers/plans/2026-05-27-hyperframes-render-plan.md`
+- `docs/superpowers/plans/2026-05-27-integration-p0-demo-flow-plan.md`
 
 ## Product Direction
 
