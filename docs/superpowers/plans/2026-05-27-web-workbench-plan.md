@@ -94,11 +94,11 @@ Do not modify:
 - Create: `apps/web/app/projects/page.tsx`
 - Create: `apps/web/app/projects/[projectId]/page.tsx`
 
-- [ ] Write a minimal smoke test or type-check target that imports the app route components.
-- [ ] Create the Next.js app shell with project list and project detail route.
-- [ ] Initialize Tailwind CSS and shadcn/ui with CSS variables for dual-theme (Bento/Pro) configuration.
-- [ ] Add a local API base URL config helper.
-- [ ] Run `npm install`, `npm run typecheck`, and `npm run build`.
+- [x] Write a minimal smoke test or type-check target that imports the app route components.
+- [x] Create the Next.js app shell with project list and project detail route.
+- [x] Initialize Tailwind CSS and shadcn/ui with CSS variables for dual-theme (Bento/Pro) configuration.
+- [x] Add a local API base URL config helper.
+- [x] Run `npm install`, `npm run typecheck`, and `npm run build`.
 - [ ] Commit: `feat(web): add workbench shell with UI foundation`.
 
 ## Task 2: API Client And Input Forms
@@ -110,12 +110,12 @@ Do not modify:
 - Create: `apps/web/features/project-input/BriefEditor.tsx`
 - Create: `apps/web/features/project-input/projectInput.test.tsx`
 
-- [ ] Write failing tests for local sample upload request shape, sample URL request shape, asset upload request shape, and brief submission shape.
-- [ ] Implement `createProject`, `uploadSampleVideo`, `importSampleFromUrl`, `uploadAsset`, `saveBrief`, `startSampleAnalysis`, and `createGenerationPlan` in `apiClient.ts`.
-- [ ] Implement `SampleInputPanel` with two tabs: local file upload and URL import. The URL tab must call `/samples/from-url`; it must not call `yt-dlp` directly.
-- [ ] Implement `AssetInputPanel` for image/video asset uploads with accepted MIME types `image/*` and `video/*`.
-- [ ] Implement `BriefEditor` with structured fields matching `UserBriefRequest`.
-- [ ] Run `npm run test` and `npm run typecheck`.
+- [x] Write failing tests for local sample upload request shape, sample URL request shape, asset upload request shape, and brief submission shape.
+- [x] Implement `createProject`, `uploadSampleVideo`, `importSampleFromUrl`, `uploadAsset`, `saveBrief`, `startSampleAnalysis`, and `createGenerationPlan` in `apiClient.ts`.
+- [x] Implement `SampleInputPanel` with two tabs: local file upload and URL import. The URL tab must call `/samples/from-url`; it must not call `yt-dlp` directly.
+- [x] Implement `AssetInputPanel` for image/video asset uploads with accepted MIME types `image/*` and `video/*`.
+- [x] Implement `BriefEditor` with structured fields matching `UserBriefRequest`.
+- [x] Run `npm run test` and `npm run typecheck`.
 - [ ] Commit: `feat(web): add sample asset and brief input flows`.
 
 ## Task 3: Task Progress Hook
@@ -125,11 +125,11 @@ Do not modify:
 - Create: `apps/web/features/tasks/TaskProgressPanel.tsx`
 - Create: `apps/web/features/tasks/useTaskProgress.test.ts`
 
-- [ ] Write failing tests for SSE-first behavior and polling fallback after repeated SSE failures.
-- [ ] Implement `useTaskProgress({apiBaseUrl, taskId})` using `EventSource`.
-- [ ] Fall back to `GET /api/tasks/{taskId}` polling every 3 seconds after 3 SSE failures.
-- [ ] Render task status, stage, progress, message, artifacts, and error.
-- [ ] Run `npm run test` and `npm run typecheck`.
+- [x] Write failing tests for SSE-first behavior and polling fallback after repeated SSE failures.
+- [x] Implement `useTaskProgress({apiBaseUrl, taskId})` using `EventSource`.
+- [x] Fall back to `GET /api/tasks/{taskId}` polling every 3 seconds after 3 SSE failures.
+- [x] Render task status, stage, progress, message, artifacts, and error.
+- [x] Run `npm run test` and `npm run typecheck`.
 - [ ] Commit: `feat(web): add task progress hook and panel`.
 
 ## Task 4: Fixtures And Contract Views
@@ -142,11 +142,11 @@ Do not modify:
 - Create: `apps/web/features/structure-mapping/StructureSlotBoard.tsx`
 - Create: `apps/web/features/gap-report/GapReportView.tsx`
 
-- [ ] Write type-level fixture checks using shared contract types.
-- [ ] Build sample analysis and structure slot visualizations from fixtures.
-- [ ] Build gap report cards showing matched, weak, and missing slots.
-- [ ] Keep all views usable without backend data.
-- [ ] Run `npm run typecheck`.
+- [x] Write type-level fixture checks using shared contract types.
+- [x] Build sample analysis and structure slot visualizations from fixtures.
+- [x] Build gap report cards showing matched, weak, and missing slots.
+- [x] Keep all views usable without backend data.
+- [x] Run `npm run typecheck`.
 - [ ] Commit: `feat(web): add structure and gap visualizations`.
 
 ## Task 5: Timeline And Result Views
@@ -156,10 +156,10 @@ Do not modify:
 - Create: `apps/web/features/generation-result/GenerationResultView.tsx`
 - Modify: `apps/web/app/projects/[projectId]/page.tsx`
 
-- [ ] Write tests or story fixtures proving all `TimelineTrackType` values render without crashing.
-- [ ] Implement compact timeline tracks with stable clip positions.
-- [ ] Implement generation result view for storyboard, timeline, preview link, and video output placeholder.
-- [ ] Run `npm run test`, `npm run typecheck`, and `npm run build`.
+- [x] Write tests or story fixtures proving all `TimelineTrackType` values render without crashing.
+- [x] Implement compact timeline tracks with stable clip positions.
+- [x] Implement generation result view for storyboard, timeline, preview link, and video output placeholder.
+- [x] Run `npm run test`, `npm run typecheck`, and `npm run build`.
 - [ ] Commit: `feat(web): add timeline and generation result views`.
 
 ## Task 6: Project Workbench Composition
@@ -169,10 +169,10 @@ Do not modify:
 - Create: `apps/web/features/workbench/ProjectWorkbench.tsx`
 - Create: `apps/web/features/workbench/ProjectWorkbench.test.tsx`
 
-- [ ] Write failing tests that prove the workbench can switch between sample input, analysis progress, structure mapping, gap report, timeline, and result panels.
-- [ ] Compose `SampleInputPanel`, `AssetInputPanel`, `BriefEditor`, `TaskProgressPanel`, structure views, and timeline/result views into one project workspace.
-- [ ] Use fixture data when API endpoints are unavailable, but keep API client calls wired behind explicit action handlers.
-- [ ] Run `npm run test`, `npm run typecheck`, and `npm run build`.
+- [x] Write failing tests that prove the workbench can switch between sample input, analysis progress, structure mapping, gap report, timeline, and result panels.
+- [x] Compose `SampleInputPanel`, `AssetInputPanel`, `BriefEditor`, `TaskProgressPanel`, structure views, and timeline/result views into one project workspace.
+- [x] Use fixture data when API endpoints are unavailable, but keep API client calls wired behind explicit action handlers.
+- [x] Run `npm run test`, `npm run typecheck`, and `npm run build`.
 - [ ] Commit: `feat(web): compose p0 project workbench`.
 
 ## Acceptance Criteria
@@ -201,3 +201,13 @@ Also run:
 cd packages/contracts
 npm run check
 ```
+
+## Architecture Addendum: BFF Proxy
+
+The browser must not call `VIDEOMAKER_API_URL` directly. All API traffic goes through same-origin Next.js Route Handlers:
+
+```text
+Browser → /api/* (apps/web/app/api/[...path]) → VIDEOMAKER_API_URL/api/*
+```
+
+See [`apps/web/README.md`](../../../apps/web/README.md) and [`2026-05-28-web-workbench-hardening-plan.md`](2026-05-28-web-workbench-hardening-plan.md).
