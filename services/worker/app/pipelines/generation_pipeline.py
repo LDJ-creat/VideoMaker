@@ -235,11 +235,14 @@ def build_gap_report(
         if slot is None:
             continue
         score = float(match.get("matchScore", 0.0))
-        if score >= 0.62:
+        importance_weight = IMPORTANCE_WEIGHT.get(slot.get("importance", "optional"), 0.5)
+        matched_threshold, weak_threshold = _thresholds_for_importance(importance_weight)
+
+        if score >= matched_threshold:
             continue
 
         impact = _impact_from_importance(slot.get("importance", "optional"))
-        has_visual_partial = score >= 0.38 and bool(match.get("assetId"))
+        has_visual_partial = score >= weak_threshold and bool(match.get("assetId"))
         suggested_fixes = _suggest_fixes(
             slot=slot,
             visual_density=structure.get("packaging", {}).get("visualDensity", "medium"),
@@ -254,7 +257,7 @@ def build_gap_report(
             "impact": impact,
             "suggestedFixes": suggested_fixes,
         }
-        if score >= 0.38:
+        if score >= weak_threshold:
             weak_slots.append(record)
         else:
             missing_slots.append(record)
@@ -285,6 +288,11 @@ def build_generation_plan(
 ) -> dict[str, Any]:
     slots_by_id = {slot["id"]: slot for slot in structure.get("slots", [])}
     matches_by_slot = {match["slotId"]: match for match in slot_matches}
+    asset_type_by_id = {
+        asset["id"]: asset.get("type")
+        for asset in inventory.get("assets", [])
+        if isinstance(asset, dict) and asset.get("id")
+    }
 
     weak_ids = {item["slotId"] for item in gap_report.get("weakSlots", [])}
     missing_ids = {item["slotId"] for item in gap_report.get("missingSlots", [])}
@@ -300,9 +308,23 @@ def build_generation_plan(
         match = matches_by_slot.get(slot_id, {})
         source = "user_asset"
         if slot_id in missing_ids:
-            source = _source_from_fix(gap_by_slot[slot_id]["suggestedFixes"][0])
+            fix = _select_fix_for_slot(
+                slot=slot,
+                slot_gap=gap_by_slot[slot_id],
+                structure=structure,
+                inventory=inventory,
+                match=match,
+            )
+            source = _source_from_fix(fix)
         elif slot_id in weak_ids:
-            source = _source_from_fix(gap_by_slot[slot_id]["suggestedFixes"][0])
+            fix = _select_fix_for_slot(
+                slot=slot,
+                slot_gap=gap_by_slot[slot_id],
+                structure=structure,
+                inventory=inventory,
+                match=match,
+            )
+            source = _source_from_fix(fix)
         elif match.get("assetId") and slot_id not in missing_ids and slot_id not in weak_ids:
             source = "user_asset"
 
@@ -319,7 +341,13 @@ def build_generation_plan(
         )
 
         if slot_id in gap_by_slot:
-            fix = gap_by_slot[slot_id]["suggestedFixes"][0]
+            fix = _select_fix_for_slot(
+                slot=slot,
+                slot_gap=gap_by_slot[slot_id],
+                structure=structure,
+                inventory=inventory,
+                match=match,
+            )
             completion_actions.append(
                 {
                     "id": f"action-{slot_id}",
@@ -330,7 +358,12 @@ def build_generation_plan(
                 }
             )
 
-    timeline = _build_timeline(storyboard=storyboard, slot_matches=matches_by_slot, slots=slots_by_id)
+    timeline = _build_timeline(
+        storyboard=storyboard,
+        slot_matches=matches_by_slot,
+        slots=slots_by_id,
+        asset_type_by_id=asset_type_by_id,
+    )
     duration = max((scene["endSec"] for scene in storyboard), default=0.0)
     timeline["durationSec"] = duration
 
@@ -362,6 +395,7 @@ def _build_timeline(
     storyboard: list[dict[str, Any]],
     slot_matches: dict[str, dict[str, Any]],
     slots: dict[str, dict[str, Any]],
+    asset_type_by_id: dict[str, str | None],
 ) -> dict[str, Any]:
     tracks = {track_type: {"id": f"track-{track_type}", "type": track_type, "clips": []} for track_type in TRACK_ORDER}
 
@@ -377,15 +411,26 @@ def _build_timeline(
 
         if scene["source"] in {"user_asset", "asset_reuse"} and match.get("assetId"):
             asset_id = str(match["assetId"])
+            asset_type = asset_type_by_id.get(asset_id)
             if match.get("momentId"):
                 clip["sourceRef"] = str(match["momentId"])
                 tracks["video"]["clips"].append(clip)
-            elif "image" in slot.get("requiredAssetType", []):
+            elif asset_type == "image":
                 clip["sourceRef"] = asset_id
                 tracks["image"]["clips"].append(clip)
-            else:
+            elif asset_type == "video":
                 clip["sourceRef"] = asset_id
                 tracks["video"]["clips"].append(clip)
+            elif asset_type == "text":
+                clip["content"] = scene["script"]
+                clip["styleRef"] = "style://packaging/default"
+                tracks["text"]["clips"].append(clip)
+            else:
+                clip["sourceRef"] = asset_id
+                if "image" in slot.get("requiredAssetType", []):
+                    tracks["image"]["clips"].append(clip)
+                else:
+                    tracks["video"]["clips"].append(clip)
         else:
             clip["content"] = scene["script"]
             clip["styleRef"] = "style://packaging/default"
@@ -476,6 +521,12 @@ def _impact_from_importance(importance: str) -> str:
     return "low"
 
 
+def _thresholds_for_importance(importance_weight: float) -> tuple[float, float]:
+    scaled_matched = 0.62 * importance_weight
+    scaled_weak = 0.38 * importance_weight
+    return scaled_matched, scaled_weak
+
+
 def _suggest_fixes(
     *,
     slot: dict[str, Any],
@@ -500,6 +551,27 @@ def _suggest_fixes(
         if item in fixes and item not in ordered:
             ordered.append(item)
     return ordered or ["text_completion"]
+
+
+def _select_fix_for_slot(
+    *,
+    slot: dict[str, Any],
+    slot_gap: dict[str, Any],
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    match: dict[str, Any],
+) -> str:
+    fixes = list(slot_gap.get("suggestedFixes", []))
+    if fixes:
+        return str(fixes[0])
+
+    inferred = _suggest_fixes(
+        slot=slot,
+        visual_density=structure.get("packaging", {}).get("visualDensity", "medium"),
+        has_visual_partial=bool(match.get("assetId")),
+        inventory=inventory,
+    )
+    return inferred[0] if inferred else "text_completion"
 
 
 def _source_from_fix(strategy: str) -> str:

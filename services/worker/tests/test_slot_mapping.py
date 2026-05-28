@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.pipelines.generation_pipeline import build_asset_inventory, map_slots
+from app.pipelines.generation_pipeline import build_asset_inventory, build_gap_report, map_slots
 from app.pipelines.structure_pipeline import extract_video_structure
 from app.validation.schema_loader import validate_contract
 
@@ -76,4 +76,43 @@ def test_map_slots_prefers_semantic_and_type_match() -> None:
     mapping = map_slots(structure=structure, inventory=inventory)
     assert mapping.slot_matches
     assert any(match["matchScore"] >= 0.62 for match in mapping.slot_matches)
+
+
+def test_optional_slot_can_be_matched_with_scaled_threshold() -> None:
+    structure = {
+        "id": "structure-1",
+        "projectId": "project-1",
+        "slots": [
+            {
+                "id": "slot-optional",
+                "segmentId": "seg-1",
+                "role": "proof",
+                "startSec": 0.0,
+                "endSec": 3.0,
+                "requiredAssetType": ["video", "image"],
+                "visualIntent": "proof",
+                "scriptIntent": "proof",
+                "importance": "optional",
+                "constraints": [],
+            }
+        ],
+        "packaging": {"visualDensity": "low"},
+    }
+    inventory = {
+        "id": "inventory-1",
+        "projectId": "project-1",
+        "assets": [{"id": "asset-video", "type": "video", "uri": "storage://video.mp4", "durationSec": 4.0}],
+        "extractedFacts": [{"id": "fact-1", "kind": "selling_point", "text": "x", "source": "brief"}],
+    }
+    slot_matches = [
+        {
+            "slotId": "slot-optional",
+            "assetId": "asset-video",
+            "matchScore": 0.45,
+            "matchReason": "perfect optional score ceiling",
+        }
+    ]
+    report = build_gap_report(structure=structure, inventory=inventory, slot_matches=slot_matches)
+    assert report["missingSlots"] == []
+    assert report["weakSlots"] == []
 
