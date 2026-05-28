@@ -1,0 +1,71 @@
+{
+  "durationSec": 6,
+  "tracks": [
+    {
+      "id": "txt",
+      "type": "text",
+      "clips": [
+        {
+          "id": "t2",
+          "startSec": 2,
+          "endSec": 4,
+          "content": "World <script>alert(1)</script>"
+        },
+        {
+          "id": "t1",
+          "startSec": 0,
+          "endSec": 2,
+          "content": "Hello & Intro"
+        }
+      ]
+    },
+    {
+      "id": "vid",
+      "type": "video",
+      "clips": [
+        {
+          "id": "v1",
+          "startSec": 0,
+          "endSec": 3,
+          "sourceRef": "assets/video.mp4"
+        }
+      ]
+    },
+    {
+      "id": "img",
+      "type": "image",
+      "clips": [
+        {
+          "id": "i1",
+          "startSec": 1,
+          "endSec": 3.5,
+          "sourceRef": "assets/image.png"
+        }
+      ]
+    },
+    {
+      "id": "fx",
+      "type": "effect",
+      "clips": [
+        {
+          "id": "e1",
+          "startSec": 1,
+          "endSec": 2,
+          "content": "pulse"
+        }
+      ]
+    },
+    {
+      "id": "tr",
+      "type": "transition",
+      "clips": [
+        {
+          "id": "x1",
+          "startSec": 2.5,
+          "endSec": 3,
+          "content": "unknown-transition"
+        }
+      ]
+    }
+  ]
+}
