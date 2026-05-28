@@ -6,7 +6,9 @@
 
 **Architecture:** Implement a Next.js app under `apps/web` using shared TypeScript contracts. The frontend should be contract-driven and able to run with local JSON fixtures before backend/worker integration is complete.
 
-**Tech Stack:** Next.js, React, TypeScript, shared `@videomaker/contracts` types, native `EventSource` for SSE.
+**Tech Stack:** Next.js, React, TypeScript, Tailwind CSS, shadcn/ui, shared `@videomaker/contracts` types, native `EventSource` for SSE.
+
+**Design System:** All UI development must follow the [UI/UX Design System Specification](../specs/2026-05-28-ui-ux-design-system.md) using dual-theme Bento/Pro implementations.
 
 ---
 
@@ -94,9 +96,10 @@ Do not modify:
 
 - [ ] Write a minimal smoke test or type-check target that imports the app route components.
 - [ ] Create the Next.js app shell with project list and project detail route.
+- [ ] Initialize Tailwind CSS and shadcn/ui with CSS variables for dual-theme (Bento/Pro) configuration.
 - [ ] Add a local API base URL config helper.
 - [ ] Run `npm install`, `npm run typecheck`, and `npm run build`.
-- [ ] Commit: `feat(web): add workbench shell`.
+- [ ] Commit: `feat(web): add workbench shell with UI foundation`.
 
 ## Task 2: API Client And Input Forms
 
