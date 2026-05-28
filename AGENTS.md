@@ -93,6 +93,20 @@ POST /api/tasks/{task_id}/retry
 POST /api/tasks/{task_id}/cancel
 ```
 
+`POST /api/tasks/{task_id}/retry` re-dispatches the worker for the same `task_id` with `resume=true` when the task belongs to a sample analysis or generation run. Failed sample analysis should be retried through this endpoint (not by creating a new analyze task).
+
+### Checkpoint Resume (P0)
+
+Worker pipelines persist stage checkpoints under stable business IDs (not `task_id`):
+
+```text
+storage/projects/{projectId}/
+  samples/{sampleId}/analysis/checkpoint.json
+  generations/{generationId}/checkpoint.json
+```
+
+Sample analysis artifacts live in `samples/{sampleId}/analysis/`. Generation stage JSON lives in `generations/{generationId}/`. The frontend retry button calls `POST /api/tasks/{taskId}/retry` and keeps the same SSE/polling task id.
+
 API validation commands:
 
 ```powershell

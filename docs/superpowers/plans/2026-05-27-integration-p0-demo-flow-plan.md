@@ -124,3 +124,5 @@ Manual verification:
 8. Generate `GapReport` and `GenerationPlan`.
 9. Generate HyperFrames preview.
 10. Refresh the browser during a task and confirm status recovery.
+11. Fail sample analysis at transcribing (e.g. Whisper unavailable), click **重试** on the progress panel, and confirm the same `taskId` resumes without re-running metadata/audio extraction (event messages include `(resumed)`).
+12. Fail generation at rendering, retry via `POST /api/tasks/{taskId}/retry`, and confirm inventory/gap/plan stages are skipped when artifacts exist under `generations/{generationId}/`.
