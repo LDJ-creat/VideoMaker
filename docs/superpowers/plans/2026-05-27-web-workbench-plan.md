@@ -201,3 +201,13 @@ Also run:
 cd packages/contracts
 npm run check
 ```
+
+## Architecture Addendum: BFF Proxy
+
+The browser must not call `VIDEOMAKER_API_URL` directly. All API traffic goes through same-origin Next.js Route Handlers:
+
+```text
+Browser → /api/* (apps/web/app/api/[...path]) → VIDEOMAKER_API_URL/api/*
+```
+
+See [`apps/web/README.md`](../../../apps/web/README.md) and [`2026-05-28-web-workbench-hardening-plan.md`](2026-05-28-web-workbench-hardening-plan.md).
