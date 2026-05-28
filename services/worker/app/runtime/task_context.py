@@ -14,6 +14,8 @@ class TaskContext:
     storage_root: Path
     api_base_url: str | None = None
     artifacts: ArtifactStore = field(init=False)
+    emitted_events: list[dict[str, Any]] = field(default_factory=list, init=False)
+    artifact_refs: list[dict[str, Any]] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         self.artifacts = ArtifactStore(
@@ -31,7 +33,7 @@ class TaskContext:
         error: dict[str, Any] | None = None,
         artifact_refs: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        return {
+        event = {
             "taskId": self.task_id,
             "status": status,
             "stage": stage,
@@ -40,3 +42,14 @@ class TaskContext:
             "artifactRefs": artifact_refs or [],
             "error": error,
         }
+        self.emitted_events.append(event)
+        return event
+
+    def register_artifact(self, artifact_type: str, path: str | Path) -> dict[str, Any]:
+        ref = {
+            "id": f"{self.task_id}-{len(self.artifact_refs) + 1}",
+            "type": artifact_type,
+            "uri": str(Path(path).resolve()),
+        }
+        self.artifact_refs.append(ref)
+        return ref
