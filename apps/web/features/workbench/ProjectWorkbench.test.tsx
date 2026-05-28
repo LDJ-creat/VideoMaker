@@ -7,14 +7,20 @@ import { ProjectWorkbench } from "@/features/workbench/ProjectWorkbench";
 import { fixtureTaskEvent, fixtureVideoStructure } from "@/fixtures";
 import * as apiClient from "@/lib/apiClient";
 
+vi.mock("@/lib/project-session", () => ({
+  loadProjectSession: vi.fn(() => null),
+  saveProjectSession: vi.fn(),
+}));
+
 let capturedOnTerminal: ((event: TaskEvent) => void) | undefined;
+let mockTaskEvent: TaskEvent | null = null;
 
 vi.mock("@/features/tasks/useTaskProgress", () => ({
   useTaskProgress: (opts: { onTerminal?: (event: TaskEvent) => void }) => {
     capturedOnTerminal = opts.onTerminal;
     return {
-      event: null,
-      mode: "idle" as const,
+      event: mockTaskEvent,
+      mode: mockTaskEvent ? ("polling" as const) : ("idle" as const),
       sseFailureCount: 0,
       error: null,
     };
@@ -24,6 +30,7 @@ vi.mock("@/features/tasks/useTaskProgress", () => ({
 describe("ProjectWorkbench", () => {
   beforeEach(() => {
     capturedOnTerminal = undefined;
+    mockTaskEvent = null;
     vi.restoreAllMocks();
   });
 
@@ -96,5 +103,33 @@ describe("ProjectWorkbench", () => {
     expect(
       screen.getByRole("heading", { name: "样例分析" }),
     ).toBeInTheDocument();
+  });
+
+    it("calls retryTask with the same task id when retry is clicked", async () => {
+    mockTaskEvent = {
+      ...fixtureTaskEvent,
+      taskId: "task-retry-1",
+      status: "failed",
+      progress: 45,
+      stage: "transcribing",
+      message: "transcription failed",
+    };
+
+    const retryTaskSpy = vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-retry-1",
+        status: "retrying",
+        progress: 45,
+      },
+      meta: { dataSource: "api" },
+    });
+
+    const user = userEvent.setup();
+    render(<ProjectWorkbench projectId="proj-test" />);
+    await user.click(screen.getByRole("button", { name: "进度" }));
+    await user.click(screen.getByRole("button", { name: "重试样例分析" }));
+
+    expect(retryTaskSpy).toHaveBeenCalledWith("task-retry-1");
   });
 });

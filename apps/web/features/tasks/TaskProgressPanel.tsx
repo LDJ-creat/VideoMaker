@@ -3,6 +3,7 @@
 import type { TaskEvent } from "@videomaker/contracts";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -13,12 +14,16 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
+import { formatTaskError } from "@/lib/formatTaskError";
 
 type TaskProgressPanelProps = {
   event: TaskEvent | null;
   mode: TaskProgressMode;
   sseFailureCount: number;
   error: string | null;
+  onRetry?: () => void;
+  retryBusy?: boolean;
+  retryLabel?: string;
 };
 
 const MODE_LABEL: Record<TaskProgressMode, string> = {
@@ -33,7 +38,12 @@ export function TaskProgressPanel({
   mode,
   sseFailureCount,
   error,
+  onRetry,
+  retryBusy = false,
+  retryLabel = "重试任务",
 }: TaskProgressPanelProps) {
+  const formattedError = formatTaskError(event?.error);
+
   if (!event) {
     return (
       <Card>
@@ -82,10 +92,34 @@ export function TaskProgressPanel({
           </p>
         )}
 
-        {event.error && (
-          <p className="text-sm text-destructive" role="alert">
-            {event.error.message}
-          </p>
+        {formattedError && (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="alert">
+            <p className="font-medium text-destructive">{formattedError.title}</p>
+            {formattedError.hint && (
+              <p className="text-muted-foreground">{formattedError.hint}</p>
+            )}
+            {formattedError.technical && (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 font-mono text-xs text-muted-foreground">
+                {formattedError.technical}
+              </pre>
+            )}
+          </div>
+        )}
+
+        {event.status === "failed" && onRetry && (
+          <div className="space-y-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={retryBusy}
+              onClick={() => void onRetry()}
+            >
+              {retryBusy ? "正在重新提交…" : retryLabel}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              重试会从上次 checkpoint 继续执行，复用同一任务 ID 与已完成阶段的中间产物。
+            </p>
+          </div>
         )}
 
         <ScrollArea className="h-28 rounded-md border border-border bg-muted/30 p-3 font-mono text-xs">

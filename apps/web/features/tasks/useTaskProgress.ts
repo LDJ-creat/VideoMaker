@@ -18,6 +18,8 @@ export type TaskProgressMode = "sse" | "polling" | "idle" | "completed";
 export type UseTaskProgressOptions = {
   taskId: string | null;
   enabled?: boolean;
+  /** Bump to re-subscribe after retrying a terminal task. */
+  watchKey?: number;
   onTerminal?: (event: TaskEvent) => void;
 };
 
@@ -35,6 +37,7 @@ function isTerminal(status: TaskStatus): boolean {
 export function useTaskProgress({
   taskId,
   enabled = true,
+  watchKey = 0,
   onTerminal,
 }: UseTaskProgressOptions): UseTaskProgressResult {
   const [event, setEvent] = useState<TaskEvent | null>(null);
@@ -103,6 +106,7 @@ export function useTaskProgress({
     failuresRef.current = 0;
     setSseFailureCount(0);
     setMode("sse");
+    void pollOnce();
 
     const source = new EventSource(getTaskEventsUrl(taskId));
     cleanupRef.current.source = source;
@@ -147,7 +151,7 @@ export function useTaskProgress({
       stopAll();
       cleanupRef.current.disposed = false;
     };
-  }, [applyEvent, enabled, pollOnce, stopAll, taskId]);
+  }, [applyEvent, enabled, pollOnce, stopAll, taskId, watchKey]);
 
   return { event, mode, sseFailureCount, error };
 }

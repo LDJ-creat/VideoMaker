@@ -29,8 +29,10 @@ import {
 import type { DataSource } from "@/lib/api-types";
 import {
   createGenerationPlan,
+  getActiveSample,
   getGeneration,
   getSampleStructure,
+  retryTask,
   startSampleAnalysis,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
@@ -82,27 +84,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [gapApiPending, setGapApiPending] = useState(false);
 
-  useEffect(() => {
-    const saved = loadProjectSession(projectId);
-    if (!saved) return;
-    if (saved.sampleId) setSampleId(saved.sampleId);
-    if (saved.generationId) setGenerationId(saved.generationId);
-    if (saved.lastAction) setLastAction(saved.lastAction);
-    if (saved.taskId) {
-      setTaskId(saved.taskId);
-      setPanel("progress");
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    saveProjectSession(projectId, {
-      taskId,
-      sampleId,
-      generationId,
-      lastAction,
-    });
-  }, [projectId, taskId, sampleId, generationId, lastAction]);
-
   const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
     setDataLoading(true);
     setDataError(null);
@@ -116,6 +97,38 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setDataLoading(false);
     }
   }, []);
+
+  const syncActiveSample = useCallback(async () => {
+    try {
+      const { data } = await getActiveSample(projectId);
+      setSampleId(data.id);
+      if (data.hasStructure) {
+        void loadAnalysisResults(data.id);
+      }
+    } catch {
+      /* no local sample yet */
+    }
+  }, [projectId, loadAnalysisResults]);
+
+  useEffect(() => {
+    const saved = loadProjectSession(projectId);
+    if (saved?.generationId) setGenerationId(saved.generationId);
+    if (saved?.lastAction) setLastAction(saved.lastAction);
+    if (saved?.taskId) {
+      setTaskId(saved.taskId);
+      setPanel("progress");
+    }
+    void syncActiveSample();
+  }, [projectId, syncActiveSample]);
+
+  useEffect(() => {
+    saveProjectSession(projectId, {
+      taskId,
+      sampleId,
+      generationId,
+      lastAction,
+    });
+  }, [projectId, taskId, sampleId, generationId, lastAction]);
 
   const loadGenerationResults = useCallback(async (currentGenerationId: string) => {
     setDataLoading(true);
@@ -166,9 +179,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     ],
   );
 
+  const [progressWatchKey, setProgressWatchKey] = useState(0);
+
   const { event, mode, sseFailureCount, error } = useTaskProgress({
     taskId,
     enabled: Boolean(taskId),
+    watchKey: progressWatchKey,
     onTerminal: handleTerminal,
   });
 
@@ -183,15 +199,13 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const handleStartAnalysis = useCallback(async () => {
-    if (!sampleId) {
-      setDataError("请先上传样例视频");
-      return;
-    }
     setBusy(true);
     setDataError(null);
     setLastAction("analysis");
     try {
-      const { data } = await startSampleAnalysis(sampleId);
+      const { data: active } = await getActiveSample(projectId);
+      setSampleId(active.id);
+      const { data } = await startSampleAnalysis(active.id);
       setTaskId(data.taskId);
       setPanel("progress");
     } catch (err) {
@@ -199,13 +213,20 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     } finally {
       setBusy(false);
     }
-  }, [sampleId]);
+  }, [projectId]);
 
   const handleStartGeneration = useCallback(async () => {
     setBusy(true);
     setDataError(null);
     setLastAction("generation");
     try {
+      const { data: active } = await getActiveSample(projectId);
+      if (!active.hasStructure) {
+        setDataError(
+          "请先对样例视频完成「开始样例分析」，成功后再生成计划。",
+        );
+        return;
+      }
       const { data } = await createGenerationPlan(projectId);
       setGenerationId(data.generationId);
       if (data.taskId) {
@@ -231,6 +252,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
   }, []);
 
+  const handleRetryFailedTask = useCallback(async () => {
+    const activeTaskId =
+      event?.status === "failed" ? (event.taskId ?? taskId) : (taskId ?? event?.taskId);
+    if (!activeTaskId) return;
+    setBusy(true);
+    setDataError(null);
+    try {
+      await retryTask(activeTaskId);
+      setTaskId(activeTaskId);
+      setProgressWatchKey((key) => key + 1);
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [event?.status, event?.taskId, taskId]);
+
   const panels: WorkbenchPanel[] = [
     "input",
     "progress",
@@ -249,6 +287,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">项目工作台</h1>
           <p className="font-mono text-sm text-muted-foreground">{projectId}</p>
+          {sampleId && (
+            <p className="font-mono text-xs text-muted-foreground">
+              当前样例：{sampleId}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={loadDemoFixtures}>
@@ -313,6 +356,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             <SampleInputPanel
               projectId={projectId}
               onTaskStarted={handleTaskStarted}
+              onSampleReady={(id) => {
+                setSampleId(id);
+                setTaskId(null);
+                setDataError(null);
+              }}
             />
             <AssetInputPanel projectId={projectId} />
             <div className="lg:col-span-2">
@@ -328,6 +376,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               mode={mode}
               sseFailureCount={sseFailureCount}
               error={error}
+              retryBusy={busy}
+              retryLabel={
+                lastAction === "generation" ? "重试生成计划" : "重试样例分析"
+              }
+              onRetry={
+                event?.status === "failed" && (taskId || event.taskId) && !busy
+                  ? () => handleRetryFailedTask()
+                  : undefined
+              }
             />
           </div>
         )}
