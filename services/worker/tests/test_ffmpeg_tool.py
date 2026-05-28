@@ -75,3 +75,14 @@ def test_missing_ffprobe_returns_retryable_error(tmp_path: Path) -> None:
 
     assert error["code"] == "ffprobe_missing"
     assert error["retryable"] is True
+
+
+def test_probe_returns_structured_error_for_invalid_ffprobe_json(tmp_path: Path) -> None:
+    def fake_runner(_: list[str]) -> _Result:
+        return _Result(returncode=0, stdout="not-json")
+
+    tool = FFmpegTool(command_runner=fake_runner)
+    error = tool.probe(tmp_path / "video.mp4")
+
+    assert error["code"] == "ffprobe_output_invalid"
+    assert "retryable" in error

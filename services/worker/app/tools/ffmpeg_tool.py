@@ -54,23 +54,39 @@ class FFmpegTool:
                 {"stderr": result.stderr},
             )
 
-        payload = json.loads(result.stdout or "{}")
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            return {
+                "code": "ffprobe_output_invalid",
+                "message": "ffprobe returned invalid JSON",
+                "retryable": False,
+                "details": {"stdout": result.stdout},
+            }
         streams = payload.get("streams", [])
         format_payload = payload.get("format", {})
         video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
         audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
 
-        fps_value = self._parse_fps(video_stream.get("avg_frame_rate", "0/1"))
-        return {
-            "durationSec": float(format_payload.get("duration", 0.0)),
-            "width": int(video_stream.get("width", 0)),
-            "height": int(video_stream.get("height", 0)),
-            "fps": round(fps_value, 2),
-            "videoCodec": video_stream.get("codec_name"),
-            "audioCodec": audio_stream.get("codec_name") if audio_stream else None,
-            "hasAudio": audio_stream is not None,
-            "sourcePath": str(resolved_path),
-        }
+        try:
+            fps_value = self._parse_fps(video_stream.get("avg_frame_rate", "0/1"))
+            return {
+                "durationSec": float(format_payload.get("duration", 0.0)),
+                "width": int(video_stream.get("width", 0)),
+                "height": int(video_stream.get("height", 0)),
+                "fps": round(fps_value, 2),
+                "videoCodec": video_stream.get("codec_name"),
+                "audioCodec": audio_stream.get("codec_name") if audio_stream else None,
+                "hasAudio": audio_stream is not None,
+                "sourcePath": str(resolved_path),
+            }
+        except (TypeError, ValueError, ZeroDivisionError) as exc:
+            return {
+                "code": "ffprobe_metadata_invalid",
+                "message": "ffprobe metadata fields are invalid",
+                "retryable": False,
+                "details": {"error": str(exc)},
+            }
 
     def extract_audio(self, video_path: str | Path, output_path: str | Path) -> dict[str, Any]:
         resolved_input = Path(video_path).resolve()

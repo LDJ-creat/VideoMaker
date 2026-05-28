@@ -46,3 +46,36 @@ def test_task_context_uses_project_scoped_artifact_store(tmp_path: Path) -> None
 
     assert output_path.read_text(encoding="utf-8") == "ok"
     assert output_path.is_relative_to(tmp_path / "projects" / "proj-1")
+
+
+def test_task_context_event_and_artifact_ref_follow_contract_fields(tmp_path: Path) -> None:
+    context = TaskContext(project_id="proj-1", task_id="task-1", storage_root=tmp_path)
+    artifact_path = context.artifacts.write_text("samples/sample-1/a.txt", "ok")
+    ref = context.register_artifact("text", artifact_path)
+    event = context.emit_event(
+        "extracting_metadata",
+        10,
+        "running",
+        artifact_refs=[ref],
+    )
+
+    assert "createdAt" in ref
+    assert "updatedAt" in event
+    assert event["artifactRefs"][0]["createdAt"] == ref["createdAt"]
+
+
+def test_task_context_posts_event_when_publisher_available(tmp_path: Path) -> None:
+    captured: list[dict] = []
+
+    def fake_publisher(event: dict) -> None:
+        captured.append(event)
+
+    context = TaskContext(
+        project_id="proj-1",
+        task_id="task-1",
+        storage_root=tmp_path,
+        event_publisher=fake_publisher,
+    )
+    event = context.emit_event("transcribing", 50, "progress")
+
+    assert captured and captured[0] == event

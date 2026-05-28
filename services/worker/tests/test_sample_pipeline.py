@@ -21,6 +21,10 @@ class _FakeYtDlpTool:
 
 
 class _FakeFFmpegTool:
+    def __init__(self, has_audio: bool = True) -> None:
+        self.has_audio = has_audio
+        self.extract_audio_calls = 0
+
     def probe(self, video_path: str):
         return {
             "durationSec": 4.0,
@@ -28,12 +32,13 @@ class _FakeFFmpegTool:
             "height": 720,
             "fps": 30.0,
             "videoCodec": "h264",
-            "audioCodec": "aac",
-            "hasAudio": True,
+            "audioCodec": "aac" if self.has_audio else None,
+            "hasAudio": self.has_audio,
             "sourcePath": video_path,
         }
 
     def extract_audio(self, video_path: str, output_path: Path):
+        self.extract_audio_calls += 1
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"wav")
         return {"path": str(output_path)}
@@ -111,3 +116,28 @@ def test_sample_pipeline_emits_expected_stages_and_writes_artifacts(tmp_path: Pa
     assert (project_root / "samples" / "task-1" / "keyframes.json").exists()
     assert (project_root / "samples" / "task-1" / "sample-analysis.json").exists()
     assert summary["finalEvent"]["stage"] == "completed"
+
+    sample_analysis = (project_root / "samples" / "task-1" / "sample-analysis.json").read_text(encoding="utf-8")
+    assert '"metadata":' in sample_analysis
+    assert '"transcript":' in sample_analysis
+    assert '"shots":' in sample_analysis
+    assert '"keyframes":' in sample_analysis
+
+
+def test_sample_pipeline_skips_audio_and_transcript_when_video_has_no_audio(tmp_path: Path) -> None:
+    fake_ffmpeg = _FakeFFmpegTool(has_audio=False)
+    pipeline = SampleAnalysisPipeline(
+        storage_root=tmp_path,
+        ffmpeg_tool=fake_ffmpeg,
+        whisper_tool=_FakeWhisperTool(),
+        opencv_tool=_FakeOpenCVTool(),
+        ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
+    )
+
+    summary = pipeline.run(project_id="project-1", task_id="task-no-audio", source_url="https://example.com/video")
+
+    project_root = tmp_path / "projects" / "project-1" / "samples" / "task-no-audio"
+    assert fake_ffmpeg.extract_audio_calls == 0
+    assert not (project_root / "audio.wav").exists()
+    assert (project_root / "transcript.json").exists()
+    assert summary["finalEvent"]["status"] == "succeeded"

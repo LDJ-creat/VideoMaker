@@ -93,39 +93,48 @@ class SampleAnalysisPipeline:
         metadata_path = context.artifacts.write_json(sample_rel_dir / "metadata.json", metadata)
         context.register_artifact("json", metadata_path)
 
-        context.emit_event("extracting_audio", 30, "extracting sample audio")
-        audio_path = context.artifacts.resolve(sample_rel_dir / "audio.wav")
-        audio = self._ffmpeg_tool.extract_audio(str(selected_video_path), audio_path)
-        if _is_tool_error(audio):
-            audio_event = context.emit_event(
-                "extracting_audio",
-                30,
-                "audio extraction failed",
-                status="failed",
-                error=audio,
-            )
-            return {
-                "stages": [event["stage"] for event in context.emitted_events],
-                "artifactRefs": context.artifact_refs,
-                "finalEvent": audio_event,
-            }
-        context.register_artifact("audio", audio_path)
+        audio_path: Path | None = None
+        transcript: dict[str, Any] = {"language": "unknown", "segments": []}
 
-        context.emit_event("transcribing", 45, "running whisper transcription")
-        transcript = self._whisper_tool.transcribe(audio_path)
-        if _is_tool_error(transcript):
-            transcript_event = context.emit_event(
-                "transcribing",
-                45,
-                "transcription failed",
-                status="failed",
-                error=transcript,
-            )
-            return {
-                "stages": [event["stage"] for event in context.emitted_events],
-                "artifactRefs": context.artifact_refs,
-                "finalEvent": transcript_event,
-            }
+        if metadata.get("hasAudio"):
+            context.emit_event("extracting_audio", 30, "extracting sample audio")
+            audio_path = context.artifacts.resolve(sample_rel_dir / "audio.wav")
+            audio = self._ffmpeg_tool.extract_audio(str(selected_video_path), audio_path)
+            if _is_tool_error(audio):
+                audio_event = context.emit_event(
+                    "extracting_audio",
+                    30,
+                    "audio extraction failed",
+                    status="failed",
+                    error=audio,
+                )
+                return {
+                    "stages": [event["stage"] for event in context.emitted_events],
+                    "artifactRefs": context.artifact_refs,
+                    "finalEvent": audio_event,
+                }
+            context.register_artifact("audio", audio_path)
+        else:
+            context.emit_event("extracting_audio", 30, "audio track missing, skip extraction")
+
+        if audio_path is not None:
+            context.emit_event("transcribing", 45, "running whisper transcription")
+            transcript = self._whisper_tool.transcribe(audio_path)
+            if _is_tool_error(transcript):
+                transcript_event = context.emit_event(
+                    "transcribing",
+                    45,
+                    "transcription failed",
+                    status="failed",
+                    error=transcript,
+                )
+                return {
+                    "stages": [event["stage"] for event in context.emitted_events],
+                    "artifactRefs": context.artifact_refs,
+                    "finalEvent": transcript_event,
+                }
+        else:
+            context.emit_event("transcribing", 45, "audio missing, use empty transcript")
         transcript_path = context.artifacts.write_json(sample_rel_dir / "transcript.json", transcript)
         context.register_artifact("json", transcript_path)
 
@@ -150,10 +159,14 @@ class SampleAnalysisPipeline:
 
         sample_analysis = {
             "metadataPath": str(metadata_path),
-            "audioPath": str(audio_path),
+            "audioPath": str(audio_path) if audio_path is not None else None,
             "transcriptPath": str(transcript_path),
             "shotsPath": str(shots_path),
             "keyframesPath": str(keyframes_path),
+            "metadata": metadata,
+            "transcript": transcript,
+            "shots": shots,
+            "keyframes": keyframes,
             "warnings": [item for item in [shots_result.get("warning"), keyframes_result.get("warning")] if item],
             "sourcePath": str(selected_video_path),
         }
