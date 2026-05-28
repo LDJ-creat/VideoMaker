@@ -76,6 +76,56 @@ def test_download_rejects_oversize_video(tmp_path: Path) -> None:
     assert result["retryable"] is False
 
 
+def test_download_passes_cookies_file_to_ytdlp(tmp_path: Path) -> None:
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape\n", encoding="utf-8")
+    seen: list[list[str]] = []
+
+    def fake_runner(cmd: list[str]) -> _Result:
+        seen.append(cmd)
+        if "--dump-json" in cmd:
+            return _Result(
+                returncode=0,
+                stdout=json.dumps({"duration": 5.0, "ext": "mp4", "filesize": 1000}),
+            )
+        output_template = Path(cmd[cmd.index("-o") + 1])
+        output_file = output_template.parent / "original.mp4"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_bytes(b"video")
+        return _Result(returncode=0)
+
+    tool = YtDlpTool(command_runner=fake_runner)
+    tool.download("https://example.com/video", tmp_path / "out", cookies_path=cookies)
+
+    assert seen
+    assert "--cookies" in seen[0]
+    assert str(cookies.resolve()) in seen[0]
+
+
+def test_inspect_failure_for_douyin_without_cookie_hint(tmp_path: Path) -> None:
+    def fake_runner(_: list[str]) -> _Result:
+        return _Result(returncode=1, stderr="ERROR: Unable to extract video data")
+
+    tool = YtDlpTool(command_runner=fake_runner)
+    result = tool.download("https://v.douyin.com/example/", tmp_path)
+
+    assert result["code"] == "ytdlp_cookies_required"
+
+
+def test_inspect_failure_without_cookies_returns_cookies_required(tmp_path: Path) -> None:
+    def fake_runner(_: list[str]) -> _Result:
+        return _Result(
+            returncode=1,
+            stderr="ERROR: Fresh cookies (not necessarily logged in) are needed",
+        )
+
+    tool = YtDlpTool(command_runner=fake_runner)
+    result = tool.download("https://example.com/video", tmp_path)
+
+    assert result["code"] == "ytdlp_cookies_required"
+    assert result["retryable"] is True
+
+
 def test_download_rejects_unsupported_extension(tmp_path: Path) -> None:
     def fake_runner(cmd: list[str]) -> _Result:
         if "--dump-json" in cmd:

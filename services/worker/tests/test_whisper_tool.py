@@ -21,15 +21,26 @@ def test_missing_fast_whisper_returns_retryable_error(tmp_path: Path) -> None:
     assert result["retryable"] is True
 
 
+def test_model_load_failure_returns_unavailable_error(tmp_path: Path) -> None:
+    def _boom() -> None:
+        raise RuntimeError("ReadTimeout")
+
+    tool = WhisperTool(whisper_model_factory=_boom)
+    result = tool.transcribe(tmp_path / "audio.wav")
+
+    assert result["code"] == "fast_whisper_model_unavailable"
+    assert "ReadTimeout" in result["message"]
+
+
 def test_transcribe_normalizes_segments(tmp_path: Path) -> None:
     class _FakeModel:
-        def transcribe(self, _: str, language: str = "en"):
+        def transcribe(self, _: str, language: str | None = None, **_kwargs):
             return (
                 [
                     _Segment(0.0, 1.2, "hello", no_speech_prob=0.05),
                     _Segment(1.2, 2.6, "world", no_speech_prob=0.15),
                 ],
-                {"language": language},
+                type("Info", (), {"language": language or "zh"})(),
             )
 
     tool = WhisperTool(whisper_model_factory=lambda: _FakeModel())
