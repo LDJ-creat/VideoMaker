@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT,
+  cookies_uri TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
