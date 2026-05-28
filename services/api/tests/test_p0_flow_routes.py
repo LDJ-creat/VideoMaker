@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 
 
 class FakeDemoPipeline:
+    last_cookies_path: str | None = None
+    last_resume: bool = False
+    last_retry_task_id: str | None = None
+
     def analyze_sample(
         self,
         *,
@@ -17,8 +21,13 @@ class FakeDemoPipeline:
         sample_id: str,
         video_path: str | Path | None = None,
         source_url: str | None = None,
+        cookies_path: str | Path | None = None,
         emit: Any,
+        resume: bool = False,
     ) -> dict[str, Any]:
+        FakeDemoPipeline.last_cookies_path = str(cookies_path) if cookies_path else None
+        FakeDemoPipeline.last_resume = resume
+        FakeDemoPipeline.last_retry_task_id = task_id
         emit(
             status="running",
             stage="extracting_metadata",
@@ -63,7 +72,10 @@ class FakeDemoPipeline:
         user_brief: dict[str, Any],
         assets: list[dict[str, Any]],
         emit: Any,
+        resume: bool = False,
     ) -> dict[str, Any]:
+        FakeDemoPipeline.last_resume = resume
+        FakeDemoPipeline.last_retry_task_id = task_id
         emit(status="running", stage="analyzing_assets", progress=10, message="fake gen")
         inventory = {
             "id": f"inventory-{project_id}",
@@ -172,6 +184,26 @@ def test_upload_sample_and_analyze(p0_client: TestClient, tmp_path: Path):
     assert structure.json()["projectId"] == project["id"]
 
 
+def test_upload_global_cookies_and_url_import_uses_cookies(p0_client: TestClient):
+    cookie_bytes = b"# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tname\tvalue\n"
+    upload = p0_client.post(
+        "/api/settings/cookies/upload",
+        files={"file": ("cookies.txt", cookie_bytes, "text/plain")},
+    )
+    assert upload.status_code == 201
+    status = p0_client.get("/api/settings/cookies")
+    assert status.status_code == 200
+    assert status.json()["configured"] is True
+
+    project = p0_client.post("/api/projects", json={"name": "Cookies"}).json()
+    FakeDemoPipeline.last_cookies_path = None
+    p0_client.post(
+        f"/api/projects/{project['id']}/samples/from-url",
+        json={"url": "https://example.com/video"},
+    )
+    assert FakeDemoPipeline.last_cookies_path is not None
+
+
 def test_url_import_returns_task(p0_client: TestClient):
     project = p0_client.post("/api/projects", json={"name": "URL"}).json()
     response = p0_client.post(
@@ -227,3 +259,36 @@ def test_asset_brief_and_generation(p0_client: TestClient, tmp_path: Path):
     payload = result.json()
     assert payload["id"] == body["generationId"]
     assert payload.get("gapReport") is not None
+
+
+def test_retry_failed_sample_analysis_uses_resume(p0_client: TestClient, tmp_path: Path) -> None:
+    project = p0_client.post("/api/projects", json={"name": "Retry"}).json()
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+    sample_id = p0_client.post(
+        f"/api/projects/{project['id']}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    ).json()["id"]
+
+    analyze = p0_client.post(f"/api/samples/{sample_id}/analyze")
+    task_id = analyze.json()["taskId"]
+    assert p0_client.get(f"/api/tasks/{task_id}").json()["status"] == "succeeded"
+
+    p0_client.post(
+        f"/api/tasks/{task_id}/events",
+        json={
+            "status": "failed",
+            "stage": "transcribing",
+            "progress": 45,
+            "message": "simulated failure",
+            "error": {"code": "fast_whisper_failed", "message": "boom", "retryable": True},
+        },
+    )
+
+    FakeDemoPipeline.last_resume = False
+    retry = p0_client.post(f"/api/tasks/{task_id}/retry")
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "retrying"
+    assert FakeDemoPipeline.last_resume is True
+    assert FakeDemoPipeline.last_retry_task_id == task_id
+    assert p0_client.get(f"/api/tasks/{task_id}").json()["status"] == "succeeded"

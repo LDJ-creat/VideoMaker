@@ -68,16 +68,17 @@ def append_task_event(task_id: str, payload: UpdateTaskRequest, request: Request
 
 @router.post("/{task_id}/retry")
 def retry_task(task_id: str, request: Request) -> dict[str, Any]:
-    current = service(request).get_task(task_id)
+    task_service = service(request)
+    current = task_service.get_task(task_id)
     if current is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return service(request).update_task(
-        task_id,
-        status="retrying",
-        stage=current["stage"],
-        progress=current["progress"],
-        message="Retry requested",
-    )
+    runner: Any = request.app.state.pipeline_runner
+    try:
+        return runner.retry_task(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{task_id}/cancel")

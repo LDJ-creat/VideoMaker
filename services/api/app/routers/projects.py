@@ -5,10 +5,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
+from app.services.cookie_store import CookieStore, UploadMode
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
@@ -121,6 +122,22 @@ async def upload_sample(
     return {"id": sample_id, "taskId": None}
 
 
+@router.get("/{project_id}/samples/active")
+def get_active_sample(project_id: str, request: Request) -> dict[str, Any]:
+    if _project_store(request).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    sample = _project_store(request).get_latest_sample_with_video(project_id)
+    if sample is None:
+        raise HTTPException(status_code=404, detail="No sample with video file for project")
+    return {
+        "id": sample["id"],
+        "status": sample["status"],
+        "sourceKind": sample["sourceKind"],
+        "hasStructure": sample.get("structure") is not None,
+        "videoUri": sample.get("videoUri"),
+    }
+
+
 @router.post(
     "/{project_id}/samples/from-url",
     status_code=status.HTTP_201_CREATED,
@@ -185,6 +202,52 @@ async def upload_asset(
     return {"id": created["id"]}
 
 
+def _cookie_store(request: Request) -> CookieStore:
+    return CookieStore(request.app.state.storage_root)
+
+
+class CookieStatusResponse(BaseModel):
+    configured: bool
+    updatedAt: str | None = None
+    domains: list[str] = []
+
+
+@router.get("/{project_id}/cookies", response_model=CookieStatusResponse, deprecated=True)
+def get_cookie_status(project_id: str, request: Request) -> dict[str, Any]:
+    """Deprecated: use GET /api/settings/cookies (global, shared across projects)."""
+    if _project_store(request).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _cookie_store(request).get_status()
+
+
+@router.post("/{project_id}/cookies/upload", status_code=status.HTTP_201_CREATED, deprecated=True)
+async def upload_cookies(
+    project_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    mode: UploadMode = "merge",
+) -> dict[str, Any]:
+    """Deprecated: use POST /api/settings/cookies/upload."""
+    if _project_store(request).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    filename = (file.filename or "cookies.txt").lower()
+    if not filename.endswith(".txt"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cookie file must be a .txt file (Netscape cookies format)",
+        )
+
+    content = await file.read()
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Cookie file is empty")
+
+    try:
+        return _cookie_store(request).save_upload(content, mode=mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/{project_id}/brief")
 def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> dict[str, bool]:
     if _project_store(request).get_project(project_id) is None:
@@ -205,7 +268,19 @@ def create_generation_plan(project_id: str, request: Request) -> dict[str, Any]:
 
     structure = store.get_latest_sample_structure(project_id)
     if structure is None:
-        raise HTTPException(status_code=400, detail="No analyzed sample structure for project")
+        ready = store.get_latest_sample_with_video(project_id)
+        if ready and ready.get("videoUri") and ready.get("structure") is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No analyzed sample structure for project. "
+                    f"Run sample analysis on {ready['id']} first."
+                ),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail="No analyzed sample structure for project. Complete sample analysis first.",
+        )
 
     brief = store.get_brief(project_id) or {
         "topic": "Demo topic",

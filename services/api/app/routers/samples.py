@@ -30,7 +30,28 @@ def analyze_sample(sample_id: str, request: Request) -> dict[str, str]:
     if sample is None:
         raise HTTPException(status_code=404, detail="Sample not found")
     if not sample.get("videoUri"):
-        raise HTTPException(status_code=400, detail="Sample has no video file")
+        latest = store.get_latest_sample_with_video(sample["projectId"])
+        if latest is not None:
+            sample_id = latest["id"]
+            sample = latest
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Sample has no video file. Upload a local sample video or fix URL import first.",
+            )
+
+    if sample.get("taskId"):
+        existing_task = _task_events(request).get_task(sample["taskId"])
+        if existing_task and existing_task.get("status") in ("running", "retrying"):
+            raise HTTPException(
+                status_code=409,
+                detail="Sample analysis already in progress. Wait or retry the existing task.",
+            )
+        if sample.get("status") == "failed" and existing_task and existing_task.get("status") == "failed":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Sample analysis failed. POST /api/tasks/{sample['taskId']}/retry to resume from checkpoint.",
+            )
 
     task = _task_events(request).create_task(
         sample["projectId"],

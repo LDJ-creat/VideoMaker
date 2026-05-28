@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
+from pathlib import Path
 from typing import Any
 
 from app.db.session import Database
@@ -139,6 +141,93 @@ class ProjectStore:
                 f"UPDATE samples SET {', '.join(fields)} WHERE id = ?",
                 values,
             )
+
+    def get_sample_by_task_id(self, task_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                FROM samples WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        structure = json.loads(row["structure_json"]) if row["structure_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "sourceKind": row["source_kind"],
+            "sourceUrl": row["source_url"],
+            "videoUri": row["video_uri"],
+            "status": row["status"],
+            "taskId": row["task_id"],
+            "structure": structure,
+        }
+
+    def get_generation_by_task_id(self, task_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                FROM generations WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
+        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "structureId": row["structure_id"],
+            "inventoryId": row["inventory_id"],
+            "gapReport": gap_report,
+            "plan": plan,
+            "status": row["status"],
+            "taskId": row["task_id"],
+        }
+
+    def clear_sample_analysis(self, sample_id: str, *, storage_root: Path) -> None:
+        sample = self.get_sample(sample_id)
+        if sample is None:
+            return
+        analysis_dir = (
+            storage_root
+            / "projects"
+            / sample["projectId"]
+            / "samples"
+            / sample_id
+            / "analysis"
+        )
+        if analysis_dir.is_dir():
+            shutil.rmtree(analysis_dir)
+
+    def get_latest_sample_with_video(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                FROM samples
+                WHERE project_id = ? AND video_uri IS NOT NULL AND video_uri != ''
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        structure = json.loads(row["structure_json"]) if row["structure_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "sourceKind": row["source_kind"],
+            "sourceUrl": row["source_url"],
+            "videoUri": row["video_uri"],
+            "status": row["status"],
+            "taskId": row["task_id"],
+            "structure": structure,
+        }
 
     def get_latest_sample_structure(self, project_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:

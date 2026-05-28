@@ -31,8 +31,8 @@ def test_retry_failed_task(client):
 
     response = client.post(f"/api/tasks/{created['taskId']}/retry")
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "retrying"
+    assert response.status_code == 400
+    assert "No sample or generation" in response.json()["detail"]
 
 
 def test_cancel_running_task(client):
