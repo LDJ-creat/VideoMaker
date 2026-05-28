@@ -37,6 +37,36 @@ def test_write_composition_generates_deterministic_outputs(tmp_path: Path) -> No
     assert 'data-start-ms="2500"' in html
     assert "transition-fade" in html
     assert timeline_json["tracks"][0]["type"] == "video"
+    assert 'src="../assets/video.mp4"' in html
+    assert 'src="../assets/image.png"' in html
+
+
+def test_write_composition_escapes_script_breakout_in_timeline_json(tmp_path: Path) -> None:
+    render_root = tmp_path / "render"
+    composition_dir = render_root / "composition"
+    timeline = {
+        "durationSec": 1,
+        "tracks": [
+            {
+                "id": "text",
+                "type": "text",
+                "clips": [
+                    {
+                        "id": "t1",
+                        "startSec": 0,
+                        "endSec": 1,
+                        "content": "</script><script>alert(1)</script>",
+                    }
+                ],
+            }
+        ],
+    }
+
+    write_composition(timeline=timeline, composition_dir=composition_dir, render_root=render_root)
+    html = (composition_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "</script><script>" not in html
+    assert "\\u003c/script\\u003e" in html
 
 
 def test_write_composition_rejects_unsafe_source_ref(tmp_path: Path) -> None:

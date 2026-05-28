@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,15 @@ def _safe_asset_path(render_root: Path, composition_dir: Path, source_ref: str) 
     root = render_root.resolve()
     if not candidate.is_relative_to(root):
         raise ValueError("sourceRef escapes render directory")
-    return candidate.relative_to(root).as_posix()
+    return Path(
+        os.path.relpath(candidate, composition_dir.resolve())
+    ).as_posix()
+
+
+def _embed_timeline_json(timeline: dict[str, Any]) -> str:
+    """Serialize timeline for inline <script> without breaking out of the tag."""
+    serialized = json.dumps(timeline, ensure_ascii=False)
+    return serialized.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 def _normalize_timeline(timeline: dict[str, Any]) -> dict[str, Any]:
@@ -115,7 +124,7 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
     {"".join(clip_nodes)}
   </div>
   <script>
-    window.__videomakerTimeline = {json.dumps(normalized, ensure_ascii=False)};
+    window.__videomakerTimeline = {_embed_timeline_json(normalized)};
     window.__videomakerSeek = function(ms) {{
       var nodes = document.querySelectorAll(".clip");
       nodes.forEach(function(node) {{

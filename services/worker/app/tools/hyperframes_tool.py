@@ -5,7 +5,19 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
+
+MISSING_CLI_ERROR: dict[str, Any] = {
+    "code": "hyperframes_missing",
+    "message": "HyperFrames CLI is unavailable",
+    "retryable": True,
+}
+
+RENDER_FAILED_ERROR: dict[str, Any] = {
+    "code": "hyperframes_render_failed",
+    "message": "HyperFrames render command failed",
+    "retryable": False,
+}
 
 
 @dataclass(slots=True)
@@ -37,6 +49,28 @@ class HyperFramesTool:
     def __init__(self, command_runner: CommandRunner | None = None) -> None:
         self._command_runner = command_runner or _default_command_runner
 
+    def _persist_log(self, log_path: Path, log: dict[str, Any]) -> None:
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _finish(
+        self,
+        *,
+        log_path: Path,
+        log: dict[str, Any],
+        started: float,
+        ok: bool,
+        status: str,
+        error: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        log["status"] = status
+        log["durationMs"] = round((time.perf_counter() - started) * 1000)
+        if error is not None:
+            log["error"] = error
+        self._persist_log(log_path, log)
+        if ok:
+            return {"ok": True}
+        return {"ok": False, "error": error}
+
     def render(self, composition_dir: Path, output_path: Path, log_path: Path) -> dict:
         started = time.perf_counter()
         command = [
@@ -47,55 +81,63 @@ class HyperFramesTool:
             "--output",
             str(output_path),
         ]
-        log: dict = {"command": command}
+        log: dict[str, Any] = {"command": command}
 
         try:
-            version_result = self._command_runner(["npx", "hyperframes", "--version"], composition_dir)
+            version_result = self._command_runner(
+                ["npx", "hyperframes", "--version"], composition_dir
+            )
         except FileNotFoundError:
-            log["status"] = "missing_cli"
-            log["durationMs"] = round((time.perf_counter() - started) * 1000)
-            log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-            return {
-                "ok": False,
-                "error": {
-                    "code": "hyperframes_missing",
-                    "message": "HyperFrames CLI is unavailable",
-                    "retryable": True,
-                },
-            }
+            return self._finish(
+                log_path=log_path,
+                log=log,
+                started=started,
+                ok=False,
+                status="missing_cli",
+                error=MISSING_CLI_ERROR,
+            )
 
         if version_result.returncode != 0:
-            log["status"] = "missing_cli"
             log["versionStdout"] = version_result.stdout
             log["versionStderr"] = version_result.stderr
-            log["durationMs"] = round((time.perf_counter() - started) * 1000)
-            log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-            return {
-                "ok": False,
-                "error": {
-                    "code": "hyperframes_missing",
-                    "message": "HyperFrames CLI is unavailable",
-                    "retryable": True,
-                },
-            }
+            return self._finish(
+                log_path=log_path,
+                log=log,
+                started=started,
+                ok=False,
+                status="missing_cli",
+                error=MISSING_CLI_ERROR,
+            )
 
-        result = self._command_runner(command, composition_dir)
+        try:
+            result = self._command_runner(command, composition_dir)
+        except FileNotFoundError:
+            return self._finish(
+                log_path=log_path,
+                log=log,
+                started=started,
+                ok=False,
+                status="missing_cli",
+                error=MISSING_CLI_ERROR,
+            )
+
         log["stdout"] = result.stdout
         log["stderr"] = result.stderr
-        log["durationMs"] = round((time.perf_counter() - started) * 1000)
 
         if result.returncode == 0:
-            log["status"] = "succeeded"
-            log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-            return {"ok": True}
+            return self._finish(
+                log_path=log_path,
+                log=log,
+                started=started,
+                ok=True,
+                status="succeeded",
+            )
 
-        log["status"] = "failed"
-        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {
-            "ok": False,
-            "error": {
-                "code": "hyperframes_render_failed",
-                "message": "HyperFrames render command failed",
-                "retryable": False,
-            },
-        }
+        return self._finish(
+            log_path=log_path,
+            log=log,
+            started=started,
+            ok=False,
+            status="failed",
+            error=RENDER_FAILED_ERROR,
+        )
