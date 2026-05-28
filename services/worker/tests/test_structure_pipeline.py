@@ -23,6 +23,35 @@ def test_extract_video_structure_contract_valid() -> None:
     assert validation.valid, validation.errors
 
 
+def test_extract_video_structure_accepts_whisper_transcript_shape() -> None:
+    sample_analysis = _load_sample_analysis()
+    sample_analysis["transcript"] = {
+        "language": "zh",
+        "segments": [
+            {
+                "startSec": 0.0,
+                "endSec": 2.0,
+                "text": "太贵又麻烦？这个方法让你更快搞定。",
+                "confidence": 0.9,
+            },
+            {
+                "startSec": 2.0,
+                "endSec": 8.0,
+                "text": "我们实测后发现效率提升，使用起来很方便。",
+                "confidence": 0.88,
+            },
+        ],
+    }
+    structure = extract_video_structure(
+        sample_analysis=sample_analysis,
+        project_id="project-1",
+        source_video_id="source-video-1",
+    )
+    validation = validate_contract("video-structure", structure)
+    assert validation.valid, validation.errors
+    assert structure["narrative"]["segments"][0]["role"] == "hook"
+
+
 def test_extract_video_structure_uses_required_rules() -> None:
     sample_analysis = _load_sample_analysis()
     structure = extract_video_structure(

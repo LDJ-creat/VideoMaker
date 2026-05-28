@@ -86,6 +86,20 @@ SLOT_IMPORTANCE: dict[str, str] = {
 }
 
 
+def _normalize_transcript_segments(transcript: Any) -> list[dict[str, Any]]:
+    """Accept whisper-style `{segments: [...]}` or a flat segment list."""
+    if isinstance(transcript, dict):
+        segments = transcript.get("segments", [])
+    elif isinstance(transcript, list):
+        segments = transcript
+    else:
+        return []
+
+    if not isinstance(segments, list):
+        return []
+    return [item for item in segments if isinstance(item, dict)]
+
+
 def extract_video_structure(
     *,
     sample_analysis: dict[str, Any],
@@ -94,7 +108,7 @@ def extract_video_structure(
     version: str = "p0-v1",
 ) -> dict[str, Any]:
     metadata = sample_analysis.get("metadata", {})
-    transcript = sample_analysis.get("transcript", [])
+    transcript = _normalize_transcript_segments(sample_analysis.get("transcript", []))
     shots = sample_analysis.get("shots", [])
     keyframes = sample_analysis.get("keyframes", [])
     duration = float(metadata.get("durationSec") or _duration_from_shots(shots) or 0.0)
