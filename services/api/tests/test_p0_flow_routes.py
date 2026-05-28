@@ -1,0 +1,229 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+class FakeDemoPipeline:
+    def analyze_sample(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        sample_id: str,
+        video_path: str | Path | None = None,
+        source_url: str | None = None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        emit(
+            status="running",
+            stage="extracting_metadata",
+            progress=20,
+            message="fake analysis",
+        )
+        structure = {
+            "id": f"video-structure-{project_id}",
+            "projectId": project_id,
+            "sourceVideoId": sample_id,
+            "version": "p0-v1",
+            "metadata": {"durationSec": 10.0},
+            "narrative": {"summary": "fake", "segments": []},
+            "rhythm": {
+                "totalDurationSec": 10.0,
+                "shotCount": 1,
+                "avgShotDurationSec": 10.0,
+                "tempo": "medium",
+                "beatPoints": [],
+                "shotBoundaries": [],
+            },
+            "packaging": {"visualDensity": "medium"},
+            "slots": [],
+            "evidence": [],
+            "confidence": 0.5,
+        }
+        emit(
+            status="succeeded",
+            stage="completed",
+            progress=100,
+            message="fake analysis done",
+        )
+        return {"ok": True, "structure": structure}
+
+    def run_generation(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        emit: Any,
+    ) -> dict[str, Any]:
+        emit(status="running", stage="analyzing_assets", progress=10, message="fake gen")
+        inventory = {
+            "id": f"inventory-{project_id}",
+            "projectId": project_id,
+            "userBrief": user_brief,
+            "assets": assets,
+            "extractedFacts": [],
+            "candidateMoments": [],
+        }
+        gap_report = {
+            "id": f"gap-{project_id}",
+            "projectId": project_id,
+            "structureId": structure["id"],
+            "inventoryId": inventory["id"],
+            "slotMatches": [],
+            "missingSlots": [],
+            "weakSlots": [],
+            "summary": "ok",
+        }
+        plan = {
+            "id": generation_id,
+            "projectId": project_id,
+            "structureId": structure["id"],
+            "inventoryId": inventory["id"],
+            "gapReportId": gap_report["id"],
+            "variant": "default",
+            "storyboard": [],
+            "timeline": {"durationSec": 10.0, "tracks": []},
+            "packagingPlan": {
+                "styleSummary": "fake",
+                "subtitle": {},
+                "titleCards": [],
+                "transitions": [],
+            },
+            "completionActions": [],
+        }
+        emit(status="succeeded", stage="completed", progress=100, message="fake gen done")
+        return {
+            "ok": True,
+            "inventory": inventory,
+            "gapReport": gap_report,
+            "plan": plan,
+        }
+
+
+@pytest.fixture()
+def p0_client(app_paths):
+    from app.main import create_app
+    from app.services.pipeline_runner import PipelineRunner
+    from app.services.project_store import ProjectStore
+    from app.services.task_events import TaskEventService
+
+    database_path = app_paths["database_path"]
+    storage_root = app_paths["storage_root"]
+    from app.db.session import Database
+
+    database = Database(database_path)
+    task_events = TaskEventService(database)
+    project_store = ProjectStore(database)
+    runner = PipelineRunner(
+        database=database,
+        storage_root=storage_root,
+        task_events=task_events,
+        project_store=project_store,
+        sync=True,
+        pipeline=FakeDemoPipeline(),
+    )
+    app = create_app(
+        database_path=database_path,
+        storage_root=storage_root,
+        sync_pipelines=True,
+        pipeline_runner=runner,
+    )
+    return TestClient(app)
+
+
+def test_create_project_and_get(p0_client: TestClient):
+    created = p0_client.post("/api/projects", json={"name": "Demo"}).json()
+    assert created["id"]
+    fetched = p0_client.get(f"/api/projects/{created['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["name"] == "Demo"
+
+
+def test_upload_sample_and_analyze(p0_client: TestClient, tmp_path: Path):
+    project = p0_client.post("/api/projects", json={"name": "P"}).json()
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+
+    upload = p0_client.post(
+        f"/api/projects/{project['id']}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    )
+    assert upload.status_code == 201
+    sample_id = upload.json()["id"]
+
+    analyze = p0_client.post(f"/api/samples/{sample_id}/analyze")
+    assert analyze.status_code == 200
+    task_id = analyze.json()["taskId"]
+
+    task = p0_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "succeeded"
+
+    structure = p0_client.get(f"/api/samples/{sample_id}/structure")
+    assert structure.status_code == 200
+    assert structure.json()["projectId"] == project["id"]
+
+
+def test_url_import_returns_task(p0_client: TestClient):
+    project = p0_client.post("/api/projects", json={"name": "URL"}).json()
+    response = p0_client.post(
+        f"/api/projects/{project['id']}/samples/from-url",
+        json={"url": "https://example.com/video"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["taskId"]
+    task = p0_client.get(f"/api/tasks/{body['taskId']}").json()
+    assert task["status"] == "succeeded"
+
+
+def test_asset_brief_and_generation(p0_client: TestClient, tmp_path: Path):
+    project = p0_client.post("/api/projects", json={"name": "Gen"}).json()
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"v")
+    sample_id = p0_client.post(
+        f"/api/projects/{project['id']}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    ).json()["id"]
+    p0_client.post(f"/api/samples/{sample_id}/analyze")
+
+    image = tmp_path / "asset.jpg"
+    image.write_bytes(b"jpg")
+    asset = p0_client.post(
+        f"/api/projects/{project['id']}/assets/upload",
+        files={"file": ("asset.jpg", image.read_bytes(), "image/jpeg")},
+    )
+    assert asset.status_code == 201
+
+    brief = p0_client.post(
+        f"/api/projects/{project['id']}/brief",
+        json={
+            "topic": "果汁机",
+            "sellingPoints": ["便携"],
+            "mustMention": [],
+            "avoidMention": [],
+        },
+    )
+    assert brief.status_code == 200
+    assert brief.json()["ok"] is True
+
+    generation = p0_client.post(f"/api/projects/{project['id']}/generation-plan")
+    assert generation.status_code == 201
+    body = generation.json()
+    assert body["generationId"]
+    task = p0_client.get(f"/api/tasks/{body['taskId']}").json()
+    assert task["status"] == "succeeded"
+
+    result = p0_client.get(f"/api/generations/{body['generationId']}")
+    assert result.status_code == 200
+    payload = result.json()
+    assert payload["id"] == body["generationId"]
+    assert payload.get("gapReport") is not None

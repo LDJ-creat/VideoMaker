@@ -6,7 +6,7 @@ import type {
   TaskEvent,
   VideoStructure,
 } from "@videomaker/contracts";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,10 @@ import {
   startSampleAnalysis,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  loadProjectSession,
+  saveProjectSession,
+} from "@/lib/project-session";
 
 export type WorkbenchPanel =
   | "input"
@@ -77,6 +81,27 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [gapApiPending, setGapApiPending] = useState(false);
+
+  useEffect(() => {
+    const saved = loadProjectSession(projectId);
+    if (!saved) return;
+    if (saved.sampleId) setSampleId(saved.sampleId);
+    if (saved.generationId) setGenerationId(saved.generationId);
+    if (saved.lastAction) setLastAction(saved.lastAction);
+    if (saved.taskId) {
+      setTaskId(saved.taskId);
+      setPanel("progress");
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    saveProjectSession(projectId, {
+      taskId,
+      sampleId,
+      generationId,
+      lastAction,
+    });
+  }, [projectId, taskId, sampleId, generationId, lastAction]);
 
   const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
     setDataLoading(true);
@@ -329,10 +354,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "gap" && (
           <div className="lg:col-span-2 space-y-2">
-            {gapApiPending && (
+            {gapApiPending && dataSource === "fixture" && (
               <p className="text-xs text-muted-foreground">
-                缺口 API 尚未就绪；演示模式下使用 fixture。完整联调见 integration
-                计划。
+                演示模式下使用 fixture 缺口数据；连接 API 后将显示真实 GapReport。
               </p>
             )}
             {gapReport ? (
