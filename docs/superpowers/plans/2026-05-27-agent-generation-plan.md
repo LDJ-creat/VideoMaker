@@ -155,10 +155,10 @@ Do not modify:
 - Create: `services/worker/app/validation/schema_loader.py`
 - Create: `services/worker/tests/test_schema_loader.py`
 
-- [ ] Write failing tests that load every schema from `packages/contracts/schemas`.
-- [ ] Implement schema discovery from repo root.
-- [ ] Implement `validate_contract(name, payload)` returning structured validation errors.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests that load every schema from `packages/contracts/schemas`.
+- [x] Implement schema discovery from repo root.
+- [x] Implement `validate_contract(name, payload)` returning structured validation errors.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(agent): add contract schema validation`.
 
 ## Task 2: LLM Tool Boundary
@@ -167,10 +167,10 @@ Do not modify:
 - Create: `services/worker/app/tools/llm_tool.py`
 - Create: `services/worker/tests/test_llm_tool.py`
 
-- [ ] Write failing tests for fixture mode and missing API key behavior.
-- [ ] Implement `LLMTool.generate_json(task, inputs, schema_name)` with fixture-backed local mode.
-- [ ] Ensure raw model output and validation errors can be saved as artifacts by callers.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests for fixture mode and missing API key behavior.
+- [x] Implement `LLMTool.generate_json(task, inputs, schema_name)` with fixture-backed local mode.
+- [x] Ensure raw model output and validation errors can be saved as artifacts by callers.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(agent): add llm json tool boundary`.
 
 ## Task 3: Structure Extraction Pipeline
@@ -181,11 +181,11 @@ Do not modify:
 - Create: `services/worker/tests/fixtures/sample_analysis.json`
 - Create: `services/worker/tests/test_structure_pipeline.py`
 
-- [ ] Write failing tests that turn sample analysis fixture into valid `VideoStructure`.
-- [ ] Implement deterministic fallback structure extraction using the segment/slot/rhythm rules specified above.
-- [ ] Add prompt instructing the model to migrate structure only, not copy sample content.
-- [ ] Validate output against `video-structure.schema.json`.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests that turn sample analysis fixture into valid `VideoStructure`.
+- [x] Implement deterministic fallback structure extraction using the segment/slot/rhythm rules specified above.
+- [x] Add prompt instructing the model to migrate structure only, not copy sample content.
+- [x] Validate output against `video-structure.schema.json`.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(agent): extract video structure`.
 
 ## Task 4: Asset Inventory And Slot Mapping
@@ -195,11 +195,11 @@ Do not modify:
 - Create: `services/worker/app/pipelines/generation_pipeline.py`
 - Create: `services/worker/tests/test_slot_mapping.py`
 
-- [ ] Write failing tests for user brief to `AssetInventory`.
-- [ ] Write failing tests for matching `StructureSlot` to assets by type and semantic tags.
-- [ ] Implement deterministic `build_asset_inventory` and `map_slots` using the scoring algorithm specified above.
-- [ ] Validate inventory against `asset-inventory.schema.json`.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests for user brief to `AssetInventory`.
+- [x] Write failing tests for matching `StructureSlot` to assets by type and semantic tags.
+- [x] Implement deterministic `build_asset_inventory` and `map_slots` using the scoring algorithm specified above.
+- [x] Validate inventory against `asset-inventory.schema.json`.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(agent): add inventory and slot mapping`.
 
 ## Task 5: Gap Report And Generation Plan
@@ -211,11 +211,11 @@ Do not modify:
 - Modify: `services/worker/app/pipelines/generation_pipeline.py`
 - Create: `services/worker/tests/test_generation_plan.py`
 
-- [ ] Write failing tests for missing/weak slot detection.
-- [ ] Implement P0 completion strategies: `text_completion`, `packaging_completion`, `asset_reuse`.
-- [ ] Generate storyboard and `RenderTimeline` using the timeline rules specified above.
-- [ ] Validate outputs against `gap-report.schema.json` and `generation-plan.schema.json`.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests for missing/weak slot detection.
+- [x] Implement P0 completion strategies: `text_completion`, `packaging_completion`, `asset_reuse`.
+- [x] Generate storyboard and `RenderTimeline` using the timeline rules specified above.
+- [x] Validate outputs against `gap-report.schema.json` and `generation-plan.schema.json`.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(agent): generate gap report and generation plan`.
 
 ## Verification

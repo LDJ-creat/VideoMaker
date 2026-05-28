@@ -1,0 +1,2 @@
+"""VideoMaker worker app package."""
+
