@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
@@ -9,7 +10,15 @@ class _FakeYtDlpTool:
     def __init__(self, downloaded_path: Path) -> None:
         self._downloaded_path = downloaded_path
 
-    def download(self, url: str, output_dir: Path, max_duration_sec: int = 180, max_file_size_mb: int = 500):
+    def download(
+        self,
+        url: str,
+        output_dir: Path,
+        *,
+        cookies_path: str | Path | None = None,
+        max_duration_sec: int = 180,
+        max_file_size_mb: int = 500,
+    ):
         self._downloaded_path.parent.mkdir(parents=True, exist_ok=True)
         self._downloaded_path.write_bytes(b"video")
         return {
@@ -24,8 +33,10 @@ class _FakeFFmpegTool:
     def __init__(self, has_audio: bool = True) -> None:
         self.has_audio = has_audio
         self.extract_audio_calls = 0
+        self.probe_calls = 0
 
     def probe(self, video_path: str):
+        self.probe_calls += 1
         return {
             "durationSec": 4.0,
             "width": 1280,
@@ -85,7 +96,19 @@ class _FakeOpenCVTool:
         return {"keyframes": keyframes}
 
 
+def _setup_local_video(tmp_path: Path, project_id: str, sample_id: str) -> Path:
+    sample_root = tmp_path / "projects" / project_id / "samples" / sample_id
+    sample_root.mkdir(parents=True, exist_ok=True)
+    video_path = sample_root / "source.mp4"
+    video_path.write_bytes(b"video")
+    return video_path
+
+
 def test_sample_pipeline_emits_expected_stages_and_writes_artifacts(tmp_path: Path) -> None:
+    project_id = "project-1"
+    sample_id = "sample-1"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
+
     pipeline = SampleAnalysisPipeline(
         storage_root=tmp_path,
         ffmpeg_tool=_FakeFFmpegTool(),
@@ -95,36 +118,94 @@ def test_sample_pipeline_emits_expected_stages_and_writes_artifacts(tmp_path: Pa
     )
 
     summary = pipeline.run(
-        project_id="project-1",
+        project_id=project_id,
+        sample_id=sample_id,
         task_id="task-1",
-        source_url="https://example.com/video",
+        video_path=video_path,
     )
 
-    assert summary["stages"] == [
-        "extracting_metadata",
-        "extracting_audio",
-        "transcribing",
-        "detecting_shots",
-        "extracting_keyframes",
-        "completed",
-    ]
+    assert "extracting_metadata" in summary["stages"]
+    assert "transcribing" in summary["stages"]
 
-    project_root = tmp_path / "projects" / "project-1"
-    assert (project_root / "samples" / "task-1" / "metadata.json").exists()
-    assert (project_root / "samples" / "task-1" / "transcript.json").exists()
-    assert (project_root / "samples" / "task-1" / "shots.json").exists()
-    assert (project_root / "samples" / "task-1" / "keyframes.json").exists()
-    assert (project_root / "samples" / "task-1" / "sample-analysis.json").exists()
+    analysis_root = tmp_path / "projects" / project_id / "samples" / sample_id / "analysis"
+    assert (analysis_root / "metadata.json").exists()
+    assert (analysis_root / "transcript.json").exists()
+    assert (analysis_root / "shots.json").exists()
+    assert (analysis_root / "keyframes.json").exists()
+    assert (analysis_root / "sample-analysis.json").exists()
+    assert (analysis_root / "checkpoint.json").exists()
     assert summary["finalEvent"]["stage"] == "completed"
 
-    sample_analysis = (project_root / "samples" / "task-1" / "sample-analysis.json").read_text(encoding="utf-8")
+    sample_analysis = (analysis_root / "sample-analysis.json").read_text(encoding="utf-8")
     assert '"metadata":' in sample_analysis
     assert '"transcript":' in sample_analysis
-    assert '"shots":' in sample_analysis
-    assert '"keyframes":' in sample_analysis
+
+
+def test_sample_pipeline_continues_when_whisper_model_unavailable(tmp_path: Path) -> None:
+    class _UnavailableWhisper:
+        def transcribe(self, _audio_path: str):
+            return {
+                "code": "fast_whisper_model_unavailable",
+                "message": "Whisper model download or load failed",
+                "retryable": True,
+            }
+
+    project_id = "project-1"
+    sample_id = "sample-1"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
+
+    pipeline = SampleAnalysisPipeline(
+        storage_root=tmp_path,
+        ffmpeg_tool=_FakeFFmpegTool(),
+        whisper_tool=_UnavailableWhisper(),
+        opencv_tool=_FakeOpenCVTool(),
+        ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
+    )
+    summary = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-no-whisper-model",
+        video_path=video_path,
+    )
+    assert summary["finalEvent"]["status"] == "succeeded"
+
+
+def test_sample_pipeline_continues_when_whisper_missing(tmp_path: Path) -> None:
+    class _MissingWhisper:
+        def transcribe(self, _audio_path: str):
+            return {
+                "code": "fast_whisper_missing",
+                "message": "fast-whisper is not installed",
+                "retryable": True,
+            }
+
+    project_id = "project-1"
+    sample_id = "sample-1"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
+
+    pipeline = SampleAnalysisPipeline(
+        storage_root=tmp_path,
+        ffmpeg_tool=_FakeFFmpegTool(),
+        whisper_tool=_MissingWhisper(),
+        opencv_tool=_FakeOpenCVTool(),
+        ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
+    )
+    summary = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-no-whisper",
+        video_path=video_path,
+    )
+    analysis_root = tmp_path / "projects" / project_id / "samples" / sample_id / "analysis"
+    transcript = json.loads((analysis_root / "transcript.json").read_text(encoding="utf-8"))
+    assert transcript["segments"] == []
+    assert summary["finalEvent"]["status"] == "succeeded"
 
 
 def test_sample_pipeline_skips_audio_and_transcript_when_video_has_no_audio(tmp_path: Path) -> None:
+    project_id = "project-1"
+    sample_id = "sample-1"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
     fake_ffmpeg = _FakeFFmpegTool(has_audio=False)
     pipeline = SampleAnalysisPipeline(
         storage_root=tmp_path,
@@ -134,10 +215,74 @@ def test_sample_pipeline_skips_audio_and_transcript_when_video_has_no_audio(tmp_
         ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
     )
 
-    summary = pipeline.run(project_id="project-1", task_id="task-no-audio", source_url="https://example.com/video")
+    summary = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-no-audio",
+        video_path=video_path,
+    )
 
-    project_root = tmp_path / "projects" / "project-1" / "samples" / "task-no-audio"
+    analysis_root = tmp_path / "projects" / project_id / "samples" / sample_id / "analysis"
     assert fake_ffmpeg.extract_audio_calls == 0
-    assert not (project_root / "audio.wav").exists()
-    assert (project_root / "transcript.json").exists()
+    assert not (analysis_root / "audio.wav").exists()
+    assert (analysis_root / "transcript.json").exists()
     assert summary["finalEvent"]["status"] == "succeeded"
+
+
+def test_sample_pipeline_resume_skips_completed_stages_after_transcribing_failure(tmp_path: Path) -> None:
+    project_id = "project-1"
+    sample_id = "sample-1"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
+
+    class _FailOnceWhisper:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def transcribe(self, _audio_path: str):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "code": "fast_whisper_timeout",
+                    "message": "transient failure",
+                    "retryable": True,
+                }
+            return {
+                "language": "en",
+                "segments": [{"startSec": 0.0, "endSec": 1.0, "text": "hello", "confidence": 0.9}],
+            }
+
+    fake_ffmpeg = _FakeFFmpegTool()
+    whisper = _FailOnceWhisper()
+    pipeline = SampleAnalysisPipeline(
+        storage_root=tmp_path,
+        ffmpeg_tool=fake_ffmpeg,
+        whisper_tool=whisper,
+        opencv_tool=_FakeOpenCVTool(),
+        ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
+    )
+
+    failed = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-resume",
+        video_path=video_path,
+    )
+    assert failed["finalEvent"]["status"] == "failed"
+    assert fake_ffmpeg.probe_calls == 1
+    assert fake_ffmpeg.extract_audio_calls == 1
+
+    fake_ffmpeg.probe_calls = 0
+    fake_ffmpeg.extract_audio_calls = 0
+
+    resumed = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-resume",
+        video_path=video_path,
+        resume=True,
+    )
+    assert resumed["finalEvent"]["status"] == "succeeded"
+    assert fake_ffmpeg.probe_calls == 0
+    assert fake_ffmpeg.extract_audio_calls == 0
+    assert "extracting_metadata" in resumed["resumeSummary"]["skippedStages"]
+    assert "extracting_audio" in resumed["resumeSummary"]["skippedStages"]

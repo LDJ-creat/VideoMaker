@@ -16,8 +16,8 @@ class _RecordingPipeline(P0DemoPipeline):
     def analyze_sample(self, **kwargs: Any) -> dict[str, Any]:
         emit = kwargs["emit"]
         project_id = kwargs["project_id"]
-        task_id = kwargs["task_id"]
-        analysis_dir = self._storage_root / "projects" / project_id / "samples" / task_id
+        sample_id = kwargs["sample_id"]
+        analysis_dir = self._storage_root / "projects" / project_id / "samples" / sample_id / "analysis"
         analysis_dir.mkdir(parents=True, exist_ok=True)
         (analysis_dir / "sample-analysis.json").write_text(
             json.dumps(self._sample_result),
