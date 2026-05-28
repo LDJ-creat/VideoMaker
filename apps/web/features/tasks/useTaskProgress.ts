@@ -1,19 +1,24 @@
 "use client";
 
-import type { TaskEvent } from "@videomaker/contracts";
+import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
 
 const SSE_FAILURE_THRESHOLD = 3;
 const POLL_INTERVAL_MS = 3000;
+const TERMINAL_STATUSES: TaskStatus[] = [
+  "succeeded",
+  "failed",
+  "cancelled",
+];
 
-export type TaskProgressMode = "sse" | "polling" | "idle";
+export type TaskProgressMode = "sse" | "polling" | "idle" | "completed";
 
 export type UseTaskProgressOptions = {
-  apiBaseUrl: string;
   taskId: string | null;
   enabled?: boolean;
+  onTerminal?: (event: TaskEvent) => void;
 };
 
 export type UseTaskProgressResult = {
@@ -23,52 +28,92 @@ export type UseTaskProgressResult = {
   error: string | null;
 };
 
+function isTerminal(status: TaskStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
 export function useTaskProgress({
-  apiBaseUrl,
   taskId,
   enabled = true,
+  onTerminal,
 }: UseTaskProgressOptions): UseTaskProgressResult {
   const [event, setEvent] = useState<TaskEvent | null>(null);
   const [mode, setMode] = useState<TaskProgressMode>("idle");
   const [sseFailureCount, setSseFailureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const failuresRef = useRef(0);
+  const onTerminalRef = useRef(onTerminal);
+  onTerminalRef.current = onTerminal;
 
-  const applyEvent = useCallback((next: TaskEvent) => {
-    setEvent(next);
-    setError(null);
+  const cleanupRef = useRef<{
+    source?: EventSource;
+    pollTimer?: ReturnType<typeof setInterval>;
+    disposed: boolean;
+  }>({ disposed: false });
+
+  const stopAll = useCallback(() => {
+    const state = cleanupRef.current;
+    state.disposed = true;
+    state.source?.close();
+    state.source = undefined;
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer);
+      state.pollTimer = undefined;
+    }
   }, []);
 
+  const handleTerminal = useCallback(
+    (next: TaskEvent) => {
+      if (!isTerminal(next.status)) return;
+      stopAll();
+      setMode("completed");
+      onTerminalRef.current?.(next);
+    },
+    [stopAll],
+  );
+
+  const applyEvent = useCallback(
+    (next: TaskEvent) => {
+      setEvent(next);
+      setError(null);
+      handleTerminal(next);
+    },
+    [handleTerminal],
+  );
+
   const pollOnce = useCallback(async () => {
-    if (!taskId) return;
+    if (!taskId || cleanupRef.current.disposed) return;
     try {
-      const task = await getTask(apiBaseUrl, taskId);
+      const { data: task } = await getTask(taskId);
       applyEvent(task);
     } catch (err) {
       setError(err instanceof Error ? err.message : "轮询任务失败");
     }
-  }, [apiBaseUrl, applyEvent, taskId]);
+  }, [applyEvent, taskId]);
 
   useEffect(() => {
     if (!enabled || !taskId) {
+      stopAll();
+      cleanupRef.current.disposed = false;
       setMode("idle");
       return;
     }
 
+    cleanupRef.current = { disposed: false };
     failuresRef.current = 0;
     setSseFailureCount(0);
     setMode("sse");
 
-    let disposed = false;
-    let pollTimer: ReturnType<typeof setInterval> | undefined;
-    const source = new EventSource(getTaskEventsUrl(apiBaseUrl, taskId));
+    const source = new EventSource(getTaskEventsUrl(taskId));
+    cleanupRef.current.source = source;
 
     const switchToPolling = () => {
-      if (disposed) return;
+      if (cleanupRef.current.disposed) return;
       source.close();
+      cleanupRef.current.source = undefined;
       setMode("polling");
       void pollOnce();
-      pollTimer = setInterval(() => {
+      cleanupRef.current.pollTimer = setInterval(() => {
         void pollOnce();
       }, POLL_INTERVAL_MS);
     };
@@ -82,9 +127,9 @@ export function useTaskProgress({
       }
     };
 
-    source.onmessage = (message) => {
+    const handleTaskEvent = (message: MessageEvent) => {
       try {
-        const parsed = JSON.parse(message.data) as TaskEvent;
+        const parsed = JSON.parse(message.data as string) as TaskEvent;
         applyEvent(parsed);
         failuresRef.current = 0;
         setSseFailureCount(0);
@@ -93,16 +138,16 @@ export function useTaskProgress({
       }
     };
 
+    source.addEventListener("task", handleTaskEvent);
     source.onerror = () => {
       registerSseFailure();
     };
 
     return () => {
-      disposed = true;
-      source.close();
-      if (pollTimer) clearInterval(pollTimer);
+      stopAll();
+      cleanupRef.current.disposed = false;
     };
-  }, [apiBaseUrl, applyEvent, enabled, pollOnce, taskId]);
+  }, [applyEvent, enabled, pollOnce, stopAll, taskId]);
 
   return { event, mode, sseFailureCount, error };
 }

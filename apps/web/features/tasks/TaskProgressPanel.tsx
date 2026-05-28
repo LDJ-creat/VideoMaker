@@ -21,6 +21,13 @@ type TaskProgressPanelProps = {
   error: string | null;
 };
 
+const MODE_LABEL: Record<TaskProgressMode, string> = {
+  sse: "SSE 实时",
+  polling: "轮询降级",
+  idle: "空闲",
+  completed: "已完成",
+};
+
 export function TaskProgressPanel({
   event,
   mode,
@@ -50,12 +57,10 @@ export function TaskProgressPanel({
             {event.taskId} · {event.stage}
           </CardDescription>
         </div>
-        <Badge variant="outline">
-          {mode === "sse" ? "SSE 实时" : mode === "polling" ? "轮询降级" : "空闲"}
-        </Badge>
+        <Badge variant="outline">{MODE_LABEL[mode]}</Badge>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
+        <div className="space-y-2" aria-live="polite" aria-atomic="true">
           <div className="flex justify-between text-sm">
             <span>{event.message}</span>
             <span className="font-mono text-muted-foreground">
