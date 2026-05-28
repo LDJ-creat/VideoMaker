@@ -13,13 +13,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { uploadAsset } from "@/lib/apiClient";
+import { getErrorMessage } from "@/lib/errors";
+import { validateUploadSize } from "@/lib/validation";
 
 type AssetInputPanelProps = {
-  apiBaseUrl: string;
   projectId: string;
 };
 
-export function AssetInputPanel({ apiBaseUrl, projectId }: AssetInputPanelProps) {
+export function AssetInputPanel({ projectId }: AssetInputPanelProps) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -29,12 +30,17 @@ export function AssetInputPanel({ apiBaseUrl, projectId }: AssetInputPanelProps)
     const names: string[] = [];
     try {
       for (const file of Array.from(files)) {
-        const result = await uploadAsset(apiBaseUrl, projectId, file);
+        const sizeError = validateUploadSize(file);
+        if (sizeError) {
+          setStatus(sizeError);
+          return;
+        }
+        const { data: result } = await uploadAsset(projectId, file);
         names.push(result.id);
       }
       setStatus(`已上传 ${names.length} 个素材`);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "素材上传失败");
+      setStatus(getErrorMessage(err));
     } finally {
       setBusy(false);
     }

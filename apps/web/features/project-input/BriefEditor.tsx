@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { UserBriefRequest } from "@/lib/apiClient";
 import { saveBrief } from "@/lib/apiClient";
+import { getErrorMessage } from "@/lib/errors";
 
 function splitLines(value: string): string[] {
   return value
@@ -24,16 +25,11 @@ function splitLines(value: string): string[] {
 }
 
 type BriefEditorProps = {
-  apiBaseUrl: string;
   projectId: string;
   onSaved?: (brief: UserBriefRequest) => void;
 };
 
-export function BriefEditor({
-  apiBaseUrl,
-  projectId,
-  onSaved,
-}: BriefEditorProps) {
+export function BriefEditor({ projectId, onSaved }: BriefEditorProps) {
   const [topic, setTopic] = useState("");
   const [productName, setProductName] = useState("");
   const [sellingPoints, setSellingPoints] = useState("");
@@ -57,11 +53,11 @@ export function BriefEditor({
     const brief = buildBrief();
     setStatus(null);
     try {
-      await saveBrief(apiBaseUrl, projectId, brief);
+      await saveBrief(projectId, brief);
       setStatus("Brief 已保存");
       onSaved?.(brief);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "保存失败");
+      setStatus(getErrorMessage(err));
     }
   };
 

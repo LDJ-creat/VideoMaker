@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,8 +13,10 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createProject } from "@/lib/apiClient";
-import { getApiBaseUrl } from "@/lib/config";
+import { getErrorMessage } from "@/lib/errors";
 import { fixtureProject } from "@/fixtures";
+
+const STORAGE_KEY = "videomaker:projects";
 
 type ProjectRow = {
   id: string;
@@ -22,22 +24,58 @@ type ProjectRow = {
   createdAt: string;
 };
 
+function loadProjects(): ProjectRow[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as ProjectRow[];
+  } catch {
+    return [];
+  }
+}
+
+function saveProjects(projects: ProjectRow[]) {
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+}
+
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<ProjectRow[]>([fixtureProject]);
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProjects(loadProjects());
+  }, []);
 
   const handleCreate = useCallback(async () => {
     if (!name.trim()) return;
     setCreating(true);
+    setError(null);
     try {
-      const project = await createProject(getApiBaseUrl(), name.trim());
-      setProjects((prev) => [project, ...prev]);
+      const { data: project } = await createProject(name.trim());
+      setProjects((prev) => {
+        const next = [project, ...prev];
+        saveProjects(next);
+        return next;
+      });
       setName("");
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setCreating(false);
     }
   }, [name]);
+
+  const loadDemoProject = () => {
+    setProjects((prev) => {
+      if (prev.some((p) => p.id === fixtureProject.id)) return prev;
+      const next = [fixtureProject, ...prev];
+      saveProjects(next);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -67,28 +105,45 @@ export default function ProjectsPage() {
           >
             {creating ? "创建中…" : "创建项目"}
           </Button>
+          <Button type="button" variant="outline" onClick={loadDemoProject}>
+            加载演示项目
+          </Button>
         </CardContent>
+        {error && (
+          <CardContent className="pt-0">
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          </CardContent>
+        )}
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {projects.map((project) => (
-          <Link key={project.id} href={`/projects/${project.id}`}>
-            <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">
-              <CardHeader>
-                <CardTitle className="line-clamp-1">{project.name}</CardTitle>
-                <CardDescription className="font-mono text-xs">
-                  {project.id}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs text-muted-foreground">
-                  创建于 {new Date(project.createdAt).toLocaleString("zh-CN")}
-                </p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      {projects.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          暂无项目，请创建新项目或加载演示项目。
+        </p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {projects.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}`}>
+              <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">
+                <CardHeader>
+                  <CardTitle className="line-clamp-1">{project.name}</CardTitle>
+                  <CardDescription className="font-mono text-xs">
+                    {project.id}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    创建于{" "}
+                    {new Date(project.createdAt).toLocaleString("zh-CN")}
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -14,19 +14,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  importSampleFromUrl,
-  uploadSampleVideo,
-} from "@/lib/apiClient";
+import { importSampleFromUrl, uploadSampleVideo } from "@/lib/apiClient";
+import { getErrorMessage } from "@/lib/errors";
+import { validateHttpUrl, validateUploadSize } from "@/lib/validation";
 
 type SampleInputPanelProps = {
-  apiBaseUrl: string;
   projectId: string;
   onTaskStarted: (taskId: string, sampleId: string) => void;
 };
 
 export function SampleInputPanel({
-  apiBaseUrl,
   projectId,
   onTaskStarted,
 }: SampleInputPanelProps) {
@@ -36,28 +33,36 @@ export function SampleInputPanel({
 
   const handleLocalUpload = async (file: File | undefined) => {
     if (!file) return;
+    const sizeError = validateUploadSize(file);
+    if (sizeError) {
+      setStatus(sizeError);
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
-      const result = await uploadSampleVideo(apiBaseUrl, projectId, file);
+      const { data: result } = await uploadSampleVideo(projectId, file);
       setStatus(`已上传样例：${result.id}`);
       if (result.taskId) {
         onTaskStarted(result.taskId, result.id);
       }
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "上传失败");
+      setStatus(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
   };
 
   const handleUrlImport = async () => {
-    if (!url.trim()) return;
+    const urlError = validateHttpUrl(url);
+    if (urlError) {
+      setStatus(urlError);
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
-      // Backend runs yt-dlp; frontend only calls API.
-      const result = await importSampleFromUrl(apiBaseUrl, projectId, {
+      const { data: result } = await importSampleFromUrl(projectId, {
         url: url.trim(),
       });
       setStatus(`URL 导入已提交：${result.id}`);
@@ -65,7 +70,7 @@ export function SampleInputPanel({
         onTaskStarted(result.taskId, result.id);
       }
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "URL 导入失败");
+      setStatus(getErrorMessage(err));
     } finally {
       setBusy(false);
     }

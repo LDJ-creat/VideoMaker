@@ -1,29 +1,39 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import type {
+  GapReport,
+  GenerationPlan,
+  TaskEvent,
+  VideoStructure,
+} from "@videomaker/contracts";
+import { useCallback, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { GapReportView } from "@/features/gap-report/GapReportView";
+import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import { BriefEditor } from "@/features/project-input/BriefEditor";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
-import { GapReportView } from "@/features/gap-report/GapReportView";
-import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
-import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
-import {
-  createGenerationPlan,
-  startSampleAnalysis,
-} from "@/lib/apiClient";
-import { getApiBaseUrl } from "@/lib/config";
+import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import {
   fixtureGapReport,
   fixtureGenerationPlan,
   fixtureVideoStructure,
 } from "@/fixtures";
+import type { DataSource } from "@/lib/api-types";
+import {
+  createGenerationPlan,
+  getGeneration,
+  getSampleStructure,
+  startSampleAnalysis,
+} from "@/lib/apiClient";
+import { getErrorMessage } from "@/lib/errors";
 
 export type WorkbenchPanel =
   | "input"
@@ -44,60 +54,157 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   result: "结果",
 };
 
+type LastPipelineAction = "analysis" | "generation" | null;
+
 type ProjectWorkbenchProps = {
   projectId: string;
 };
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
-  const apiBaseUrl = getApiBaseUrl();
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [sampleId, setSampleId] = useState<string>("sample-demo-001");
+  const [sampleId, setSampleId] = useState<string | null>(null);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<LastPipelineAction>(null);
   const [busy, setBusy] = useState(false);
 
-  const structure = useMemo(() => fixtureVideoStructure, []);
-  const gapReport = useMemo(() => fixtureGapReport, []);
-  const generationPlan = useMemo(() => fixtureGenerationPlan, []);
+  const [structure, setStructure] = useState<VideoStructure | null>(null);
+  const [gapReport, setGapReport] = useState<GapReport | null>(null);
+  const [generationPlan, setGenerationPlan] = useState<GenerationPlan | null>(
+    null,
+  );
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<DataSource | null>(null);
+  const [gapApiPending, setGapApiPending] = useState(false);
 
-  const { event, mode, sseFailureCount, error } = useTaskProgress({
-    apiBaseUrl,
-    taskId,
-    enabled: Boolean(taskId),
-  });
-
-  const handleTaskStarted = useCallback((nextTaskId: string, nextSampleId: string) => {
-    setTaskId(nextTaskId);
-    setSampleId(nextSampleId);
-    setPanel("progress");
+  const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
+    setDataLoading(true);
+    setDataError(null);
+    try {
+      const { data, meta } = await getSampleStructure(currentSampleId);
+      setStructure(data);
+      setDataSource(meta.dataSource);
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setDataLoading(false);
+    }
   }, []);
 
-  const handleStartAnalysis = useCallback(async () => {
-    setBusy(true);
+  const loadGenerationResults = useCallback(async (currentGenerationId: string) => {
+    setDataLoading(true);
+    setDataError(null);
+    setGapApiPending(false);
     try {
-      const { taskId: analysisTaskId } = await startSampleAnalysis(
-        apiBaseUrl,
-        sampleId,
-      );
-      setTaskId(analysisTaskId);
+      const { data, meta } = await getGeneration(currentGenerationId);
+      setGenerationPlan(data);
+      setDataSource(meta.dataSource);
+      if (data.gapReport) {
+        setGapReport(data.gapReport);
+      } else if (meta.dataSource === "fixture") {
+        setGapReport(fixtureGapReport);
+        setGapApiPending(true);
+      } else {
+        setGapReport(null);
+        setGapApiPending(true);
+      }
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setDataLoading(false);
+    }
+  }, []);
+
+  const handleTerminal = useCallback(
+    (event: TaskEvent) => {
+      if (event.status === "failed" || event.status === "cancelled") {
+        setPanel("progress");
+        return;
+      }
+      if (event.status !== "succeeded") return;
+
+      if (lastAction === "analysis" && sampleId) {
+        void loadAnalysisResults(sampleId);
+        setPanel("analysis");
+      } else if (lastAction === "generation" && generationId) {
+        void loadGenerationResults(generationId);
+        setPanel("result");
+      }
+    },
+    [
+      generationId,
+      lastAction,
+      loadAnalysisResults,
+      loadGenerationResults,
+      sampleId,
+    ],
+  );
+
+  const { event, mode, sseFailureCount, error } = useTaskProgress({
+    taskId,
+    enabled: Boolean(taskId),
+    onTerminal: handleTerminal,
+  });
+
+  const handleTaskStarted = useCallback(
+    (nextTaskId: string, nextSampleId: string) => {
+      setLastAction("analysis");
+      setTaskId(nextTaskId);
+      setSampleId(nextSampleId);
       setPanel("progress");
+    },
+    [],
+  );
+
+  const handleStartAnalysis = useCallback(async () => {
+    if (!sampleId) {
+      setDataError("请先上传样例视频");
+      return;
+    }
+    setBusy(true);
+    setDataError(null);
+    setLastAction("analysis");
+    try {
+      const { data } = await startSampleAnalysis(sampleId);
+      setTaskId(data.taskId);
+      setPanel("progress");
+    } catch (err) {
+      setDataError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [apiBaseUrl, sampleId]);
+  }, [sampleId]);
 
   const handleStartGeneration = useCallback(async () => {
     setBusy(true);
+    setDataError(null);
+    setLastAction("generation");
     try {
-      const { taskId: genTaskId } = await createGenerationPlan(
-        apiBaseUrl,
-        projectId,
-      );
-      setTaskId(genTaskId ?? null);
+      const { data } = await createGenerationPlan(projectId);
+      setGenerationId(data.generationId);
+      if (data.taskId) {
+        setTaskId(data.taskId);
+      }
+      if (data.gapReport) {
+        setGapReport(data.gapReport);
+      }
       setPanel("progress");
+    } catch (err) {
+      setDataError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [apiBaseUrl, projectId]);
+  }, [projectId]);
+
+  const loadDemoFixtures = useCallback(() => {
+    setStructure(fixtureVideoStructure);
+    setGapReport(fixtureGapReport);
+    setGenerationPlan(fixtureGenerationPlan);
+    setDataSource("fixture");
+    setGapApiPending(true);
+    setDataError(null);
+  }, []);
 
   const panels: WorkbenchPanel[] = [
     "input",
@@ -111,16 +218,21 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   return (
     <div className="space-y-6">
+      <DataSourceBanner />
+
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">项目工作台</h1>
           <p className="font-mono text-sm text-muted-foreground">{projectId}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={loadDemoFixtures}>
+            加载演示数据
+          </Button>
           <Button
             type="button"
             variant="outline"
-            disabled={busy}
+            disabled={busy || !sampleId}
             onClick={() => void handleStartAnalysis()}
           >
             开始样例分析
@@ -134,6 +246,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           </Button>
         </div>
       </div>
+
+      {(dataError || dataLoading) && (
+        <p
+          className={`text-sm ${dataError ? "text-destructive" : "text-muted-foreground"}`}
+          role="status"
+        >
+          {dataLoading ? "正在加载结果…" : dataError}
+        </p>
+      )}
 
       <nav
         className="flex flex-wrap gap-2"
@@ -156,19 +277,21 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             任务 {taskId}
           </Badge>
         )}
+        {dataSource && (
+          <Badge variant="outline">数据源 {dataSource}</Badge>
+        )}
       </nav>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {panel === "input" && (
           <>
             <SampleInputPanel
-              apiBaseUrl={apiBaseUrl}
               projectId={projectId}
               onTaskStarted={handleTaskStarted}
             />
-            <AssetInputPanel apiBaseUrl={apiBaseUrl} projectId={projectId} />
+            <AssetInputPanel projectId={projectId} />
             <div className="lg:col-span-2">
-              <BriefEditor apiBaseUrl={apiBaseUrl} projectId={projectId} />
+              <BriefEditor projectId={projectId} />
             </div>
           </>
         )}
@@ -186,38 +309,72 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "analysis" && (
           <div className="lg:col-span-2">
-            <SampleAnalysisView structure={structure} />
+            {structure ? (
+              <SampleAnalysisView structure={structure} />
+            ) : (
+              <EmptyPanel message="暂无分析结果，请先完成样例分析或加载演示数据。" />
+            )}
           </div>
         )}
 
         {panel === "structure" && (
           <div className="lg:col-span-2">
-            <StructureSlotBoard structure={structure} />
+            {structure ? (
+              <StructureSlotBoard structure={structure} />
+            ) : (
+              <EmptyPanel message="暂无结构槽数据。" />
+            )}
           </div>
         )}
 
         {panel === "gap" && (
-          <div className="lg:col-span-2">
-            <GapReportView
-              report={gapReport}
-              onUploadAsset={() => setPanel("input")}
-              onGenerate={() => setPanel("result")}
-            />
+          <div className="lg:col-span-2 space-y-2">
+            {gapApiPending && (
+              <p className="text-xs text-muted-foreground">
+                缺口 API 尚未就绪；演示模式下使用 fixture。完整联调见 integration
+                计划。
+              </p>
+            )}
+            {gapReport ? (
+              <GapReportView
+                report={gapReport}
+                onUploadAsset={() => setPanel("input")}
+                onGenerate={() => setPanel("result")}
+              />
+            ) : (
+              <EmptyPanel message="暂无缺口报告，请先运行生成计划。" />
+            )}
           </div>
         )}
 
         {panel === "timeline" && (
           <div className="lg:col-span-2">
-            <TimelinePreview timeline={generationPlan.timeline} />
+            {generationPlan ? (
+              <TimelinePreview timeline={generationPlan.timeline} />
+            ) : (
+              <EmptyPanel message="暂无时间线数据。" />
+            )}
           </div>
         )}
 
         {panel === "result" && (
           <div className="lg:col-span-2">
-            <GenerationResultView plan={generationPlan} />
+            {generationPlan ? (
+              <GenerationResultView plan={generationPlan} showTimeline />
+            ) : (
+              <EmptyPanel message="暂无生成结果。" />
+            )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+      {message}
     </div>
   );
 }
