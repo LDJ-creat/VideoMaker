@@ -44,9 +44,10 @@ export function TimelinePreview({ timeline }: TimelinePreviewProps) {
             </p>
             <div className="relative h-10 rounded-md bg-muted/40">
               {track.clips.map((clip) => {
-                const left = (clip.startSec / duration) * 100;
-                const width =
-                  ((clip.endSec - clip.startSec) / duration) * 100;
+                const rawLeft = (clip.startSec / duration) * 100;
+                const rawWidth = ((clip.endSec - clip.startSec) / duration) * 100;
+                const left = Math.min(Math.max(rawLeft, 0), 100);
+                const width = Math.min(Math.max(rawWidth, 2), 100 - left);
                 return (
                   <div
                     key={clip.id}
@@ -59,7 +60,7 @@ export function TimelinePreview({ timeline }: TimelinePreviewProps) {
                       "absolute top-1 h-8 min-w-[2%] rounded px-1 text-[10px] text-white shadow-sm transition-transform hover:scale-y-110",
                       TRACK_COLORS[track.type],
                     )}
-                    style={{ left: `${left}%`, width: `${Math.max(width, 2)}%` }}
+                    style={{ left: `${left}%`, width: `${width}%` }}
                   />
                 );
               })}

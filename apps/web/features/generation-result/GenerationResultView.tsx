@@ -17,12 +17,14 @@ type GenerationResultViewProps = {
   plan: GenerationPlan;
   previewHref?: string;
   videoHref?: string;
+  showTimeline?: boolean;
 };
 
 export function GenerationResultView({
   plan,
   previewHref = "#preview-placeholder",
   videoHref,
+  showTimeline = false,
 }: GenerationResultViewProps) {
   return (
     <div className="space-y-4">
@@ -78,7 +80,7 @@ export function GenerationResultView({
         </CardContent>
       </Card>
 
-      <TimelinePreview timeline={plan.timeline} />
+      {showTimeline && <TimelinePreview timeline={plan.timeline} />}
     </div>
   );
 }

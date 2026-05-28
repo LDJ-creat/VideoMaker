@@ -36,6 +36,9 @@ export function GapReportView({
             已匹配
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
+            {report.slotMatches.length === 0 && (
+              <p className="text-sm text-muted-foreground">暂无匹配槽位</p>
+            )}
             {report.slotMatches.map((match) => (
               <GapCard
                 key={match.slotId}
@@ -54,6 +57,9 @@ export function GapReportView({
             弱匹配
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
+            {report.weakSlots.length === 0 && (
+              <p className="text-sm text-muted-foreground">暂无弱匹配槽位</p>
+            )}
             {report.weakSlots.map((slot) => (
               <GapCard
                 key={slot.slotId}
@@ -74,6 +80,9 @@ export function GapReportView({
             缺失
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
+            {report.missingSlots.length === 0 && (
+              <p className="text-sm text-muted-foreground">暂无缺失槽位</p>
+            )}
             {report.missingSlots.map((slot) => (
               <GapCard
                 key={slot.slotId}
