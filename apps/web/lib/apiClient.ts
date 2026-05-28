@@ -23,6 +23,15 @@ export type ProjectSummary = {
   createdAt: string;
 };
 
+export type CookieUploadMode = "merge" | "replace";
+
+export type CookieStatus = {
+  configured: boolean;
+  updatedAt?: string | null;
+  domains?: string[];
+  uploadMode?: string | null;
+};
+
 export type UploadResponse = {
   id: string;
   taskId?: string;
@@ -44,8 +53,9 @@ async function apiFetch<T>(
     const body = await response.text();
     let message = body || response.statusText;
     try {
-      const parsed = JSON.parse(body) as { message?: string };
-      if (parsed.message) message = parsed.message;
+      const parsed = JSON.parse(body) as { message?: string; detail?: string };
+      if (parsed.detail) message = parsed.detail;
+      else if (parsed.message) message = parsed.message;
     } catch {
       /* plain text */
     }
@@ -74,6 +84,20 @@ export async function getProject(
   return apiFetch(`/api/projects/${projectId}`);
 }
 
+export type ActiveSampleSummary = {
+  id: string;
+  status: string;
+  sourceKind: string;
+  hasStructure: boolean;
+  videoUri?: string;
+};
+
+export async function getActiveSample(
+  projectId: string,
+): Promise<ApiResult<ActiveSampleSummary>> {
+  return apiFetch(`/api/projects/${projectId}/samples/active`);
+}
+
 export async function uploadSampleVideo(
   projectId: string,
   file: File,
@@ -87,6 +111,31 @@ export async function uploadSampleVideo(
 }
 
 /** URL import — backend runs yt-dlp; frontend only calls BFF/API. */
+/** Global yt-dlp cookies (shared by all projects on this API instance). */
+export async function getCookieStatus(): Promise<ApiResult<CookieStatus>> {
+  return apiFetch("/api/settings/cookies");
+}
+
+export async function uploadCookies(
+  file: File,
+  mode: CookieUploadMode = "merge",
+): Promise<
+  ApiResult<{
+    ok: boolean;
+    configured: boolean;
+    domains?: string[];
+    mode?: string;
+  }>
+> {
+  const form = new FormData();
+  form.append("file", file);
+  const query = new URLSearchParams({ mode });
+  return apiFetch(`/api/settings/cookies/upload?${query}`, {
+    method: "POST",
+    body: form,
+  });
+}
+
 export async function importSampleFromUrl(
   projectId: string,
   payload: CreateSampleFromUrlRequest,
@@ -119,6 +168,10 @@ export async function saveBrief(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(brief),
   });
+}
+
+export async function retryTask(taskId: string): Promise<ApiResult<TaskEvent>> {
+  return apiFetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
 }
 
 export async function startSampleAnalysis(

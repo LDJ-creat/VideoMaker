@@ -42,6 +42,23 @@ export function resolveFixture(
   }
 
   if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "active"
+  ) {
+    return {
+      status: 200,
+      body: {
+        id: "sample-fixture-local",
+        status: "uploaded",
+        sourceKind: "local",
+        hasStructure: false,
+      },
+    };
+  }
+
+  if (
     method === "POST" &&
     segments[0] === "projects" &&
     segments[2] === "samples" &&
@@ -50,6 +67,25 @@ export function resolveFixture(
     return {
       status: 201,
       body: { id: "sample-fixture-local", taskId: fixtureTaskEvent.taskId },
+    };
+  }
+
+  if (method === "GET" && segments[0] === "settings" && segments[1] === "cookies") {
+    return {
+      status: 200,
+      body: { configured: false, updatedAt: null, domains: [] },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "settings" &&
+    segments[1] === "cookies" &&
+    segments[2] === "upload"
+  ) {
+    return {
+      status: 201,
+      body: { ok: true, configured: true, domains: [".example.com"], mode: "merge" },
     };
   }
 

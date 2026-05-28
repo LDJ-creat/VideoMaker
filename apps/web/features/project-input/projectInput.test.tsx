@@ -25,7 +25,11 @@ describe("project input panels", () => {
     const file = new File(["video"], "demo.mp4", { type: "video/mp4" });
 
     render(
-      <SampleInputPanel projectId="proj-1" onTaskStarted={vi.fn()} />,
+      <SampleInputPanel
+        projectId="proj-1"
+        onTaskStarted={vi.fn()}
+        onSampleReady={vi.fn()}
+      />,
     );
 
     const input = screen.getByLabelText(/选择视频文件/i);
@@ -49,7 +53,11 @@ describe("project input panels", () => {
     const user = userEvent.setup();
 
     render(
-      <SampleInputPanel projectId="proj-1" onTaskStarted={vi.fn()} />,
+      <SampleInputPanel
+        projectId="proj-1"
+        onTaskStarted={vi.fn()}
+        onSampleReady={vi.fn()}
+      />,
     );
 
     await user.click(screen.getAllByRole("tab", { name: /URL 导入/i })[0]!);
@@ -71,7 +79,11 @@ describe("project input panels", () => {
     const user = userEvent.setup();
 
     render(
-      <SampleInputPanel projectId="proj-1" onTaskStarted={vi.fn()} />,
+      <SampleInputPanel
+        projectId="proj-1"
+        onTaskStarted={vi.fn()}
+        onSampleReady={vi.fn()}
+      />,
     );
 
     await user.click(screen.getAllByRole("tab", { name: /URL 导入/i })[0]!);

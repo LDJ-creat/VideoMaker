@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CookieUploadPanel } from "@/features/project-input/CookieUploadPanel";
 import { importSampleFromUrl, uploadSampleVideo } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import { validateHttpUrl, validateUploadSize } from "@/lib/validation";
@@ -21,11 +22,13 @@ import { validateHttpUrl, validateUploadSize } from "@/lib/validation";
 type SampleInputPanelProps = {
   projectId: string;
   onTaskStarted: (taskId: string, sampleId: string) => void;
+  onSampleReady: (sampleId: string) => void;
 };
 
 export function SampleInputPanel({
   projectId,
   onTaskStarted,
+  onSampleReady,
 }: SampleInputPanelProps) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,7 +45,8 @@ export function SampleInputPanel({
     setStatus(null);
     try {
       const { data: result } = await uploadSampleVideo(projectId, file);
-      setStatus(`已上传样例：${result.id}`);
+      setStatus(`已上传样例：${result.id}（可点击「开始样例分析」）`);
+      onSampleReady(result.id);
       if (result.taskId) {
         onTaskStarted(result.taskId, result.id);
       }
@@ -106,7 +110,8 @@ export function SampleInputPanel({
               onChange={(e) => void handleLocalUpload(e.target.files?.[0])}
             />
           </TabsContent>
-          <TabsContent value="url" className="space-y-3">
+          <TabsContent value="url" className="space-y-4">
+            <CookieUploadPanel />
             <Label htmlFor="sample-url">视频页面 URL</Label>
             <Input
               id="sample-url"
