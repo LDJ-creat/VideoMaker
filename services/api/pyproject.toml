@@ -8,7 +8,9 @@ dependencies = [
   "pydantic>=2.7",
   "pytest>=8.0",
   "python-multipart>=0.0.9",
-  "uvicorn[standard]>=0.30"
+  "uvicorn[standard]>=0.30",
+  "jsonschema>=4.23",
+  "referencing>=0.35"
 ]
 
 [tool.pytest.ini_options]

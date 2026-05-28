@@ -6,9 +6,11 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.db.session import Database, initialize_database
+from app.logging_config import configure_logging
 from app.routers.generations import router as generations_router
 from app.routers.projects import router as projects_router
 from app.routers.samples import router as samples_router
+from app.routers.settings import router as settings_router
 from app.routers.tasks import router as tasks_router
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -28,6 +30,9 @@ def create_app(
         database_path=database_path or root / "storage" / "videomaker.sqlite3",
         storage_root=storage_root or root / "storage",
     )
+    log_dir = configure_logging(settings.storage_root)
+    settings.log_dir = log_dir
+
     database = Database(settings.database_path)
     initialize_database(database)
 
@@ -48,6 +53,7 @@ def create_app(
     app.state.pipeline_runner = runner
 
     app.include_router(tasks_router)
+    app.include_router(settings_router)
     app.include_router(projects_router)
     app.include_router(samples_router)
     app.include_router(generations_router)
@@ -57,3 +63,6 @@ def create_app(
         return {"ok": True}
 
     return app
+
+
+app = create_app()
