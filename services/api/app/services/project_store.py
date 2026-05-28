@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+import json
+import uuid
+from typing import Any
+
+from app.db.session import Database
+from app.services.task_events import now_iso
+
+
+class ProjectStore:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def create_project(self, name: str | None) -> dict[str, Any]:
+        project_id = str(uuid.uuid4())
+        created_at = now_iso()
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO projects (id, name, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (project_id, name, created_at, created_at),
+            )
+        return {
+            "id": project_id,
+            "name": name or "Untitled project",
+            "createdAt": created_at,
+        }
+
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT id, name, created_at FROM projects WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["name"] or "Untitled project",
+            "createdAt": row["created_at"],
+        }
+
+    def create_sample(
+        self,
+        *,
+        project_id: str,
+        source_kind: str,
+        source_url: str | None = None,
+        video_uri: str | None = None,
+        status: str = "uploaded",
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
+        sample_id = str(uuid.uuid4())
+        created_at = now_iso()
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO samples (
+                  id, project_id, source_kind, source_url, video_uri, status, task_id,
+                  structure_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sample_id,
+                    project_id,
+                    source_kind,
+                    source_url,
+                    video_uri,
+                    status,
+                    task_id,
+                    None,
+                    created_at,
+                    created_at,
+                ),
+            )
+        return {
+            "id": sample_id,
+            "projectId": project_id,
+            "sourceKind": source_kind,
+            "status": status,
+            "taskId": task_id,
+        }
+
+    def get_sample(self, sample_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                FROM samples WHERE id = ?
+                """,
+                (sample_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        structure = json.loads(row["structure_json"]) if row["structure_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "sourceKind": row["source_kind"],
+            "sourceUrl": row["source_url"],
+            "videoUri": row["video_uri"],
+            "status": row["status"],
+            "taskId": row["task_id"],
+            "structure": structure,
+        }
+
+    def update_sample(
+        self,
+        sample_id: str,
+        *,
+        status: str | None = None,
+        video_uri: str | None = None,
+        task_id: str | None = None,
+        structure: dict[str, Any] | None = None,
+    ) -> None:
+        fields: list[str] = []
+        values: list[Any] = []
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        if video_uri is not None:
+            fields.append("video_uri = ?")
+            values.append(video_uri)
+        if task_id is not None:
+            fields.append("task_id = ?")
+            values.append(task_id)
+        if structure is not None:
+            fields.append("structure_json = ?")
+            values.append(json.dumps(structure, separators=(",", ":")))
+        fields.append("updated_at = ?")
+        values.append(now_iso())
+        values.append(sample_id)
+        with self.database.connect() as connection:
+            connection.execute(
+                f"UPDATE samples SET {', '.join(fields)} WHERE id = ?",
+                values,
+            )
+
+    def get_latest_sample_structure(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT structure_json FROM samples
+                WHERE project_id = ? AND structure_json IS NOT NULL
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None or not row["structure_json"]:
+            return None
+        return json.loads(row["structure_json"])
+
+    def add_asset(
+        self,
+        *,
+        project_id: str,
+        asset_type: str,
+        uri: str,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        duration_sec: float | None = None,
+    ) -> dict[str, Any]:
+        asset_id = str(uuid.uuid4())
+        created_at = now_iso()
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO project_assets (
+                  id, project_id, type, uri, description, tags_json, duration_sec, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    asset_id,
+                    project_id,
+                    asset_type,
+                    uri,
+                    description,
+                    json.dumps(tags or [], separators=(",", ":")),
+                    duration_sec,
+                    created_at,
+                ),
+            )
+        return {"id": asset_id, "type": asset_type, "uri": uri}
+
+    def list_assets(self, project_id: str) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, type, uri, description, tags_json, duration_sec
+                FROM project_assets WHERE project_id = ? ORDER BY created_at ASC
+                """,
+                (project_id,),
+            ).fetchall()
+        assets: list[dict[str, Any]] = []
+        for row in rows:
+            asset: dict[str, Any] = {
+                "id": row["id"],
+                "type": row["type"],
+                "uri": row["uri"],
+            }
+            if row["description"]:
+                asset["description"] = row["description"]
+            tags = json.loads(row["tags_json"] or "[]")
+            if tags:
+                asset["tags"] = tags
+            if row["duration_sec"] is not None:
+                asset["durationSec"] = row["duration_sec"]
+            assets.append(asset)
+        return assets
+
+    def save_brief(self, project_id: str, brief: dict[str, Any]) -> None:
+        updated_at = now_iso()
+        payload = json.dumps(brief, separators=(",", ":"))
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO project_briefs (project_id, brief_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET brief_json = excluded.brief_json, updated_at = excluded.updated_at
+                """,
+                (project_id, payload, updated_at),
+            )
+
+    def get_brief(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT brief_json FROM project_briefs WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["brief_json"])
+
+    def create_generation(
+        self,
+        *,
+        project_id: str,
+        task_id: str | None = None,
+        status: str = "queued",
+    ) -> dict[str, Any]:
+        generation_id = str(uuid.uuid4())
+        created_at = now_iso()
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO generations (
+                  id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                  status, task_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    generation_id,
+                    project_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    status,
+                    task_id,
+                    created_at,
+                    created_at,
+                ),
+            )
+        return {"id": generation_id, "projectId": project_id, "status": status, "taskId": task_id}
+
+    def update_generation(
+        self,
+        generation_id: str,
+        *,
+        status: str | None = None,
+        structure_id: str | None = None,
+        inventory_id: str | None = None,
+        gap_report: dict[str, Any] | None = None,
+        plan: dict[str, Any] | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        fields: list[str] = []
+        values: list[Any] = []
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        if structure_id is not None:
+            fields.append("structure_id = ?")
+            values.append(structure_id)
+        if inventory_id is not None:
+            fields.append("inventory_id = ?")
+            values.append(inventory_id)
+        if gap_report is not None:
+            fields.append("gap_report_json = ?")
+            values.append(json.dumps(gap_report, separators=(",", ":")))
+        if plan is not None:
+            fields.append("plan_json = ?")
+            values.append(json.dumps(plan, separators=(",", ":")))
+        if task_id is not None:
+            fields.append("task_id = ?")
+            values.append(task_id)
+        fields.append("updated_at = ?")
+        values.append(now_iso())
+        values.append(generation_id)
+        with self.database.connect() as connection:
+            connection.execute(
+                f"UPDATE generations SET {', '.join(fields)} WHERE id = ?",
+                values,
+            )
+
+    def get_generation(self, generation_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                FROM generations WHERE id = ?
+                """,
+                (generation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
+        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "structureId": row["structure_id"],
+            "inventoryId": row["inventory_id"],
+            "gapReport": gap_report,
+            "plan": plan,
+            "status": row["status"],
+            "taskId": row["task_id"],
+        }
