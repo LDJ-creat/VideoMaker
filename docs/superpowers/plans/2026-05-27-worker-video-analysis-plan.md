@@ -136,11 +136,11 @@ Do not modify:
 - Create: `services/worker/app/runtime/artifact_store.py`
 - Create: `services/worker/tests/test_runtime.py`
 
-- [ ] Write failing tests for project-scoped artifact paths and path traversal rejection.
-- [ ] Implement `TaskContext(project_id, task_id, storage_root, api_base_url=None)`.
-- [ ] Implement worker `ArtifactStore` with the same storage safety rule as API: all paths must stay under `storage/projects/{projectId}`.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add runtime and artifact store`.
+- [x] Write failing tests for project-scoped artifact paths and path traversal rejection.
+- [x] Implement `TaskContext(project_id, task_id, storage_root, api_base_url=None)`.
+- [x] Implement worker `ArtifactStore` with the same storage safety rule as API: all paths must stay under `storage/projects/{projectId}`.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add runtime and artifact store`.
 
 ## Task 2: FFmpeg Adapter
 
@@ -148,12 +148,12 @@ Do not modify:
 - Create: `services/worker/app/tools/ffmpeg_tool.py`
 - Create: `services/worker/tests/test_ffmpeg_tool.py`
 
-- [ ] Write failing tests using a fake command runner for metadata extraction and audio extraction.
-- [ ] Implement `FFmpegTool.probe(video_path)` returning duration, width, height, fps, codec, and hasAudio when ffprobe is available.
-- [ ] Implement `FFmpegTool.extract_audio(video_path, output_path)`.
-- [ ] Return a retryable `ToolError`-like dict when ffmpeg/ffprobe is unavailable instead of crashing.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add ffmpeg adapter`.
+- [x] Write failing tests using a fake command runner for metadata extraction and audio extraction.
+- [x] Implement `FFmpegTool.probe(video_path)` returning duration, width, height, fps, codec, and hasAudio when ffprobe is available.
+- [x] Implement `FFmpegTool.extract_audio(video_path, output_path)`.
+- [x] Return a retryable `ToolError`-like dict when ffmpeg/ffprobe is unavailable instead of crashing.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add ffmpeg adapter`.
 
 ## Task 3: YtDlp URL Download Adapter
 
@@ -161,13 +161,13 @@ Do not modify:
 - Create: `services/worker/app/tools/ytdlp_tool.py`
 - Create: `services/worker/tests/test_ytdlp_tool.py`
 
-- [ ] Write failing tests with a fake command runner for successful URL download, missing `yt-dlp`, oversize rejection, and unsupported extension rejection.
-- [ ] Implement `YtDlpTool.download(url, output_dir, max_duration_sec=180, max_file_size_mb=500)`.
-- [ ] Use `yt-dlp --dump-json` first to inspect duration, extension, and filesize before downloading when metadata is available.
-- [ ] Download with `yt-dlp -o <output-template> --no-playlist`.
-- [ ] Return artifact-ready metadata `{path, durationSec, ext, sourceUrl}`.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add ytdlp url download adapter`.
+- [x] Write failing tests with a fake command runner for successful URL download, missing `yt-dlp`, oversize rejection, and unsupported extension rejection.
+- [x] Implement `YtDlpTool.download(url, output_dir, max_duration_sec=180, max_file_size_mb=500)`.
+- [x] Use `yt-dlp --dump-json` first to inspect duration, extension, and filesize before downloading when metadata is available.
+- [x] Download with `yt-dlp -o <output-template> --no-playlist`.
+- [x] Return artifact-ready metadata `{path, durationSec, ext, sourceUrl}`.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add ytdlp url download adapter`.
 
 ## Task 4: Shot Detection And Keyframes
 
@@ -175,13 +175,13 @@ Do not modify:
 - Create: `services/worker/app/tools/opencv_tool.py`
 - Create: `services/worker/tests/test_opencv_tool.py`
 
-- [ ] Write failing tests for deterministic fallback shot boundaries on a missing/unreadable video.
-- [ ] Implement `OpenCVTool.detect_shots(video_path)` using the HSV histogram/MAD algorithm specified above.
-- [ ] Implement `OpenCVTool.extract_keyframes(video_path, shots, output_dir)` using the sharpness/entropy/exposure scoring algorithm specified above.
-- [ ] Persist `shots.json`, `keyframes.json`, and JPEG keyframes.
-- [ ] Provide a safe fallback result with one full-duration shot when OpenCV cannot process the file.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add shot detection and keyframe extraction`.
+- [x] Write failing tests for deterministic fallback shot boundaries on a missing/unreadable video.
+- [x] Implement `OpenCVTool.detect_shots(video_path)` using the HSV histogram/MAD algorithm specified above.
+- [x] Implement `OpenCVTool.extract_keyframes(video_path, shots, output_dir)` using the sharpness/entropy/exposure scoring algorithm specified above.
+- [x] Persist `shots.json`, `keyframes.json`, and JPEG keyframes.
+- [x] Provide a safe fallback result with one full-duration shot when OpenCV cannot process the file.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add shot detection and keyframe extraction`.
 
 ## Task 5: Whisper Adapter
 
@@ -189,11 +189,11 @@ Do not modify:
 - Create: `services/worker/app/tools/whisper_tool.py`
 - Create: `services/worker/tests/test_whisper_tool.py`
 
-- [ ] Write failing tests that verify missing `fast_whisper` returns a retryable error object.
-- [ ] Implement `WhisperTool.transcribe(audio_path)` with lazy import of `fast_whisper`.
-- [ ] Normalize transcript segments into JSON-friendly `{startSec,endSec,text,confidence}` records.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add whisper transcription adapter`.
+- [x] Write failing tests that verify missing `fast_whisper` returns a retryable error object.
+- [x] Implement `WhisperTool.transcribe(audio_path)` with lazy import of `fast_whisper`.
+- [x] Normalize transcript segments into JSON-friendly `{startSec,endSec,text,confidence}` records.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add whisper transcription adapter`.
 
 ## Task 6: Sample Pipeline
 
@@ -201,13 +201,13 @@ Do not modify:
 - Create: `services/worker/app/pipelines/sample_pipeline.py`
 - Create: `services/worker/tests/test_sample_pipeline.py`
 
-- [ ] Write failing tests with fake tool adapters proving the pipeline emits ordered stages: `extracting_metadata`, `extracting_audio`, `transcribing`, `detecting_shots`, `extracting_keyframes`, `completed`.
-- [ ] Implement `SampleAnalysisPipeline.run(project_id, task_id, video_path=None, source_url=None)`.
-- [ ] If `source_url` is provided, call `YtDlpTool.download` before metadata extraction and register the downloaded original video.
-- [ ] Persist artifacts: `metadata.json`, `audio.wav` when available, `transcript.json`, `shots.json`, `keyframes.json`, `keyframes/`, and `sample-analysis.json`.
-- [ ] Return a summary object containing artifact refs and the final task event.
-- [ ] Run `python -m pytest`.
-- [ ] Commit: `feat(worker): add sample analysis pipeline`.
+- [x] Write failing tests with fake tool adapters proving the pipeline emits ordered stages: `extracting_metadata`, `extracting_audio`, `transcribing`, `detecting_shots`, `extracting_keyframes`, `completed`.
+- [x] Implement `SampleAnalysisPipeline.run(project_id, task_id, video_path=None, source_url=None)`.
+- [x] If `source_url` is provided, call `YtDlpTool.download` before metadata extraction and register the downloaded original video.
+- [x] Persist artifacts: `metadata.json`, `audio.wav` when available, `transcript.json`, `shots.json`, `keyframes.json`, `keyframes/`, and `sample-analysis.json`.
+- [x] Return a summary object containing artifact refs and the final task event.
+- [x] Run `python -m pytest`.
+- [x] Commit: `feat(worker): add sample analysis pipeline`.
 
 ## Acceptance Criteria
 

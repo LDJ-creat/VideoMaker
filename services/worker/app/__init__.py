@@ -1,2 +1,1 @@
-"""VideoMaker worker app package."""
-
+"""VideoMaker worker package."""
