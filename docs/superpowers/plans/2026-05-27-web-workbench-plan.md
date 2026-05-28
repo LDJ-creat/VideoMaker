@@ -10,6 +10,60 @@
 
 ---
 
+## Required P0 User Flows
+
+The web workbench must support these P0 inputs, even if early implementation uses fixture data behind the scenes:
+
+- Create/open a project.
+- Add a sample video by local upload.
+- Add a sample video by URL, which triggers backend/worker `yt-dlp` download.
+- Add user assets by uploading images and videos.
+- Add a text brief with topic, product name, selling points, audience, required mentions, and forbidden mentions.
+- Start sample analysis and show progress through SSE with polling fallback.
+- Start generation and show `VideoStructure`, `AssetInventory`, `GapReport`, `GenerationPlan`, and `RenderTimeline` views when available.
+
+The frontend must not run `yt-dlp`, FFmpeg, OpenCV, or model code. It only submits files/URLs/briefs to API routes and renders task progress and artifacts.
+
+## API Contract Expected By Web
+
+The web module should implement an `apiClient` against these expected routes. If a route is not implemented yet, keep a fixture fallback and make the missing route explicit in code comments and tests.
+
+```http
+POST /api/projects
+GET /api/projects/{projectId}
+POST /api/projects/{projectId}/samples/upload
+POST /api/projects/{projectId}/samples/from-url
+POST /api/projects/{projectId}/assets/upload
+POST /api/projects/{projectId}/brief
+POST /api/samples/{sampleId}/analyze
+GET /api/tasks/{taskId}
+GET /api/tasks/{taskId}/events
+GET /api/samples/{sampleId}/analysis
+GET /api/samples/{sampleId}/structure
+POST /api/projects/{projectId}/generation-plan
+GET /api/generations/{generationId}
+```
+
+Expected request shapes:
+
+```ts
+type CreateSampleFromUrlRequest = {
+  url: string;
+};
+
+type UserBriefRequest = {
+  topic?: string;
+  productName?: string;
+  sellingPoints: string[];
+  targetAudience?: string;
+  tone?: string;
+  mustMention: string[];
+  avoidMention: string[];
+};
+```
+
+Local upload should use `multipart/form-data` field name `file`. URL import should show the same progress UI as local upload/analysis because the backend will create a task for download and analysis.
+
 ## Scope And Boundaries
 
 Branch/worktree:
@@ -44,7 +98,24 @@ Do not modify:
 - [ ] Run `npm install`, `npm run typecheck`, and `npm run build`.
 - [ ] Commit: `feat(web): add workbench shell`.
 
-## Task 2: Task Progress Hook
+## Task 2: API Client And Input Forms
+
+**Files:**
+- Create: `apps/web/lib/apiClient.ts`
+- Create: `apps/web/features/project-input/SampleInputPanel.tsx`
+- Create: `apps/web/features/project-input/AssetInputPanel.tsx`
+- Create: `apps/web/features/project-input/BriefEditor.tsx`
+- Create: `apps/web/features/project-input/projectInput.test.tsx`
+
+- [ ] Write failing tests for local sample upload request shape, sample URL request shape, asset upload request shape, and brief submission shape.
+- [ ] Implement `createProject`, `uploadSampleVideo`, `importSampleFromUrl`, `uploadAsset`, `saveBrief`, `startSampleAnalysis`, and `createGenerationPlan` in `apiClient.ts`.
+- [ ] Implement `SampleInputPanel` with two tabs: local file upload and URL import. The URL tab must call `/samples/from-url`; it must not call `yt-dlp` directly.
+- [ ] Implement `AssetInputPanel` for image/video asset uploads with accepted MIME types `image/*` and `video/*`.
+- [ ] Implement `BriefEditor` with structured fields matching `UserBriefRequest`.
+- [ ] Run `npm run test` and `npm run typecheck`.
+- [ ] Commit: `feat(web): add sample asset and brief input flows`.
+
+## Task 3: Task Progress Hook
 
 **Files:**
 - Create: `apps/web/features/tasks/useTaskProgress.ts`
@@ -58,7 +129,7 @@ Do not modify:
 - [ ] Run `npm run test` and `npm run typecheck`.
 - [ ] Commit: `feat(web): add task progress hook and panel`.
 
-## Task 3: Fixtures And Contract Views
+## Task 4: Fixtures And Contract Views
 
 **Files:**
 - Create: `apps/web/fixtures/video-structure.fixture.ts`
@@ -75,7 +146,7 @@ Do not modify:
 - [ ] Run `npm run typecheck`.
 - [ ] Commit: `feat(web): add structure and gap visualizations`.
 
-## Task 4: Timeline And Result Views
+## Task 5: Timeline And Result Views
 
 **Files:**
 - Create: `apps/web/features/timeline-preview/TimelinePreview.tsx`
@@ -87,6 +158,28 @@ Do not modify:
 - [ ] Implement generation result view for storyboard, timeline, preview link, and video output placeholder.
 - [ ] Run `npm run test`, `npm run typecheck`, and `npm run build`.
 - [ ] Commit: `feat(web): add timeline and generation result views`.
+
+## Task 6: Project Workbench Composition
+
+**Files:**
+- Modify: `apps/web/app/projects/[projectId]/page.tsx`
+- Create: `apps/web/features/workbench/ProjectWorkbench.tsx`
+- Create: `apps/web/features/workbench/ProjectWorkbench.test.tsx`
+
+- [ ] Write failing tests that prove the workbench can switch between sample input, analysis progress, structure mapping, gap report, timeline, and result panels.
+- [ ] Compose `SampleInputPanel`, `AssetInputPanel`, `BriefEditor`, `TaskProgressPanel`, structure views, and timeline/result views into one project workspace.
+- [ ] Use fixture data when API endpoints are unavailable, but keep API client calls wired behind explicit action handlers.
+- [ ] Run `npm run test`, `npm run typecheck`, and `npm run build`.
+- [ ] Commit: `feat(web): compose p0 project workbench`.
+
+## Acceptance Criteria
+
+- A user can choose a local sample video file and start a sample upload action.
+- A user can paste a video URL and start a URL import action that calls `/samples/from-url`.
+- A user can upload image/video assets separately from the sample video.
+- A user can enter a structured brief.
+- The UI can show task progress from SSE and recover through polling.
+- The project page can show sample analysis, structure slots, gap report, timeline, and result views from fixtures before real integration.
 
 ## Verification
 
@@ -105,4 +198,3 @@ Also run:
 cd packages/contracts
 npm run check
 ```
-

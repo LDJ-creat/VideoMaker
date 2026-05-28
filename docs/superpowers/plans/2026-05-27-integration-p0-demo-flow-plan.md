@@ -28,14 +28,23 @@ git worktree add .worktrees/p0-demo-flow -b integration/p0-demo-flow main
 ## Task 1: API Integration Endpoints
 
 **Files:**
+- Modify: `services/api/app/db/schema.sql`
+- Modify: `services/api/app/services/artifact_store.py`
+- Create: `services/api/app/routers/projects.py`
 - Modify: `services/api/app/routers/samples.py`
 - Modify: `services/api/app/routers/assets.py`
 - Modify: `services/api/app/routers/generations.py`
 - Modify: `services/api/app/main.py`
 - Create: `services/api/tests/test_p0_flow_routes.py`
 
-- [ ] Write failing API tests for starting sample analysis and generation tasks.
-- [ ] Add routes that create tasks and enqueue/trigger worker pipeline calls in local mode.
+- [ ] Write failing API tests for project creation, local sample upload, URL sample import, asset upload, brief submission, starting sample analysis, and generation task creation.
+- [ ] Add SQLite tables or JSON fields for projects, samples, assets, briefs, analyses, structures, and generations as needed for P0 demo persistence.
+- [ ] Implement `POST /api/projects` and `GET /api/projects/{projectId}`.
+- [ ] Implement `POST /api/projects/{projectId}/samples/upload` accepting `multipart/form-data` field `file`.
+- [ ] Implement `POST /api/projects/{projectId}/samples/from-url` accepting `{url}` and creating a download/analyze task for worker `YtDlpTool`.
+- [ ] Implement `POST /api/projects/{projectId}/assets/upload` accepting image/video `multipart/form-data` field `file`.
+- [ ] Implement `POST /api/projects/{projectId}/brief` accepting structured brief JSON.
+- [ ] Implement routes that create tasks and enqueue/trigger worker pipeline calls in local mode.
 - [ ] Return task IDs immediately for long-running operations.
 - [ ] Run `python -m pytest`.
 - [ ] Commit: `feat(integration): add p0 flow api routes`.
@@ -46,8 +55,10 @@ git worktree add .worktrees/p0-demo-flow -b integration/p0-demo-flow main
 - Create: `services/worker/app/pipelines/p0_demo_pipeline.py`
 - Create: `services/worker/tests/test_p0_demo_pipeline.py`
 
-- [ ] Write failing tests for orchestrating sample analysis, structure extraction, slot mapping, generation plan, and render preview using fixtures.
+- [ ] Write failing tests for orchestrating URL download, sample analysis, structure extraction, slot mapping, generation plan, and render preview using fixtures.
 - [ ] Implement local synchronous orchestration first; async queue can be added later.
+- [ ] For URL samples, call `YtDlpTool.download` before `SampleAnalysisPipeline.run`.
+- [ ] For local samples, use the uploaded artifact path directly.
 - [ ] Ensure each stage persists artifacts and emits `TaskEvent`.
 - [ ] Run `python -m pytest`.
 - [ ] Commit: `feat(integration): orchestrate p0 demo pipeline`.
@@ -62,6 +73,7 @@ git worktree add .worktrees/p0-demo-flow -b integration/p0-demo-flow main
 - [ ] Write tests or fixture checks for API client request/response shapes.
 - [ ] Replace fixture-only data path with API calls where endpoints exist.
 - [ ] Keep fixture fallback available for local UI development.
+- [ ] Wire local video upload, URL import, asset upload, and brief submission to real API routes.
 - [ ] Verify page refresh resumes task state through polling endpoint.
 - [ ] Run frontend verification commands.
 - [ ] Commit: `feat(integration): wire workbench to p0 api`.
@@ -106,9 +118,9 @@ Manual verification:
 2. Start frontend.
 3. Create/open a project.
 4. Start sample analysis and observe SSE progress.
-5. See sample artifacts and `VideoStructure`.
-6. Enter new brief/assets.
-7. Generate `GapReport` and `GenerationPlan`.
-8. Generate HyperFrames preview.
-9. Refresh the browser during a task and confirm status recovery.
-
+5. Import a sample by URL and confirm the download task uses the same progress UI.
+6. Upload image/video assets and save a structured brief.
+7. See sample artifacts and `VideoStructure`.
+8. Generate `GapReport` and `GenerationPlan`.
+9. Generate HyperFrames preview.
+10. Refresh the browser during a task and confirm status recovery.

@@ -248,3 +248,16 @@ docs/superpowers/plans/YYYY-MM-DD-<module-name>-plan.md
 ```
 
 Then implement that plan task-by-task with verification and commits.
+
+## Plan Quality Gate
+
+Subsystem plans are executable specifications, not lightweight outlines. Before handing a plan to a new AI session, confirm it states:
+
+- Exact user-facing P0 flows owned by the module.
+- Exact API routes, request shapes, or artifact shapes the module consumes or produces.
+- Concrete algorithms for nontrivial processing, especially video shot detection, keyframe selection, timeline conversion, and slot matching.
+- Tool collaboration order and fallback behavior when optional binaries or model services are missing.
+- Files allowed to change and files explicitly out of scope.
+- Tests that prove both happy path and fallback/error behavior.
+
+Do not hand off a plan that leaves core behavior to "decide during implementation." If a plan is intentionally deferring a capability to integration, it must name the integration plan and the exact route/artifact that will complete it.
