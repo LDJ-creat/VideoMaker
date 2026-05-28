@@ -1,56 +1,58 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DATA_SOURCE_HEADER } from "@/lib/api-types";
 import {
   importSampleFromUrl,
   uploadAsset,
   uploadSampleVideo,
 } from "@/lib/apiClient";
+import { ApiClientError } from "@/lib/errors";
 
 describe("apiClient request shapes", () => {
-  beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_USE_FIXTURES", "false");
-  });
-
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
-  it("POSTs multipart file for sample upload", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ id: "s1", taskId: "t1" }),
-    });
+  it("POSTs multipart file for sample upload via same-origin BFF", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "s1", taskId: "t1" }), {
+        status: 200,
+        headers: { [DATA_SOURCE_HEADER]: "api" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const file = new File(["x"], "sample.mp4", { type: "video/mp4" });
-    await uploadSampleVideo("http://api.test", "proj-1", file);
+    const result = await uploadSampleVideo("proj-1", file);
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://api.test/api/projects/proj-1/samples/upload",
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/proj-1/samples/upload",
+      expect.objectContaining({ method: "POST" }),
     );
-    expect(init.method).toBe("POST");
-    expect(init.body).toBeInstanceOf(FormData);
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
     expect((init.body as FormData).get("file")).toBe(file);
+    expect(result.data.id).toBe("s1");
+    expect(result.meta.dataSource).toBe("api");
   });
 
   it("POSTs JSON body for URL import", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ id: "s2", taskId: "t2" }),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "s2", taskId: "t2" }), {
+        status: 200,
+        headers: { [DATA_SOURCE_HEADER]: "api" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    await importSampleFromUrl("http://api.test", "proj-1", {
+    await importSampleFromUrl("proj-1", {
       url: "https://youtu.be/demo",
     });
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://api.test/api/projects/proj-1/samples/from-url",
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "/api/projects/proj-1/samples/from-url",
     );
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(init.headers).toMatchObject({
       "Content-Type": "application/json",
     });
@@ -59,18 +61,16 @@ describe("apiClient request shapes", () => {
     });
   });
 
-  it("POSTs multipart file for asset upload", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ id: "a1" }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
+  it("throws ApiClientError on failed responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: "bad" }), { status: 502 }),
+      ),
+    );
 
-    const file = new File(["x"], "photo.jpg", { type: "image/jpeg" });
-    await uploadAsset("http://api.test", "proj-1", file);
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((init.body as FormData).get("file")).toBe(file);
+    await expect(
+      uploadAsset("proj-1", new File(["x"], "a.jpg", { type: "image/jpeg" })),
+    ).rejects.toBeInstanceOf(ApiClientError);
   });
 });
