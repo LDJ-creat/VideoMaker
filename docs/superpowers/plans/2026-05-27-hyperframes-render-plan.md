@@ -110,10 +110,10 @@ Do not modify:
 - Create: `services/worker/app/render/backend.py`
 - Create: `services/worker/tests/test_render_backend.py`
 
-- [ ] Write failing tests for a backend returning preview and optional video artifact refs.
-- [ ] Define `RenderOptions`, `RenderOutput`, and `RenderBackend` protocol/classes.
-- [ ] Keep output JSON-friendly and compatible with `ArtifactRef`.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests for a backend returning preview and optional video artifact refs.
+- [x] Define `RenderOptions`, `RenderOutput`, and `RenderBackend` protocol/classes.
+- [x] Keep output JSON-friendly and compatible with `ArtifactRef`.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(render): add render backend interface`.
 
 ## Task 2: Timeline To HyperFrames Composition
@@ -123,11 +123,11 @@ Do not modify:
 - Create: `services/worker/tests/fixtures/render_timeline.json`
 - Create: `services/worker/tests/test_timeline_to_hyperframes.py`
 
-- [ ] Write failing tests that generate `index.html` from a fixture `RenderTimeline`.
-- [ ] Implement HTML generation for image/video/text/effect/transition tracks using the mapping rules specified above.
-- [ ] Escape text content and asset paths safely.
-- [ ] Ensure generated preview contains stable timeline metadata for debugging.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests that generate `index.html` from a fixture `RenderTimeline`.
+- [x] Implement HTML generation for image/video/text/effect/transition tracks using the mapping rules specified above.
+- [x] Escape text content and asset paths safely.
+- [x] Ensure generated preview contains stable timeline metadata for debugging.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(render): convert timeline to hyperframes preview`.
 
 ## Task 3: HyperFrames Tool
@@ -136,12 +136,12 @@ Do not modify:
 - Create: `services/worker/app/tools/hyperframes_tool.py`
 - Create: `services/worker/tests/test_hyperframes_tool.py`
 
-- [ ] Write failing tests with a fake command runner for CLI present and missing CLI cases.
-- [ ] Implement `HyperFramesTool.render(composition_dir, output_path)`.
-- [ ] Return retryable error when CLI is unavailable.
-- [ ] Do not delete preview artifacts when MP4 render fails.
-- [ ] Persist `render-log.json` for both success and failure.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests with a fake command runner for CLI present and missing CLI cases.
+- [x] Implement `HyperFramesTool.render(composition_dir, output_path)`.
+- [x] Return retryable error when CLI is unavailable.
+- [x] Do not delete preview artifacts when MP4 render fails.
+- [x] Persist `render-log.json` for both success and failure.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(render): add hyperframes cli adapter`.
 
 ## Task 4: Render Pipeline
@@ -150,11 +150,11 @@ Do not modify:
 - Create: `services/worker/app/render/hyperframes_backend.py`
 - Create: `services/worker/tests/test_hyperframes_backend.py`
 
-- [ ] Write failing tests for rendering a timeline fixture to `preview.html`.
-- [ ] Implement backend that writes composition files under `storage/projects/{projectId}/renders/{generationId}`.
-- [ ] Emit progress stages: `building_timeline`, `rendering`, `completed`.
-- [ ] Register preview and MP4 artifacts when available.
-- [ ] Run `python -m pytest`.
+- [x] Write failing tests for rendering a timeline fixture to `preview.html`.
+- [x] Implement backend that writes composition files under `storage/projects/{projectId}/renders/{generationId}`.
+- [x] Emit progress stages: `building_timeline`, `rendering`, `completed`.
+- [x] Register preview and MP4 artifacts when available.
+- [x] Run `python -m pytest`.
 - [ ] Commit: `feat(render): add hyperframes render backend`.
 
 ## Acceptance Criteria
