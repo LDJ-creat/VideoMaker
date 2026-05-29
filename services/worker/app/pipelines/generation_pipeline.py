@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agents.content_strategist import run_content_strategist
 from app.agents.gap_planner import run_gap_planner
+from app.pipelines.asset_understanding import run_asset_understanding
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
 from app.agents.slot_mapper import run_slot_mapper
@@ -119,17 +119,21 @@ def run_agent_generation(
     runner: AgentRunner,
     *,
     structure: dict[str, Any],
-    inventory_baseline: dict[str, Any],
+    inventory_baseline: dict[str, Any] | None = None,
+    inventory: dict[str, Any] | None = None,
     context: TaskContext,
     generation_id: str,
     variant: str = "default",
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    inventory = run_content_strategist(
-        runner,
-        inventory=inventory_baseline,
-        context=context,
-        generation_id=generation_id,
-    )
+    if inventory is None:
+        if inventory_baseline is None:
+            raise ValueError("inventory_baseline or inventory is required")
+        inventory = run_asset_understanding(
+            runner,
+            inventory=inventory_baseline,
+            context=context,
+            generation_id=generation_id,
+        )
     slot_matches = run_slot_mapper(
         runner,
         structure=structure,
