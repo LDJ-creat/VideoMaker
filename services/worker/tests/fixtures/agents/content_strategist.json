@@ -1,32 +1,17 @@
 {
-  "id": "inventory-project-1",
-  "projectId": "project-1",
-  "userBrief": {
-    "topic": "便携果汁机",
-    "sellingPoints": [
-      "便携"
-    ],
-    "mustMention": [],
-    "avoidMention": []
-  },
-  "assets": [
-    {
-      "id": "asset-text-1",
-      "type": "text",
-      "uri": "storage://caption.txt",
-      "description": "caption",
-      "tags": [
-        "卖点"
-      ]
-    }
-  ],
   "extractedFacts": [
     {
       "id": "fact-1",
       "kind": "selling_point",
       "text": "便携",
       "source": "brief.sellingPoints"
+    },
+    {
+      "id": "fact-2",
+      "kind": "selling_point",
+      "text": "快",
+      "source": "agent.enrichment"
     }
   ],
-  "candidateMoments": []
+  "toneSummary": "实用、直接"
 }
