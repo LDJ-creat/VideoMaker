@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectWorkbench } from "@/features/workbench/ProjectWorkbench";
 import {
   fixtureEditIntent,
+  fixtureAgentRuns,
   fixtureGenerationPlan,
   fixtureGenerationPlanHighClick,
   fixtureGenerationPlanRevised,
+  fixtureModelGatewayStatus,
   fixtureMultiVariantGenerations,
   fixtureTaskEvent,
   fixtureVideoStructure,
@@ -50,7 +52,11 @@ vi.mock("@/features/tasks/useMultiTaskProgress", () => ({
       events: {},
       modes: {},
       sseFailureCount: 0,
+      sseFailureCounts: {},
+      byTaskId: {},
       error: null,
+      allTerminal: false,
+      anyFailed: false,
     };
   },
 }));
@@ -352,5 +358,41 @@ describe("ProjectWorkbench", () => {
       "开头更抓人",
     );
     expect(screen.getByTestId("edit-intent-list")).toBeInTheDocument();
+  });
+
+  it("shows model gateway status panel on mount", async () => {
+    vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
+      data: fixtureModelGatewayStatus,
+      meta: { dataSource: "fixture" },
+    });
+
+    render(<ProjectWorkbench projectId="proj-test" />);
+
+    expect(await screen.findByTestId("model-gateway-status-panel")).toBeInTheDocument();
+    expect(screen.getByText("Fixture 模式")).toBeInTheDocument();
+  });
+
+  it("loads agent runs from result panel", async () => {
+    vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
+      data: fixtureModelGatewayStatus,
+      meta: { dataSource: "fixture" },
+    });
+    const getAgentRunsSpy = vi.spyOn(apiClient, "getGenerationAgentRuns").mockResolvedValue({
+      data: { runs: fixtureAgentRuns },
+      meta: { dataSource: "fixture" },
+    });
+
+    const user = userEvent.setup();
+    render(<ProjectWorkbench projectId="proj-test" />);
+
+    await user.click(screen.getByRole("button", { name: "加载演示数据" }));
+    await user.click(screen.getByRole("button", { name: "结果" }));
+    await user.click(screen.getByTestId("agent-runs-trigger"));
+
+    await waitFor(() =>
+      expect(getAgentRunsSpy).toHaveBeenCalledWith(fixtureGenerationPlan.id),
+    );
+    expect(screen.getByTestId("agent-runs-drawer")).toBeInTheDocument();
+    expect(screen.getByText("structure_analyst")).toBeInTheDocument();
   });
 });

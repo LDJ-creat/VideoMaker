@@ -37,6 +37,8 @@ import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
 import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
+import { ModelGatewayStatusPanel } from "@/features/settings/ModelGatewayStatusPanel";
+import { AgentRunsDrawer } from "@/features/observability/AgentRunsDrawer";
 import {
   fixtureGapReport,
   fixtureGenerationPlan,
@@ -442,7 +444,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const {
     events: generationEvents,
     modes: generationModes,
-    sseFailureCount: generationSseFailureCount,
+    sseFailureCounts: generationSseFailureCounts,
     error: generationProgressError,
   } = useMultiTaskProgress({
     tasks: generationProgressTasks,
@@ -667,6 +669,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     <div className="space-y-6">
       <DataSourceBanner />
 
+      <ModelGatewayStatusPanel />
+
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">项目工作台</h1>
@@ -778,13 +782,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           <div className="lg:col-span-2 space-y-4">
             {isGenerationProgress ? (
               <MultiTaskProgressPanel
+                projectId={projectId}
                 tasks={activeGenerations.map((entry) => ({
                   taskId: entry.taskId,
                   label: entry.label,
                   event: generationEvents[entry.taskId] ?? null,
                   mode: generationModes[entry.taskId] ?? "idle",
                 }))}
-                sseFailureCount={generationSseFailureCount}
+                sseFailureCounts={generationSseFailureCounts}
                 error={generationProgressError}
                 retryBusy={busy}
                 retryLabel="重试生成计划"
@@ -792,6 +797,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               />
             ) : (
               <TaskProgressPanel
+                projectId={projectId}
                 event={event}
                 mode={mode}
                 sseFailureCount={sseFailureCount}
@@ -918,6 +924,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 busy={busy}
                 disabled={!activeResultGenerationId}
               />
+            )}
+
+            {activeResultGenerationId && (
+              <AgentRunsDrawer generationId={activeResultGenerationId} />
             )}
           </div>
         )}
