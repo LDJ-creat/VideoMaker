@@ -35,7 +35,7 @@ def test_select_provider_weak_match_asset_reuse(score: float, expected: str) -> 
     slot = _slot(role="usage_scene")
     weak = {"slotId": "slot-1", "matchScore": score, "matchReason": "弱匹配"}
     assert (
-        select_provider(slot, weak_match=weak, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=weak, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == expected
     )
 
@@ -44,7 +44,7 @@ def test_select_provider_weak_match_below_threshold_uses_visual_rules() -> None:
     slot = _slot(role="hook_text", required=["text", "packaging"])
     weak = {"slotId": "slot-1", "matchScore": 0.2, "matchReason": "差"}
     assert (
-        select_provider(slot, weak_match=weak, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=weak, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == "hyperframes_material"
     )
 
@@ -56,7 +56,7 @@ def test_select_provider_weak_match_below_threshold_uses_visual_rules() -> None:
 def test_select_provider_packaging_roles(role: str) -> None:
     slot = _slot(role=role, required=["text", "packaging"])
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == "hyperframes_material"
     )
 
@@ -64,14 +64,14 @@ def test_select_provider_packaging_roles(role: str) -> None:
 def test_select_provider_required_packaging_type() -> None:
     slot = _slot(role="proof", required=["packaging", "text"])
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == "hyperframes_material"
     )
 
 
 def test_select_provider_video_generation_when_quota_and_must_have_high() -> None:
     slot = _slot(role="hook_visual", importance="must_have")
-    quota = VideoGenQuota(remaining=1)
+    quota = VideoGenQuota(max_calls=1)
     provider = select_provider(
         slot,
         weak_match=None,
@@ -80,7 +80,7 @@ def test_select_provider_video_generation_when_quota_and_must_have_high() -> Non
         impact="high",
     )
     assert provider == "video_generation"
-    assert quota.remaining == 0
+    assert quota.used == 0
 
 
 def test_select_provider_image_when_quota_exhausted() -> None:
@@ -89,7 +89,7 @@ def test_select_provider_image_when_quota_exhausted() -> None:
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(remaining=0),
+            quota=VideoGenQuota(max_calls=1, used=1),
             variant_overrides={},
             impact="high",
         )
@@ -103,7 +103,7 @@ def test_select_provider_image_when_impact_not_high() -> None:
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(remaining=1),
+            quota=VideoGenQuota(max_calls=1),
             variant_overrides={},
             impact="medium",
         )
@@ -121,7 +121,7 @@ def test_select_provider_high_conversion_skips_video_even_with_quota() -> None:
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(remaining=1),
+            quota=VideoGenQuota(max_calls=1),
             variant_overrides=overrides,
             impact="high",
         )
@@ -132,7 +132,7 @@ def test_select_provider_high_conversion_skips_video_even_with_quota() -> None:
 def test_select_provider_tts_for_spoken_script() -> None:
     slot = _slot(role="proof", script_intent="需要口播解说产品卖点")
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == "tts"
     )
 
@@ -140,7 +140,7 @@ def test_select_provider_tts_for_spoken_script() -> None:
 def test_select_provider_default_hyperframes() -> None:
     slot = _slot(role="proof", script_intent="展示对比")
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(remaining=1), variant_overrides={})
+        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
         == "hyperframes_material"
     )
 
@@ -150,7 +150,7 @@ def test_select_provider_chain_adds_ken_burns_for_motion_image() -> None:
     chain = select_provider_chain(
         slot,
         weak_match=None,
-        quota=VideoGenQuota(remaining=0),
+        quota=VideoGenQuota(max_calls=1, used=1),
         variant_overrides={},
         impact="high",
     )
@@ -160,4 +160,5 @@ def test_select_provider_chain_adds_ken_burns_for_motion_image() -> None:
 def test_video_gen_quota_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIDEOMAKER_VIDEO_GEN_QUOTA", "2")
     quota = VideoGenQuota.from_env()
+    assert quota.max_calls == 2
     assert quota.remaining == 2

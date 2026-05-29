@@ -1,38 +1,21 @@
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
 from typing import Any
+
+from app.runtime.video_gen_quota import VideoGenQuota
+
+__all__ = [
+    "VideoGenQuota",
+    "select_provider",
+    "select_provider_chain",
+    "provider_rationale",
+    "slot_needs_spoken_narration",
+    "slot_needs_motion",
+]
 
 PACKAGING_ROLES = frozenset({"hook_text", "benefit_card", "comparison"})
 VISUAL_ROLES = frozenset({"hook_visual", "product_closeup", "usage_scene"})
 VO_KEYWORDS = ("voiceover", "narration", "narrated", "口播", "旁白", "解说", "配音", "spoken")
-
-
-@dataclass
-class VideoGenQuota:
-    """Stub quota tracker; full enforcement deferred to aigc-material plan."""
-
-    remaining: int
-
-    @classmethod
-    def from_env(cls) -> VideoGenQuota:
-        raw = os.getenv("VIDEOMAKER_VIDEO_GEN_QUOTA", "1")
-        try:
-            remaining = max(0, int(raw))
-        except ValueError:
-            remaining = 1
-        return cls(remaining=remaining)
-
-    def consume(self) -> None:
-        if self.remaining > 0:
-            self.remaining -= 1
-
-    def try_consume_video(self) -> bool:
-        if self.remaining <= 0:
-            return False
-        self.consume()
-        return True
 
 
 def slot_needs_spoken_narration(slot: dict[str, Any]) -> bool:
@@ -70,15 +53,14 @@ def select_provider(
         prefer = list(overrides.get("preferProviders") or [])
 
         can_video = (
-            quota.remaining > 0
+            quota.has_video_quota()
             and slot.get("importance") == "must_have"
             and impact == "high"
         )
         if can_video:
             if video_priority == "low" and "image_generation" in prefer:
                 return "image_generation"
-            if quota.try_consume_video():
-                return "video_generation"
+            return "video_generation"
         return "image_generation"
 
     if slot_needs_spoken_narration(slot):
