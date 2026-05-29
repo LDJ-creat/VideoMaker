@@ -12,6 +12,11 @@ import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GapReportView } from "@/features/gap-report/GapReportView";
+import {
+  getDefaultSelectedVariantIds,
+  VariantPicker,
+} from "@/features/generation-variants/VariantPicker";
+import { VariantTabs } from "@/features/generation-variants/VariantTabs";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import {
@@ -21,12 +26,15 @@ import {
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
+import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
 import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import {
   fixtureGapReport,
   fixtureGenerationPlan,
+  fixtureGenerationPlanHighClick,
+  fixtureMultiVariantGenerations,
   fixtureVideoStructure,
 } from "@/fixtures";
 import type { DataSource } from "@/lib/api-types";
@@ -110,6 +118,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [gapApiPending, setGapApiPending] = useState(false);
+  const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>(
+    getDefaultSelectedVariantIds(),
+  );
+  const [highlightedSlotIds, setHighlightedSlotIds] = useState<string[]>([]);
+  const [variantPlans, setVariantPlans] = useState<
+    Record<string, GenerationPlan>
+  >({});
+  const [activeVariantGenerationId, setActiveVariantGenerationId] = useState<
+    string | null
+  >(null);
 
   const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
     setDataLoading(true);
@@ -302,13 +320,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         );
         return;
       }
-      const { data } = await createGenerationPlan(projectId, brief);
-      setGenerationId(data.generationId);
-      if (data.taskId) {
-        setTaskId(data.taskId);
-      }
-      if (data.gapReport) {
-        setGapReport(data.gapReport);
+      const { data } = await createGenerationPlan(projectId, {
+        brief,
+        variants: selectedVariantIds,
+      });
+      const primary = data.generations[0];
+      if (primary) {
+        setGenerationId(primary.generationId);
+        if (primary.taskId) {
+          setTaskId(primary.taskId);
+        }
       }
       setPanel("progress");
     } catch (err) {
@@ -316,12 +337,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     } finally {
       setBusy(false);
     }
-  }, [projectId]);
+  }, [projectId, selectedVariantIds]);
 
   const loadDemoFixtures = useCallback(() => {
     setStructure(fixtureVideoStructure);
     setGapReport(fixtureGapReport);
     setGenerationPlan(fixtureGenerationPlan);
+    setVariantPlans({
+      [fixtureGenerationPlan.id]: fixtureGenerationPlan,
+      [fixtureGenerationPlanHighClick.id]: fixtureGenerationPlanHighClick,
+    });
+    setActiveVariantGenerationId(fixtureGenerationPlan.id);
+    setGenerationId(fixtureGenerationPlan.id);
     setDataSource("fixture");
     setGapApiPending(true);
     setDataError(null);
@@ -450,6 +477,13 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 onSaved={(brief) => setSavedBrief(brief)}
               />
             </div>
+            <div className="lg:col-span-2">
+              <VariantPicker
+                selectedVariantIds={selectedVariantIds}
+                onChange={setSelectedVariantIds}
+                disabled={busy}
+              />
+            </div>
           </>
         )}
 
@@ -474,9 +508,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         )}
 
         {panel === "analysis" && (
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             {structure ? (
-              <SampleAnalysisView structure={structure} />
+              <>
+                <StructureEvidencePanel
+                  structure={structure}
+                  highlightedSlotIds={highlightedSlotIds}
+                  onHighlightSlot={(slotId) => setHighlightedSlotIds([slotId])}
+                  analysisStage={
+                    lastAction === "analysis" ? event?.stage : undefined
+                  }
+                />
+                <SampleAnalysisView structure={structure} />
+              </>
             ) : (
               <EmptyPanel message="暂无分析结果，请先完成样例分析或加载演示数据。" />
             )}
@@ -486,7 +530,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         {panel === "structure" && (
           <div className="lg:col-span-2">
             {structure ? (
-              <StructureSlotBoard structure={structure} />
+              <StructureSlotBoard
+                structure={structure}
+                highlightedSlotIds={highlightedSlotIds}
+              />
             ) : (
               <EmptyPanel message="暂无结构槽数据。" />
             )}
@@ -503,6 +550,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             {gapReport ? (
               <GapReportView
                 report={gapReport}
+                completionActions={generationPlan?.completionActions}
                 onUploadAsset={() => setPanel("input")}
                 onGenerate={() => setPanel("result")}
               />
@@ -524,7 +572,20 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "result" && (
           <div className="lg:col-span-2">
-            {generationPlan ? (
+            {Object.keys(variantPlans).length > 1 ? (
+              <VariantTabs
+                tabs={fixtureMultiVariantGenerations.map((entry) => ({
+                  generationId: entry.generationId,
+                  variant: entry.variant,
+                  label: entry.label,
+                  plan: variantPlans[entry.generationId] ?? null,
+                }))}
+                activeGenerationId={
+                  activeVariantGenerationId ?? fixtureGenerationPlan.id
+                }
+                onActiveChange={setActiveVariantGenerationId}
+              />
+            ) : generationPlan ? (
               <GenerationResultView plan={generationPlan} showTimeline />
             ) : (
               <EmptyPanel message="暂无生成结果。" />
