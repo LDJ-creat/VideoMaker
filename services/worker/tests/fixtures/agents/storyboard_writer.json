@@ -1,0 +1,49 @@
+{
+  "storyboard": [
+    {
+      "id": "scene-1",
+      "slotId": "seg-hook-hook_visual-1",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "visual": "hook 使用 效率 提升 方便",
+      "script": "hook 使用 效率 提升 方便",
+      "source": "text_completion"
+    },
+    {
+      "id": "scene-2",
+      "slotId": "seg-hook-hook_text-2",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "visual": "hook 使用 效率 提升 方便",
+      "script": "hook 使用 效率 提升 方便",
+      "source": "packaging_completion"
+    },
+    {
+      "id": "scene-3",
+      "slotId": "seg-2-benefit_card-1",
+      "startSec": 3.0,
+      "endSec": 10.5,
+      "visual": "benefit 真实 使用 效率 提升",
+      "script": "benefit 真实 使用 效率 提升",
+      "source": "packaging_completion"
+    },
+    {
+      "id": "scene-4",
+      "slotId": "seg-3-proof-1",
+      "startSec": 10.5,
+      "endSec": 22.5,
+      "visual": "proof 真实 使用 场景 对比",
+      "script": "proof 真实 使用 场景 对比",
+      "source": "asset_reuse"
+    },
+    {
+      "id": "scene-5",
+      "slotId": "seg-cta-cta-1",
+      "startSec": 25.5,
+      "endSec": 30.0,
+      "visual": "cta 购买 点击",
+      "script": "cta 购买 点击",
+      "source": "text_completion"
+    }
+  ]
+}
