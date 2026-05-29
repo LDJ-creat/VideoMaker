@@ -208,49 +208,49 @@
     {
       "targetId": "seg-hook",
       "source": "asr",
-      "summary": "太贵又麻烦？这个方法让你更快搞定。 我们实测后发现效率提升，使用起来很方便。",
+      "summary": "0.0-3.0s: hook emphasizes speed and convenience (paraphrased)",
       "confidence": 0.8
     },
     {
       "targetId": "seg-hook",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries",
+      "summary": "3 overlapping shot boundaries at 0.0-3.0s",
       "confidence": 0.75
     },
     {
       "targetId": "seg-2",
       "source": "asr",
-      "summary": "我们实测后发现效率提升，使用起来很方便。 这里展示真实使用场景和结果对比。",
+      "summary": "3.0-10.5s: benefit and efficiency claims (paraphrased)",
       "confidence": 0.8
     },
     {
       "targetId": "seg-2",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries",
+      "summary": "3 overlapping shot boundaries at 3.0-10.5s",
       "confidence": 0.75
     },
     {
       "targetId": "seg-3",
       "source": "asr",
-      "summary": "这里展示真实使用场景和结果对比。 点击下单了解更多，马上购买。",
+      "summary": "10.5-22.5s: proof scenes and comparison (paraphrased)",
       "confidence": 0.8
     },
     {
       "targetId": "seg-3",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries",
+      "summary": "3 overlapping shot boundaries at 10.5-22.5s",
       "confidence": 0.75
     },
     {
       "targetId": "seg-cta",
       "source": "asr",
-      "summary": "点击下单了解更多，马上购买。",
+      "summary": "25.5-30.0s: purchase CTA (paraphrased)",
       "confidence": 0.8
     },
     {
       "targetId": "seg-cta",
       "source": "shot_detection",
-      "summary": "1 overlapping shot boundaries",
+      "summary": "1 overlapping shot boundaries at 25.5-30.0s",
       "confidence": 0.75
     },
     {
