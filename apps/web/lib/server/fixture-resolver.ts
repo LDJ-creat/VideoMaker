@@ -225,7 +225,20 @@ export function resolveFixture(
   ) {
     return {
       status: 200,
-      body: { ...fixtureGenerationPlan, gapReport: fixtureGapReport },
+      body: {
+        generations: fixtureMultiVariantGenerations.map((entry) => ({
+          generationId: entry.generationId,
+          variant: entry.variant,
+          plan: {
+            ...(entry.variant === "high_click"
+              ? fixtureGenerationPlanHighClick
+              : fixtureGenerationPlan),
+            id: entry.generationId,
+            variant: entry.variant,
+            gapReport: fixtureGapReport,
+          },
+        })),
+      },
     };
   }
 

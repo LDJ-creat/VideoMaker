@@ -1,0 +1,18 @@
+{
+  "packagingPlan": {
+    "styleSummary": "Visual density: low",
+    "subtitle": {
+      "preset": "clean"
+    },
+    "titleCards": [
+      {
+        "preset": "hook"
+      }
+    ],
+    "transitions": [
+      {
+        "preset": "quick-cut"
+      }
+    ]
+  }
+}

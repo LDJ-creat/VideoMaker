@@ -1,0 +1,17 @@
+{
+  "extractedFacts": [
+    {
+      "id": "fact-1",
+      "kind": "selling_point",
+      "text": "便携",
+      "source": "brief.sellingPoints"
+    },
+    {
+      "id": "fact-2",
+      "kind": "selling_point",
+      "text": "快",
+      "source": "agent.enrichment"
+    }
+  ],
+  "toneSummary": "实用、直接"
+}

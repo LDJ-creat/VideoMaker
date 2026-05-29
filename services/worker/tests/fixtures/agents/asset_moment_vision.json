@@ -1,0 +1,10 @@
+{
+  "analyses": [
+    {
+      "momentId": "moment-asset-video-1-0-1500",
+      "visualTags": ["product", "close-up"],
+      "suggestedSegmentRoles": ["hook"],
+      "description": "手持产品特写"
+    }
+  ]
+}

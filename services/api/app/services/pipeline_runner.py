@@ -421,6 +421,7 @@ class PipelineRunner:
         user_brief: dict[str, Any],
         assets: list[dict[str, Any]],
         resume: bool = False,
+        variant: str = "default",
     ) -> None:
         def job() -> None:
             try:
@@ -442,6 +443,7 @@ class PipelineRunner:
                     assets=assets,
                     emit=self._make_emit(task_id),
                     resume=resume,
+                    variant=variant,
                 )
                 if result.get("ok"):
                     self.project_store.update_generation(
@@ -525,6 +527,7 @@ class PipelineRunner:
                 "avoidMention": [],
             }
             assets = self.project_store.list_assets(generation["projectId"])
+            variant = str(generation.get("variant") or (generation.get("plan") or {}).get("variant") or "default")
             self.start_generation(
                 project_id=generation["projectId"],
                 generation_id=generation["id"],
@@ -533,6 +536,7 @@ class PipelineRunner:
                 user_brief=brief,
                 assets=assets,
                 resume=True,
+                variant=variant,
             )
             return updated
 

@@ -7,7 +7,7 @@ import type {
   TaskEvent,
   VideoStructure,
 } from "@videomaker/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
@@ -17,22 +17,24 @@ import {
   getDefaultSelectedVariantIds,
   VariantPicker,
 } from "@/features/generation-variants/VariantPicker";
-import { VariantTabs } from "@/features/generation-variants/VariantTabs";
 import { VariantCompareView } from "@/features/generation-variants/VariantCompareView";
+import { VariantTabs } from "@/features/generation-variants/VariantTabs";
+import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { EditIntentList } from "@/features/nl-revise/EditIntentList";
 import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
 import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
-import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
+import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import {
   BriefEditor,
   type BriefEditorHandle,
 } from "@/features/project-input/BriefEditor";
-import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
+import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
+import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
 import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import {
@@ -45,7 +47,7 @@ import {
 import type { DataSource } from "@/lib/api-types";
 import type {
   ActiveSampleSummary,
-  GenerationPlanEntry,
+  LatestGenerationsResponse,
   ProjectAsset,
   UserBriefRequest,
 } from "@/lib/apiClient";
@@ -54,8 +56,9 @@ import {
   getActiveSample,
   getBrief,
   getGeneration,
-  getLatestGeneration,
+  getLatestGenerations,
   getSampleStructure,
+  getVariantLabel,
   listProjectAssets,
   listProjectSamples,
   retryTask,
@@ -94,9 +97,55 @@ function emptyBrief(): UserBriefRequest {
   return { sellingPoints: [], mustMention: [], avoidMention: [] };
 }
 
+type ActiveGeneration = {
+  generationId: string;
+  variant: string;
+  taskId: string;
+  label: string;
+};
+
 type ProjectWorkbenchProps = {
   projectId: string;
 };
+
+function applyLatestGenerations(
+  data: LatestGenerationsResponse,
+  setters: {
+    setVariantPlans: (plans: Record<string, GenerationPlan>) => void;
+    setGenerationId: (id: string | null) => void;
+    setGenerationPlan: (plan: GenerationPlan | null) => void;
+    setActiveVariantGenerationId: (id: string | null) => void;
+    setGapReport: (report: GapReport | null) => void;
+    setGapApiPending: (pending: boolean) => void;
+    setActiveGenerations: (entries: ActiveGeneration[]) => void;
+  },
+) {
+  const plans: Record<string, GenerationPlan> = {};
+  for (const entry of data.generations) {
+    plans[entry.generationId] = entry.plan;
+  }
+  setters.setVariantPlans(plans);
+  setters.setActiveGenerations(
+    data.generations.map((entry) => ({
+      generationId: entry.generationId,
+      variant: entry.variant,
+      taskId: "",
+      label: getVariantLabel(entry.variant),
+    })),
+  );
+  const primary = data.generations[0];
+  if (!primary) return;
+  setters.setGenerationId(primary.generationId);
+  setters.setGenerationPlan(primary.plan);
+  setters.setActiveVariantGenerationId(primary.generationId);
+  if (primary.plan.gapReport) {
+    setters.setGapReport(primary.plan.gapReport);
+    setters.setGapApiPending(false);
+  } else {
+    setters.setGapReport(null);
+    setters.setGapApiPending(false);
+  }
+}
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const briefEditorRef = useRef<BriefEditorHandle>(null);
@@ -129,15 +178,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     getDefaultSelectedVariantIds(),
   );
   const [highlightedSlotIds, setHighlightedSlotIds] = useState<string[]>([]);
-  const [activeGenerations, setActiveGenerations] = useState<GenerationPlanEntry[]>(
-    [],
-  );
   const [variantPlans, setVariantPlans] = useState<
     Record<string, GenerationPlan>
   >({});
   const [activeVariantGenerationId, setActiveVariantGenerationId] = useState<
     string | null
   >(null);
+  const [activeGenerations, setActiveGenerations] = useState<ActiveGeneration[]>(
+    [],
+  );
   const [reviseIntents, setReviseIntents] = useState<EditIntentItem[] | null>(
     null,
   );
@@ -198,17 +247,17 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   const loadProjectResults = useCallback(async () => {
     try {
-      const { data, meta } = await getLatestGeneration(projectId);
-      setGenerationId(data.id);
-      setGenerationPlan(data);
+      const { data, meta } = await getLatestGenerations(projectId);
+      applyLatestGenerations(data, {
+        setVariantPlans,
+        setGenerationId,
+        setGenerationPlan,
+        setActiveVariantGenerationId,
+        setGapReport,
+        setGapApiPending,
+        setActiveGenerations,
+      });
       setDataSource(meta.dataSource);
-      if (data.gapReport) {
-        setGapReport(data.gapReport);
-        setGapApiPending(false);
-      } else {
-        setGapReport(null);
-        setGapApiPending(false);
-      }
     } catch {
       /* no completed generation yet */
     }
@@ -219,7 +268,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     if (saved?.generationId) setGenerationId(saved.generationId);
     if (saved?.lastAction) setLastAction(saved.lastAction);
     if (saved?.activeGenerations?.length) {
-      setActiveGenerations(saved.activeGenerations);
+      setActiveGenerations(saved.activeGenerations as ActiveGeneration[]);
     }
     if (saved?.activeVariantGenerationId) {
       setActiveVariantGenerationId(saved.activeVariantGenerationId);
@@ -265,61 +314,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     preRevisePlan,
   ]);
 
-  const loadGenerationResults = useCallback(async (currentGenerationId: string) => {
-    setDataLoading(true);
-    setDataError(null);
-    setGapApiPending(false);
-    try {
-      const { data, meta } = await getGeneration(currentGenerationId);
-      setGenerationPlan(data);
-      setVariantPlans((prev) => ({ ...prev, [data.id]: data }));
-      setDataSource(meta.dataSource);
-      if (data.gapReport) {
-        setGapReport(data.gapReport);
-      } else if (meta.dataSource === "fixture") {
-        setGapReport(fixtureGapReport);
-        setGapApiPending(true);
-      } else {
-        setGapReport(null);
-        setGapApiPending(true);
-      }
-    } catch (err) {
-      setDataError(getErrorMessage(err));
-    } finally {
-      setDataLoading(false);
-    }
-  }, []);
-
-  const loadAllGenerationResults = useCallback(
-    async (entries: GenerationPlanEntry[]) => {
-      if (entries.length === 0) return;
-
+  const loadGenerationIntoVariants = useCallback(
+    async (currentGenerationId: string) => {
       setDataLoading(true);
       setDataError(null);
       setGapApiPending(false);
       try {
-        const results = await Promise.all(
-          entries.map((entry) => getGeneration(entry.generationId)),
-        );
-        const plans: Record<string, GenerationPlan> = {};
-        for (let index = 0; index < entries.length; index += 1) {
-          plans[entries[index]!.generationId] = results[index]!.data;
-        }
-        setVariantPlans(plans);
-        setDataSource(results[0]!.meta.dataSource);
-
-        const primaryId = entries[0]!.generationId;
-        const primaryPlan = plans[primaryId];
-        if (primaryPlan) {
-          setGenerationId(primaryId);
-          setGenerationPlan(primaryPlan);
-          setActiveVariantGenerationId(primaryId);
-        }
-
-        const primaryGap = results[0]!.data.gapReport;
-        if (primaryGap) {
-          setGapReport(primaryGap);
-        } else if (results[0]!.meta.dataSource === "fixture") {
+        const { data, meta } = await getGeneration(currentGenerationId);
+        setGenerationPlan(data);
+        setVariantPlans((prev) => ({ ...prev, [data.id]: data }));
+        setDataSource(meta.dataSource);
+        if (data.gapReport) {
+          setGapReport(data.gapReport);
+        } else if (meta.dataSource === "fixture") {
           setGapReport(fixtureGapReport);
           setGapApiPending(true);
         } else {
@@ -335,52 +342,120 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [],
   );
 
-  const handleTerminal = useCallback(
+  const loadGenerationResults = useCallback(
+    async (currentGenerationId: string) => {
+      setGenerationId(currentGenerationId);
+      setActiveVariantGenerationId(currentGenerationId);
+      await loadGenerationIntoVariants(currentGenerationId);
+    },
+    [loadGenerationIntoVariants],
+  );
+
+  const handleAnalysisTerminal = useCallback(
     (event: TaskEvent) => {
       if (event.status === "failed" || event.status === "cancelled") {
         setPanel("progress");
         return;
       }
       if (event.status !== "succeeded") return;
-
       if (lastAction === "analysis" && sampleId) {
         void loadAnalysisResults(sampleId);
         setPanel("analysis");
-      } else if (lastAction === "generation") {
-        if (activeGenerations.length > 1) {
-          void loadAllGenerationResults(activeGenerations);
-        } else if (generationId) {
-          void loadGenerationResults(generationId);
+      }
+    },
+    [lastAction, loadAnalysisResults, sampleId],
+  );
+
+  const handleGenerationTaskTerminal = useCallback(
+    (event: TaskEvent) => {
+      if (event.status !== "succeeded") {
+        setPanel("progress");
+        return;
+      }
+      const match = activeGenerations.find((entry) => entry.taskId === event.taskId);
+      if (match) {
+        void loadGenerationIntoVariants(match.generationId);
+      }
+    },
+    [activeGenerations, loadGenerationIntoVariants],
+  );
+
+  const handleAllGenerationTerminal = useCallback(
+    (events: Record<string, TaskEvent>) => {
+      const statuses = Object.values(events).map((entry) => entry.status);
+      if (statuses.some((status) => status === "failed" || status === "cancelled")) {
+        setPanel("progress");
+        return;
+      }
+      if (statuses.every((status) => status === "succeeded")) {
+        const primary = activeGenerations[0];
+        if (primary) {
+          setGenerationId(primary.generationId);
+          setActiveVariantGenerationId(primary.generationId);
         }
-        setPanel("result");
-      } else if (lastAction === "revise" && generationId) {
-        void loadGenerationResults(generationId);
         setPanel("result");
       }
     },
-    [
-      activeGenerations,
-      generationId,
-      lastAction,
-      loadAllGenerationResults,
-      loadAnalysisResults,
-      loadGenerationResults,
-      sampleId,
-    ],
+    [activeGenerations],
+  );
+
+  const handleTerminal = useCallback(
+    (event: TaskEvent) => {
+      if (lastAction === "generation") return;
+      if (lastAction === "revise") {
+        if (event.status === "failed" || event.status === "cancelled") {
+          setPanel("progress");
+          return;
+        }
+        if (event.status === "succeeded" && generationId) {
+          void loadGenerationResults(generationId);
+          setPanel("result");
+        }
+        return;
+      }
+      handleAnalysisTerminal(event);
+    },
+    [generationId, handleAnalysisTerminal, lastAction, loadGenerationResults],
   );
 
   const [progressWatchKey, setProgressWatchKey] = useState(0);
 
+  const isGenerationProgress =
+    lastAction === "generation" && activeGenerations.length > 0;
+
   const { event, mode, sseFailureCount, error } = useTaskProgress({
-    taskId,
-    enabled: Boolean(taskId),
+    taskId: isGenerationProgress ? null : taskId,
+    enabled: !isGenerationProgress && Boolean(taskId),
     watchKey: progressWatchKey,
     onTerminal: handleTerminal,
+  });
+
+  const generationProgressTasks = useMemo(
+    () =>
+      activeGenerations.map((entry) => ({
+        taskId: entry.taskId,
+        label: entry.label,
+      })),
+    [activeGenerations],
+  );
+
+  const {
+    events: generationEvents,
+    modes: generationModes,
+    sseFailureCount: generationSseFailureCount,
+    error: generationProgressError,
+  } = useMultiTaskProgress({
+    tasks: generationProgressTasks,
+    enabled: isGenerationProgress,
+    watchKey: progressWatchKey,
+    onTaskTerminal: handleGenerationTaskTerminal,
+    onAllTerminal: handleAllGenerationTerminal,
   });
 
   const handleTaskStarted = useCallback(
     (nextTaskId: string, nextSampleId: string) => {
       setLastAction("analysis");
+      setActiveGenerations([]);
       setTaskId(nextTaskId);
       setSampleId(nextSampleId);
       setPanel("progress");
@@ -392,6 +467,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setBusy(true);
     setDataError(null);
     setLastAction("analysis");
+    setActiveGenerations([]);
     try {
       const { data: active } = await getActiveSample(projectId);
       setSampleId(active.id);
@@ -425,15 +501,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         brief,
         variants: selectedVariantIds,
       });
-      setActiveGenerations(data.generations);
-      const primary = data.generations[0];
-      if (primary) {
-        setGenerationId(primary.generationId);
-        setActiveVariantGenerationId(primary.generationId);
-        if (primary.taskId) {
-          setTaskId(primary.taskId);
-        }
-      }
+      const entries: ActiveGeneration[] = data.generations.map((entry) => ({
+        generationId: entry.generationId,
+        variant: entry.variant,
+        taskId: entry.taskId,
+        label: entry.label ?? getVariantLabel(entry.variant),
+      }));
+      setActiveGenerations(entries);
+      setGenerationId(entries[0]?.generationId ?? null);
+      setTaskId(null);
+      setProgressWatchKey((key) => key + 1);
       setPanel("progress");
     } catch (err) {
       setDataError(getErrorMessage(err));
@@ -484,6 +561,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   generationId: data.generationId,
                   variant: sourcePlan.variant,
                   taskId: data.taskId,
+                  label: getVariantLabel(sourcePlan.variant),
                 },
               ],
         );
@@ -493,6 +571,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           delete next[targetGenerationId];
           return next;
         });
+        setProgressWatchKey((key) => key + 1);
         setPanel("progress");
       } catch (err) {
         setDataError(getErrorMessage(err));
@@ -529,33 +608,50 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
   }, []);
 
-  const hasMultipleVariants = activeGenerations.length > 1;
-  const comparePlans = activeGenerations
-    .map((entry) => variantPlans[entry.generationId])
-    .filter((plan): plan is GenerationPlan => plan != null);
-  const variantTabs = activeGenerations.map((entry) => ({
-    generationId: entry.generationId,
-    variant: entry.variant,
-    label: entry.label,
-    plan: variantPlans[entry.generationId] ?? null,
-  }));
+  const handleRetryFailedTask = useCallback(
+    async (retryTaskId?: string) => {
+      const activeTaskId =
+        retryTaskId ??
+        (event?.status === "failed" ? (event.taskId ?? taskId) : (taskId ?? event?.taskId));
+      if (!activeTaskId) return;
+      setBusy(true);
+      setDataError(null);
+      try {
+        await retryTask(activeTaskId);
+        if (lastAction !== "generation") {
+          setTaskId(activeTaskId);
+        }
+        setProgressWatchKey((key) => key + 1);
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [event?.status, event?.taskId, lastAction, taskId],
+  );
 
-  const handleRetryFailedTask = useCallback(async () => {
-    const activeTaskId =
-      event?.status === "failed" ? (event.taskId ?? taskId) : (taskId ?? event?.taskId);
-    if (!activeTaskId) return;
-    setBusy(true);
-    setDataError(null);
-    try {
-      await retryTask(activeTaskId);
-      setTaskId(activeTaskId);
-      setProgressWatchKey((key) => key + 1);
-    } catch (err) {
-      setDataError(getErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }, [event?.status, event?.taskId, taskId]);
+  const variantResultTabs = Object.entries(variantPlans).map(
+    ([entryGenerationId, plan]) => {
+      const meta =
+        activeGenerations.find(
+          (entry) => entry.generationId === entryGenerationId,
+        ) ??
+        fixtureMultiVariantGenerations.find(
+          (entry) => entry.generationId === entryGenerationId,
+        );
+      return {
+        generationId: entryGenerationId,
+        variant: meta?.variant ?? plan.variant ?? "default",
+        label: meta?.label ?? getVariantLabel(plan.variant ?? "default"),
+        plan,
+      };
+    },
+  );
+
+  const comparePlans = variantResultTabs
+    .map((tab) => tab.plan)
+    .filter((plan): plan is GenerationPlan => plan != null);
 
   const panels: WorkbenchPanel[] = [
     "input",
@@ -628,9 +724,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             {PANEL_LABELS[key]}
           </Button>
         ))}
-        {taskId && (
+        {taskId && !isGenerationProgress && (
           <Badge variant="ai" className="ml-auto">
             任务 {taskId}
+          </Badge>
+        )}
+        {isGenerationProgress && (
+          <Badge variant="ai" className="ml-auto">
+            {activeGenerations.length} 个变体任务
           </Badge>
         )}
       </nav>
@@ -675,25 +776,41 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "progress" && (
           <div className="lg:col-span-2 space-y-4">
-            <TaskProgressPanel
-              event={event}
-              mode={mode}
-              sseFailureCount={sseFailureCount}
-              error={error}
-              retryBusy={busy}
-              retryLabel={
-                lastAction === "revise"
-                  ? "重试改片"
-                  : lastAction === "generation"
-                    ? "重试生成计划"
-                    : "重试样例分析"
-              }
-              onRetry={
-                event?.status === "failed" && (taskId || event.taskId) && !busy
-                  ? () => handleRetryFailedTask()
-                  : undefined
-              }
-            />
+            {isGenerationProgress ? (
+              <MultiTaskProgressPanel
+                tasks={activeGenerations.map((entry) => ({
+                  taskId: entry.taskId,
+                  label: entry.label,
+                  event: generationEvents[entry.taskId] ?? null,
+                  mode: generationModes[entry.taskId] ?? "idle",
+                }))}
+                sseFailureCount={generationSseFailureCount}
+                error={generationProgressError}
+                retryBusy={busy}
+                retryLabel="重试生成计划"
+                onRetry={(retryTaskId) => void handleRetryFailedTask(retryTaskId)}
+              />
+            ) : (
+              <TaskProgressPanel
+                event={event}
+                mode={mode}
+                sseFailureCount={sseFailureCount}
+                error={error}
+                retryBusy={busy}
+                retryLabel={
+                  lastAction === "revise"
+                    ? "重试改片"
+                    : lastAction === "generation"
+                      ? "重试生成计划"
+                      : "重试样例分析"
+                }
+                onRetry={
+                  event?.status === "failed" && (taskId || event.taskId) && !busy
+                    ? () => void handleRetryFailedTask()
+                    : undefined
+                }
+              />
+            )}
             {lastAction === "revise" && reviseIntents && reviseIntents.length > 0 && (
               <EditIntentList intents={reviseIntents} />
             )}
@@ -771,17 +888,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 <TimelineDiffSummary before={preRevisePlan} after={generationPlan} />
               )}
 
-            {hasMultipleVariants && comparePlans.length > 1 && (
+            {variantResultTabs.length > 1 && comparePlans.length > 1 && (
               <VariantCompareView plans={comparePlans} />
             )}
 
-            {hasMultipleVariants ? (
+            {variantResultTabs.length > 1 ? (
               <VariantTabs
-                tabs={variantTabs}
+                tabs={variantResultTabs}
                 activeGenerationId={
-                  activeVariantGenerationId ?? activeGenerations[0]!.generationId
+                  activeVariantGenerationId ??
+                  variantResultTabs[0]?.generationId ??
+                  null
                 }
-                onActiveChange={setActiveVariantGenerationId}
+                onActiveChange={(nextId) => {
+                  setActiveVariantGenerationId(nextId);
+                  const plan = variantPlans[nextId];
+                  if (plan) setGenerationPlan(plan);
+                }}
               />
             ) : generationPlan ? (
               <GenerationResultView plan={generationPlan} showTimeline />

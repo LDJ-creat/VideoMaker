@@ -7,7 +7,9 @@ Produce `StoryboardScene[]` compatible with `GenerationPlan`.
 # Constraints
 - One scene per slot.
 - Preserve slot timing unless completion requires text packaging adjustment.
-- `source` must be one of:
+- Do not copy sample video wording verbatim.
+- Output JSON only with `{ "storyboard": [...] }`.
+- Each scene `source` must be one of:
   - `user_asset`
   - `text_completion`
   - `packaging_completion`

@@ -109,6 +109,16 @@ export type GenerationResponse = GenerationPlan & {
   gapReport?: GapReport;
 };
 
+export type LatestGenerationEntry = {
+  generationId: string;
+  variant: string;
+  plan: GenerationResponse;
+};
+
+export type LatestGenerationsResponse = {
+  generations: LatestGenerationEntry[];
+};
+
 async function apiFetch<T>(
   path: string,
   init?: RequestInit,
@@ -334,10 +344,17 @@ export async function getGeneration(
   return apiFetch(`/api/generations/${generationId}`);
 }
 
+export async function getLatestGenerations(
+  projectId: string,
+): Promise<ApiResult<LatestGenerationsResponse>> {
+  return apiFetch(`/api/projects/${projectId}/generations/latest`);
+}
+
+/** @deprecated Use getLatestGenerations — kept for callers migrating from P0 single-object shape. */
 export async function getLatestGeneration(
   projectId: string,
-): Promise<ApiResult<GenerationResponse>> {
-  return apiFetch(`/api/projects/${projectId}/generations/latest`);
+): Promise<ApiResult<LatestGenerationsResponse>> {
+  return getLatestGenerations(projectId);
 }
 
 export async function getSampleStructure(

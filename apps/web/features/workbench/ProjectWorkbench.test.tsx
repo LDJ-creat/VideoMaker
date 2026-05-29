@@ -21,6 +21,10 @@ vi.mock("@/lib/project-session", () => ({
 }));
 
 let capturedOnTerminal: ((event: TaskEvent) => void) | undefined;
+let capturedOnAllGenerationTerminal:
+  | ((events: Record<string, TaskEvent>) => void)
+  | undefined;
+let capturedOnGenerationTaskTerminal: ((event: TaskEvent) => void) | undefined;
 let mockTaskEvent: TaskEvent | null = null;
 
 vi.mock("@/features/tasks/useTaskProgress", () => ({
@@ -35,9 +39,27 @@ vi.mock("@/features/tasks/useTaskProgress", () => ({
   },
 }));
 
+vi.mock("@/features/tasks/useMultiTaskProgress", () => ({
+  useMultiTaskProgress: (opts: {
+    onTaskTerminal?: (event: TaskEvent) => void;
+    onAllTerminal?: (events: Record<string, TaskEvent>) => void;
+  }) => {
+    capturedOnGenerationTaskTerminal = opts.onTaskTerminal;
+    capturedOnAllGenerationTerminal = opts.onAllTerminal;
+    return {
+      events: {},
+      modes: {},
+      sseFailureCount: 0,
+      error: null,
+    };
+  },
+}));
+
 describe("ProjectWorkbench", () => {
   beforeEach(() => {
     capturedOnTerminal = undefined;
+    capturedOnAllGenerationTerminal = undefined;
+    capturedOnGenerationTaskTerminal = undefined;
     mockTaskEvent = null;
     vi.restoreAllMocks();
     vi.spyOn(apiClient, "getBrief").mockRejectedValue(new Error("no brief"));
@@ -49,7 +71,7 @@ describe("ProjectWorkbench", () => {
       data: { samples: [] },
       meta: { dataSource: "api" },
     });
-    vi.spyOn(apiClient, "getLatestGeneration").mockRejectedValue(new Error("no generation"));
+    vi.spyOn(apiClient, "getLatestGenerations").mockRejectedValue(new Error("no generation"));
     vi.spyOn(apiClient, "getActiveSample").mockRejectedValue(new Error("no sample"));
   });
 
@@ -241,16 +263,39 @@ describe("ProjectWorkbench", () => {
     render(<ProjectWorkbench projectId="proj-test" />);
     await user.click(screen.getByRole("button", { name: "开始生成计划" }));
 
-    await waitFor(() => expect(capturedOnTerminal).toBeDefined());
+    await waitFor(() => expect(capturedOnAllGenerationTerminal).toBeDefined());
+
+    for (const entry of fixtureMultiVariantGenerations) {
+      act(() => {
+        capturedOnGenerationTaskTerminal?.({
+          ...fixtureTaskEvent,
+          taskId: entry.taskId,
+          status: "succeeded",
+          progress: 100,
+          stage: "completed",
+          message: "生成完成",
+        });
+      });
+    }
 
     act(() => {
-      capturedOnTerminal?.({
-        ...fixtureTaskEvent,
-        taskId: fixtureMultiVariantGenerations[0]!.taskId,
-        status: "succeeded",
-        progress: 100,
-        stage: "completed",
-        message: "生成完成",
+      capturedOnAllGenerationTerminal?.({
+        [fixtureMultiVariantGenerations[0]!.taskId]: {
+          ...fixtureTaskEvent,
+          taskId: fixtureMultiVariantGenerations[0]!.taskId,
+          status: "succeeded",
+          progress: 100,
+          stage: "completed",
+          message: "生成完成",
+        },
+        [fixtureMultiVariantGenerations[1]!.taskId]: {
+          ...fixtureTaskEvent,
+          taskId: fixtureMultiVariantGenerations[1]!.taskId,
+          status: "succeeded",
+          progress: 100,
+          stage: "completed",
+          message: "生成完成",
+        },
       });
     });
 

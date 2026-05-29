@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 from typing import Any, Callable
 
 from app.gateway.model_gateway import ModelGateway
@@ -47,18 +48,29 @@ class LLMTool:
         self,
         task: str,
         inputs: dict[str, Any],
-        schema_name: str,
+        schema_name: str | None,
+        *,
+        profile: str = "text",
     ) -> dict[str, Any]:
         if self.fixture_mode:
             if task not in self.fixtures:
                 raise LLMToolConfigError(f"No fixture configured for task '{task}'")
             payload = json.loads(json.dumps(self.fixtures[task], ensure_ascii=False))
             self.last_raw_output = json.dumps(payload, ensure_ascii=False)
+            if schema_name is None:
+                return payload
             return self._validate_payload(payload=payload, schema_name=schema_name)
 
         if self.gateway is not None:
-            payload = self.gateway.complete_json(task, inputs, schema_name)
+            payload = self.gateway.complete_json(
+                task,
+                inputs,
+                schema_name,
+                profile=profile,
+            )
             self.last_raw_output = json.dumps(payload, ensure_ascii=False)
+            if schema_name is None:
+                return payload
             return self._validate_payload(payload=payload, schema_name=schema_name)
 
         if self.backend is not None:
@@ -74,6 +86,8 @@ class LLMTool:
             else:
                 payload = raw
                 self.last_raw_output = json.dumps(payload, ensure_ascii=False)
+            if schema_name is None:
+                return payload
             return self._validate_payload(payload=payload, schema_name=schema_name)
 
         raise LLMToolConfigError("No ModelGateway configured for live mode")
@@ -89,3 +103,23 @@ class LLMTool:
             raw_output=self.last_raw_output,
             validation_errors=validation.errors,
         )
+
+
+def load_agent_fixtures(fixtures_dir: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Load static JSON fixtures for fixture_mode agent tasks.
+
+    CI uses fixture_mode only; outputs are keyed by task name and do not vary
+    with runtime inputs until live LLM paths are validated downstream.
+    """
+    if fixtures_dir is None:
+        fixtures_dir = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "agents"
+    fixtures: dict[str, dict[str, Any]] = {}
+    if not fixtures_dir.is_dir():
+        return fixtures
+    for path in sorted(fixtures_dir.glob("*.json")):
+        fixtures[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+    return fixtures
+
+
+def default_fixture_llm() -> LLMTool:
+    return LLMTool(fixture_mode=True, fixtures=load_agent_fixtures())

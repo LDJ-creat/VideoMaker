@@ -6,16 +6,25 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from app.agents.prompt_loader import PromptLoader
+from app.agents.runner import AgentRunner
+from app.agents.structure_inputs import KeyframeEncodingError
+from app.agents.structure_analyst import run_structure_analyst
+from app.config.variants import load_variant_gap_planner_overrides
+from app.gateway.model_gateway import ModelGateway
 from app.pipelines.generation_pipeline import (
+    FixtureMaterialGateway,
     build_asset_inventory,
-    build_gap_report,
-    build_generation_plan,
-    map_slots,
+    is_material_stage_done,
+    run_agent_generation,
+    run_generating_material,
 )
+from app.tools.image_gen_tool import ToolError
+from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
-from app.pipelines.structure_pipeline import extract_video_structure
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
+from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.checkpoint import (
     AnalysisCheckpoint,
     GenerationCheckpoint,
@@ -24,9 +33,19 @@ from app.runtime.checkpoint import (
     should_skip_analysis_stage,
     should_skip_generation_stage,
 )
+from app.runtime.task_context import TaskContext
+from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError, default_fixture_llm
+from app.validation.structure_validator import StructureValidationError
 
 
 EmitFn = Callable[..., dict[str, Any]]
+_AGENT_FAILURES = (
+    LLMToolValidationError,
+    LLMToolConfigError,
+    StructureValidationError,
+    KeyframeEncodingError,
+    ValueError,
+)
 
 
 def _load_sample_analysis(storage_root: Path, project_id: str, sample_id: str) -> dict[str, Any]:
@@ -48,9 +67,29 @@ def _generation_inputs_hash(user_brief: dict[str, Any], assets: list[dict[str, A
 
 
 class P0DemoPipeline:
-    def __init__(self, storage_root: str | Path) -> None:
+    def __init__(
+        self,
+        storage_root: str | Path,
+        llm: LLMTool | None = None,
+    ) -> None:
         self._storage_root = Path(storage_root)
         self._sample_pipeline = SampleAnalysisPipeline(self._storage_root)
+        self._llm = llm or default_fixture_llm()
+
+    def _build_runner(self) -> AgentRunner:
+        return AgentRunner(
+            llm=self._llm,
+            prompt_loader=PromptLoader(),
+            run_store=AgentRunStore(self._storage_root),
+            model_name="fixture" if self._llm.fixture_mode else "live",
+        )
+
+    def _build_material_gateway(self) -> ModelGateway | FixtureMaterialGateway:
+        if self._llm.gateway is not None:
+            return self._llm.gateway
+        if self._llm.fixture_mode:
+            return FixtureMaterialGateway()
+        return ModelGateway.from_env()
 
     def analyze_sample(
         self,
@@ -95,6 +134,13 @@ class P0DemoPipeline:
         checkpoint_path = analysis_root / "checkpoint.json"
         checkpoint = AnalysisCheckpoint.load(checkpoint_path)
 
+        context = TaskContext(
+            project_id=project_id,
+            task_id=task_id,
+            storage_root=self._storage_root,
+        )
+        runner = self._build_runner()
+
         structure: dict[str, Any] | None = None
         if should_skip_analysis_stage("extracting_structure", checkpoint, analysis_root, resume=resume):
             structure_path = analysis_root / "video-structure.json"
@@ -113,11 +159,24 @@ class P0DemoPipeline:
                 message="Extracting video structure",
             )
             sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
-            structure = extract_video_structure(
-                sample_analysis=sample_analysis,
-                project_id=project_id,
-                source_video_id=sample_id,
-            )
+            try:
+                structure = run_structure_analyst(
+                    runner,
+                    analysis=sample_analysis,
+                    context=context,
+                    project_id=project_id,
+                    source_video_id=sample_id,
+                    analysis_root=analysis_root,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="extracting_structure",
+                    progress=92,
+                    message="Structure agent failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
             structure_path = analysis_root / "video-structure.json"
             structure_path.parent.mkdir(parents=True, exist_ok=True)
             structure_path.write_text(
@@ -153,6 +212,7 @@ class P0DemoPipeline:
         assets: list[dict[str, Any]],
         emit: EmitFn,
         resume: bool = False,
+        variant: str = "default",
     ) -> dict[str, Any]:
         project_root = self._storage_root / "projects" / project_id
         generation_root = generation_artifact_root(project_root, generation_id)
@@ -172,66 +232,34 @@ class P0DemoPipeline:
         elif not checkpoint.inputsHash:
             checkpoint.inputsHash = inputs_hash
 
+        context = TaskContext(
+            project_id=project_id,
+            task_id=task_id,
+            storage_root=self._storage_root,
+        )
+        runner = self._build_runner()
+
         inventory: dict[str, Any] | None = None
         gap_report: dict[str, Any] | None = None
         plan: dict[str, Any] | None = None
-        mapping_slot_matches: list[dict[str, Any]] | None = None
+        slot_matches: list[dict[str, Any]] = []
 
-        if should_skip_generation_stage("analyzing_assets", checkpoint, generation_root, resume=resume):
+        if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
             inventory = json.loads((generation_root / "asset-inventory.json").read_text(encoding="utf-8"))
+            gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
+            plan = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
             emit(
                 status="running",
                 stage="analyzing_assets",
                 progress=10,
                 message="(resumed) asset inventory ready",
             )
-        else:
-            emit(
-                status="running",
-                stage="analyzing_assets",
-                progress=10,
-                message="Building asset inventory",
-            )
-            inventory = build_asset_inventory(
-                project_id=project_id,
-                user_brief=user_brief,
-                assets=assets,
-            )
-            (generation_root / "asset-inventory.json").write_text(
-                json.dumps(inventory, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            checkpoint.mark_stage_complete("analyzing_assets")
-            checkpoint.save(checkpoint_path)
-
-        if should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
-            slot_data = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
-            mapping_slot_matches = slot_data["slotMatches"]
             emit(
                 status="running",
                 stage="mapping_slots",
                 progress=35,
                 message="(resumed) slot mapping ready",
             )
-        else:
-            emit(
-                status="running",
-                stage="mapping_slots",
-                progress=35,
-                message="Mapping structure slots to assets",
-            )
-            mapping = map_slots(structure=structure, inventory=inventory)
-            mapping_slot_matches = mapping.slot_matches
-            (generation_root / "slot-matches.json").write_text(
-                json.dumps({"slotMatches": mapping_slot_matches}, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            checkpoint.mark_stage_complete("mapping_slots")
-            checkpoint.save(checkpoint_path)
-
-        if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
-            gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
-            plan = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
             emit(
                 status="running",
                 stage="planning_completion",
@@ -241,22 +269,69 @@ class P0DemoPipeline:
         else:
             emit(
                 status="running",
-                stage="planning_completion",
-                progress=55,
-                message="Planning completion actions",
+                stage="analyzing_assets",
+                progress=10,
+                message="Analyzing user brief and uploaded assets",
             )
-            gap_report = build_gap_report(
-                structure=structure,
-                inventory=inventory,
-                slot_matches=mapping_slot_matches,
+            try:
+                inventory_baseline = build_asset_inventory(
+                    project_id=project_id,
+                    user_brief=user_brief,
+                    assets=assets,
+                )
+                inventory = run_asset_understanding(
+                    runner,
+                    inventory=inventory_baseline,
+                    context=context,
+                    generation_id=generation_id,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="analyzing_assets",
+                    progress=10,
+                    message="Asset understanding failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
+            checkpoint.mark_stage_complete("analyzing_assets")
+            checkpoint.save(checkpoint_path)
+
+            emit(
+                status="running",
+                stage="mapping_slots",
+                progress=35,
+                message="Mapping structure slots to assets",
             )
-            plan = build_generation_plan(
-                structure=structure,
-                inventory=inventory,
-                gap_report=gap_report,
-                slot_matches=mapping_slot_matches,
-            )
+            try:
+                inventory, mapping_slot_matches, gap_report, plan = run_agent_generation(
+                    runner,
+                    structure=structure,
+                    inventory=inventory,
+                    context=context,
+                    generation_id=generation_id,
+                    variant=variant,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="mapping_slots",
+                    progress=35,
+                    message="Generation agent failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
             plan["id"] = generation_id
+            (generation_root / "asset-inventory.json").write_text(
+                json.dumps(inventory, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (generation_root / "slot-matches.json").write_text(
+                json.dumps({"slotMatches": mapping_slot_matches}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
             (generation_root / "gap-report.json").write_text(
                 json.dumps(gap_report, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -265,9 +340,94 @@ class P0DemoPipeline:
                 json.dumps(plan, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
+            checkpoint.mark_stage_complete("mapping_slots")
             checkpoint.mark_stage_complete("planning_completion")
-            checkpoint.mark_stage_complete("building_timeline")
             checkpoint.save(checkpoint_path)
+            emit(
+                status="running",
+                stage="planning_completion",
+                progress=55,
+                message="Planning completion actions",
+            )
+
+        slot_matches_path = generation_root / "slot-matches.json"
+        if slot_matches_path.is_file():
+            slot_matches_payload = json.loads(slot_matches_path.read_text(encoding="utf-8"))
+            slot_matches = list(slot_matches_payload.get("slotMatches", []))
+
+        material_state_path = generation_root / "material-state.json"
+        material_skipped = resume and is_material_stage_done(generation_root, plan)
+        if material_skipped:
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=62,
+                message="(resumed) generated materials ready",
+                artifact_refs=context.artifact_refs,
+            )
+        else:
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=60,
+                message="Generating AIGC completion materials",
+                artifact_refs=context.artifact_refs,
+            )
+
+            def material_progress(stage: str, message: str) -> None:
+                emit(
+                    status="running",
+                    stage=stage,
+                    progress=65,
+                    message=message,
+                    artifact_refs=list(context.artifact_refs),
+                )
+
+            try:
+                plan, _material_results = run_generating_material(
+                    plan=plan,
+                    inventory=inventory,
+                    slot_matches=slot_matches,
+                    structure=structure,
+                    generation_root=generation_root,
+                    render_root=render_root,
+                    gateway=self._build_material_gateway(),
+                    emit_progress=material_progress,
+                    register_artifact=context.register_artifact,
+                    material_state_path=material_state_path,
+                    runner=runner,
+                    task_context=context,
+                    variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", variant))),
+                )
+            except ToolError as exc:
+                checkpoint.mark_failed("generating_material")
+                checkpoint.save(checkpoint_path)
+                emit(
+                    status="failed",
+                    stage="generating_material",
+                    progress=60,
+                    message="Material generation failed",
+                    error={
+                        "code": exc.code,
+                        "message": exc.message,
+                        "retryable": exc.retryable,
+                    },
+                )
+                return {"ok": False, "error": str(exc)}
+
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("generating_material")
+            checkpoint.save(checkpoint_path)
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=70,
+                message="AIGC materials generated",
+                artifact_refs=list(context.artifact_refs),
+            )
 
         if should_skip_generation_stage("building_timeline", checkpoint, generation_root, resume=resume):
             emit(

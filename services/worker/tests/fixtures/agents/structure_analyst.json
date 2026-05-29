@@ -1,0 +1,276 @@
+{
+  "id": "video-structure-project-1",
+  "projectId": "project-1",
+  "sourceVideoId": "sample-1",
+  "version": "p0-v1",
+  "metadata": {
+    "durationSec": 30.0,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "hasAudio": true
+  },
+  "narrative": {
+    "summary": "Deterministic structure extraction result",
+    "segments": [
+      {
+        "id": "seg-hook",
+        "role": "hook",
+        "startSec": 0.0,
+        "endSec": 3.0,
+        "scriptSummary": "太贵又麻烦？这个方法让你更快搞定。 我们实测后发现效率提升，使用起来很方便。",
+        "visualSummary": "hook visual flow",
+        "intent": "hook"
+      },
+      {
+        "id": "seg-2",
+        "role": "benefit",
+        "startSec": 3.0,
+        "endSec": 10.5,
+        "scriptSummary": "我们实测后发现效率提升，使用起来很方便。 这里展示真实使用场景和结果对比。",
+        "visualSummary": "benefit visual flow",
+        "intent": "benefit"
+      },
+      {
+        "id": "seg-3",
+        "role": "proof",
+        "startSec": 10.5,
+        "endSec": 22.5,
+        "scriptSummary": "这里展示真实使用场景和结果对比。 点击下单了解更多，马上购买。",
+        "visualSummary": "proof visual flow",
+        "intent": "proof"
+      },
+      {
+        "id": "seg-cta",
+        "role": "cta",
+        "startSec": 25.5,
+        "endSec": 30.0,
+        "scriptSummary": "点击下单了解更多，马上购买。",
+        "visualSummary": "cta visual flow",
+        "intent": "cta"
+      }
+    ]
+  },
+  "rhythm": {
+    "totalDurationSec": 30.0,
+    "shotCount": 8,
+    "avgShotDurationSec": 3.75,
+    "tempo": "mixed",
+    "beatPoints": [
+      0.0,
+      1.0,
+      2.1,
+      3.0,
+      5.0,
+      8.4,
+      14.0,
+      22.0
+    ],
+    "shotBoundaries": [
+      {
+        "startSec": 0.0,
+        "endSec": 1.0,
+        "confidence": 0.8,
+        "changeReason": "scene_change"
+      },
+      {
+        "startSec": 1.0,
+        "endSec": 2.1,
+        "confidence": 0.81,
+        "changeReason": "visual_cut"
+      },
+      {
+        "startSec": 2.1,
+        "endSec": 3.0,
+        "confidence": 0.77,
+        "changeReason": "visual_cut"
+      },
+      {
+        "startSec": 3.0,
+        "endSec": 5.0,
+        "confidence": 0.8,
+        "changeReason": "scene_change"
+      },
+      {
+        "startSec": 5.0,
+        "endSec": 8.4,
+        "confidence": 0.79,
+        "changeReason": "caption_change"
+      },
+      {
+        "startSec": 8.4,
+        "endSec": 14.0,
+        "confidence": 0.8,
+        "changeReason": "scene_change"
+      },
+      {
+        "startSec": 14.0,
+        "endSec": 22.0,
+        "confidence": 0.85,
+        "changeReason": "beat"
+      },
+      {
+        "startSec": 22.0,
+        "endSec": 30.0,
+        "confidence": 0.84,
+        "changeReason": "scene_change"
+      }
+    ]
+  },
+  "packaging": {
+    "titleCards": [],
+    "stickers": [],
+    "transitions": [],
+    "visualDensity": "low"
+  },
+  "slots": [
+    {
+      "id": "seg-hook-hook_visual-1",
+      "segmentId": "seg-hook",
+      "role": "hook_visual",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "requiredAssetType": [
+        "video",
+        "image"
+      ],
+      "visualIntent": "hook 使用 效率 提升 方便",
+      "scriptIntent": "hook 使用 效率 提升 方便",
+      "importance": "must_have",
+      "constraints": []
+    },
+    {
+      "id": "seg-hook-hook_text-2",
+      "segmentId": "seg-hook",
+      "role": "hook_text",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "requiredAssetType": [
+        "text",
+        "packaging"
+      ],
+      "visualIntent": "hook 使用 效率 提升 方便",
+      "scriptIntent": "hook 使用 效率 提升 方便",
+      "packagingHint": "highlight key message",
+      "importance": "recommended",
+      "constraints": []
+    },
+    {
+      "id": "seg-2-benefit_card-1",
+      "segmentId": "seg-2",
+      "role": "benefit_card",
+      "startSec": 3.0,
+      "endSec": 10.5,
+      "requiredAssetType": [
+        "text",
+        "packaging"
+      ],
+      "visualIntent": "benefit 真实 使用 效率 提升",
+      "scriptIntent": "benefit 真实 使用 效率 提升",
+      "packagingHint": "highlight key message",
+      "importance": "recommended",
+      "constraints": []
+    },
+    {
+      "id": "seg-3-proof-1",
+      "segmentId": "seg-3",
+      "role": "proof",
+      "startSec": 10.5,
+      "endSec": 22.5,
+      "requiredAssetType": [
+        "video",
+        "image",
+        "text"
+      ],
+      "visualIntent": "proof 真实 使用 场景 对比",
+      "scriptIntent": "proof 真实 使用 场景 对比",
+      "importance": "recommended",
+      "constraints": []
+    },
+    {
+      "id": "seg-cta-cta-1",
+      "segmentId": "seg-cta",
+      "role": "cta",
+      "startSec": 25.5,
+      "endSec": 30.0,
+      "requiredAssetType": [
+        "text",
+        "packaging"
+      ],
+      "visualIntent": "cta 购买 点击",
+      "scriptIntent": "cta 购买 点击",
+      "packagingHint": "highlight key message",
+      "importance": "must_have",
+      "constraints": []
+    }
+  ],
+  "evidence": [
+    {
+      "targetId": "seg-hook",
+      "source": "asr",
+      "summary": "0.0-3.0s: hook emphasizes speed and convenience (paraphrased)",
+      "confidence": 0.8
+    },
+    {
+      "targetId": "seg-hook",
+      "source": "shot_detection",
+      "summary": "3 overlapping shot boundaries at 0.0-3.0s",
+      "confidence": 0.75
+    },
+    {
+      "targetId": "seg-2",
+      "source": "asr",
+      "summary": "3.0-10.5s: benefit and efficiency claims (paraphrased)",
+      "confidence": 0.8
+    },
+    {
+      "targetId": "seg-2",
+      "source": "shot_detection",
+      "summary": "3 overlapping shot boundaries at 3.0-10.5s",
+      "confidence": 0.75
+    },
+    {
+      "targetId": "seg-3",
+      "source": "asr",
+      "summary": "10.5-22.5s: proof scenes and comparison (paraphrased)",
+      "confidence": 0.8
+    },
+    {
+      "targetId": "seg-3",
+      "source": "shot_detection",
+      "summary": "3 overlapping shot boundaries at 10.5-22.5s",
+      "confidence": 0.75
+    },
+    {
+      "targetId": "seg-cta",
+      "source": "asr",
+      "summary": "25.5-30.0s: purchase CTA (paraphrased)",
+      "confidence": 0.8
+    },
+    {
+      "targetId": "seg-cta",
+      "source": "shot_detection",
+      "summary": "1 overlapping shot boundaries at 25.5-30.0s",
+      "confidence": 0.75
+    },
+    {
+      "targetId": "seg-hook-hook_visual-1",
+      "source": "keyframe",
+      "summary": "keyframes/shot-1.jpg",
+      "confidence": 0.78
+    },
+    {
+      "targetId": "seg-hook-hook_text-2",
+      "source": "keyframe",
+      "summary": "keyframes/shot-1.jpg",
+      "confidence": 0.78
+    },
+    {
+      "targetId": "seg-2-benefit_card-1",
+      "source": "keyframe",
+      "summary": "keyframes/shot-4.jpg,keyframes/shot-6.jpg",
+      "confidence": 0.78
+    }
+  ],
+  "confidence": 0.82
+}
