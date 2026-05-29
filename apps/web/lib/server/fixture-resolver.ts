@@ -10,6 +10,7 @@ import {
   fixtureGenerationPlanRevised,
   fixtureReviseGenerationResponse,
   fixtureReviseTaskEvent,
+  fixtureMaterialTaskEvent,
   fixtureTaskEvent,
   fixtureVideoStructure,
 } from "@/fixtures";
@@ -192,10 +193,15 @@ export function resolveFixture(
 
   if (method === "GET" && segments[0] === "tasks" && segments.length === 2) {
     const taskId = segments[1];
-    const body =
-      taskId === fixtureReviseTaskEvent.taskId
-        ? fixtureReviseTaskEvent
-        : { ...fixtureTaskEvent, taskId };
+    const multiTaskIds = new Set(
+      fixtureMultiVariantGenerations.map((entry) => entry.taskId),
+    );
+    let body: typeof fixtureTaskEvent = { ...fixtureTaskEvent, taskId };
+    if (taskId === fixtureReviseTaskEvent.taskId) {
+      body = fixtureReviseTaskEvent;
+    } else if (multiTaskIds.has(taskId)) {
+      body = { ...fixtureMaterialTaskEvent, taskId };
+    }
     return {
       status: 200,
       body,

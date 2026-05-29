@@ -16,3 +16,4 @@ export {
 } from "./edit-intent.fixture";
 export { fixtureModelGatewayStatus } from "./model-gateway-status.fixture";
 export { fixtureAgentRuns } from "./agent-runs.fixture";
+export { fixtureMaterialTaskEvent } from "./material-task-event.fixture";
