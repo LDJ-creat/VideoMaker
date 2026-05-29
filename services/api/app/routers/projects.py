@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
+from app.services.generation_responses import build_generation_plan_response
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -376,6 +377,16 @@ def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> 
         raise HTTPException(status_code=404, detail="Project not found")
     _project_store(request).save_brief(project_id, payload.model_dump(by_alias=True, exclude_none=True))
     return {"ok": True}
+
+
+@router.get("/{project_id}/generations/latest")
+def get_latest_generation(project_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    record = store.get_latest_generation_with_plan(project_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="No completed generation for project")
+    return build_generation_plan_response(record)
 
 
 @router.post(

@@ -178,6 +178,18 @@ export function resolveFixture(
     };
   }
 
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "generations" &&
+    segments[3] === "latest"
+  ) {
+    return {
+      status: 200,
+      body: { ...fixtureGenerationPlan, gapReport: fixtureGapReport },
+    };
+  }
+
   if (method === "GET" && segments[0] === "generations" && segments.length === 2) {
     return {
       status: 200,

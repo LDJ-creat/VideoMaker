@@ -291,6 +291,13 @@ def test_asset_brief_and_generation(p0_client: TestClient, tmp_path: Path):
     assert payload["id"] == body["generationId"]
     assert payload.get("gapReport") is not None
 
+    latest = p0_client.get(f"/api/projects/{project['id']}/generations/latest")
+    assert latest.status_code == 200
+    latest_payload = latest.json()
+    assert latest_payload["id"] == body["generationId"]
+    assert latest_payload.get("gapReport") is not None
+    assert latest_payload.get("timeline") is not None
+
 
 def test_brief_assets_and_media_persistence(p0_client: TestClient, tmp_path: Path) -> None:
     project = p0_client.post("/api/projects", json={"name": "Persist"}).json()

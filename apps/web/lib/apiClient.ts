@@ -236,6 +236,12 @@ export async function getGeneration(
   return apiFetch(`/api/generations/${generationId}`);
 }
 
+export async function getLatestGeneration(
+  projectId: string,
+): Promise<ApiResult<GenerationResponse>> {
+  return apiFetch(`/api/projects/${projectId}/generations/latest`);
+}
+
 export async function getSampleStructure(
   sampleId: string,
 ): Promise<ApiResult<VideoStructure>> {

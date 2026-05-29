@@ -40,6 +40,7 @@ import {
   getActiveSample,
   getBrief,
   getGeneration,
+  getLatestGeneration,
   getSampleStructure,
   listProjectAssets,
   listProjectSamples,
@@ -161,6 +162,24 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, [projectId, loadAnalysisResults]);
 
+  const loadProjectResults = useCallback(async () => {
+    try {
+      const { data, meta } = await getLatestGeneration(projectId);
+      setGenerationId(data.id);
+      setGenerationPlan(data);
+      setDataSource(meta.dataSource);
+      if (data.gapReport) {
+        setGapReport(data.gapReport);
+        setGapApiPending(false);
+      } else {
+        setGapReport(null);
+        setGapApiPending(false);
+      }
+    } catch {
+      /* no completed generation yet */
+    }
+  }, [projectId]);
+
   useEffect(() => {
     const saved = loadProjectSession(projectId);
     if (saved?.generationId) setGenerationId(saved.generationId);
@@ -170,7 +189,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setPanel("progress");
     }
     void loadProjectInput();
-  }, [projectId, loadProjectInput]);
+    void loadProjectResults();
+  }, [projectId, loadProjectInput, loadProjectResults]);
 
   useEffect(() => {
     saveProjectSession(projectId, {

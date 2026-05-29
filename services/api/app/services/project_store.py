@@ -492,3 +492,29 @@ class ProjectStore:
             "status": row["status"],
             "taskId": row["task_id"],
         }
+
+    def get_latest_generation_with_plan(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                FROM generations
+                WHERE project_id = ? AND plan_json IS NOT NULL
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
+        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "structureId": row["structure_id"],
+            "inventoryId": row["inventory_id"],
+            "gapReport": gap_report,
+            "plan": plan,
+            "status": row["status"],
+            "taskId": row["task_id"],
+        }
