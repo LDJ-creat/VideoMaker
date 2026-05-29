@@ -10,11 +10,13 @@ export type MultiTaskProgressEntry = {
   label?: string;
   event: TaskEvent | null;
   mode: TaskProgressMode;
+  sseFailureCount?: number;
 };
 
 type MultiTaskProgressPanelProps = {
+  projectId?: string;
   tasks: MultiTaskProgressEntry[];
-  sseFailureCount: number;
+  sseFailureCounts?: Record<string, number>;
   error: string | null;
   onRetry?: (taskId: string) => void;
   retryBusy?: boolean;
@@ -22,8 +24,9 @@ type MultiTaskProgressPanelProps = {
 };
 
 export function MultiTaskProgressPanel({
+  projectId,
   tasks,
-  sseFailureCount,
+  sseFailureCounts = {},
   error,
   onRetry,
   retryBusy = false,
@@ -32,6 +35,7 @@ export function MultiTaskProgressPanel({
   if (tasks.length === 0) {
     return (
       <TaskProgressPanel
+        projectId={projectId}
         event={null}
         mode="idle"
         sseFailureCount={0}
@@ -41,12 +45,15 @@ export function MultiTaskProgressPanel({
   }
 
   if (tasks.length === 1) {
-    const single = tasks[0];
+    const single = tasks[0]!;
     return (
       <TaskProgressPanel
+        projectId={projectId}
         event={single.event}
         mode={single.mode}
-        sseFailureCount={sseFailureCount}
+        sseFailureCount={
+          single.sseFailureCount ?? sseFailureCounts[single.taskId] ?? 0
+        }
         error={error}
         retryBusy={retryBusy}
         retryLabel={retryLabel}
@@ -67,9 +74,12 @@ export function MultiTaskProgressPanel({
             <p className="text-sm font-medium text-muted-foreground">{task.label}</p>
           )}
           <TaskProgressPanel
+            projectId={projectId}
             event={task.event}
             mode={task.mode}
-            sseFailureCount={sseFailureCount}
+            sseFailureCount={
+              task.sseFailureCount ?? sseFailureCounts[task.taskId] ?? 0
+            }
             error={error}
             retryBusy={retryBusy}
             retryLabel={retryLabel}
