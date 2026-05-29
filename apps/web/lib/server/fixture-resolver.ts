@@ -34,6 +34,36 @@ export function resolveFixture(
     };
   }
 
+  if (method === "GET" && apiPath === "projects") {
+    return {
+      status: 200,
+      body: { projects: [fixtureProject] },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments.length === 3
+  ) {
+    return {
+      status: 200,
+      body: {
+        samples: [
+          {
+            id: "sample-fixture-local",
+            status: "uploaded",
+            sourceKind: "local",
+            hasStructure: false,
+            previewUrl: null,
+            fileName: "demo.mp4",
+          },
+        ],
+      },
+    };
+  }
+
   if (method === "GET" && segments[0] === "projects" && segments.length === 2) {
     return {
       status: 200,

@@ -70,6 +70,10 @@ async function apiFetch<T>(
   return { data, meta };
 }
 
+export async function listProjects(): Promise<ApiResult<{ projects: ProjectSummary[] }>> {
+  return apiFetch("/api/projects");
+}
+
 export async function createProject(name: string): Promise<ApiResult<ProjectSummary>> {
   return apiFetch("/api/projects", {
     method: "POST",
@@ -90,12 +94,43 @@ export type ActiveSampleSummary = {
   sourceKind: string;
   hasStructure: boolean;
   videoUri?: string;
+  sourceUrl?: string;
+  fileName?: string;
+  previewUrl?: string;
+};
+
+export type ProjectAsset = {
+  id: string;
+  type: string;
+  uri: string;
+  description?: string;
+  tags?: string[];
+  durationSec?: number;
+  previewUrl?: string;
 };
 
 export async function getActiveSample(
   projectId: string,
 ): Promise<ApiResult<ActiveSampleSummary>> {
   return apiFetch(`/api/projects/${projectId}/samples/active`);
+}
+
+export async function listProjectSamples(
+  projectId: string,
+): Promise<ApiResult<{ samples: ActiveSampleSummary[] }>> {
+  return apiFetch(`/api/projects/${projectId}/samples`);
+}
+
+export async function getBrief(
+  projectId: string,
+): Promise<ApiResult<{ brief: UserBriefRequest | null }>> {
+  return apiFetch(`/api/projects/${projectId}/brief`);
+}
+
+export async function listProjectAssets(
+  projectId: string,
+): Promise<ApiResult<{ assets: ProjectAsset[] }>> {
+  return apiFetch(`/api/projects/${projectId}/assets`);
 }
 
 export async function uploadSampleVideo(
@@ -186,9 +221,12 @@ export async function getTask(taskId: string): Promise<ApiResult<TaskEvent>> {
 
 export async function createGenerationPlan(
   projectId: string,
+  brief?: UserBriefRequest,
 ): Promise<ApiResult<{ generationId: string; taskId?: string; gapReport?: GapReport }>> {
   return apiFetch(`/api/projects/${projectId}/generation-plan`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(brief ? { brief } : {}),
   });
 }
 
