@@ -54,3 +54,28 @@ class ArtifactStore:
             "uri": uri,
             "createdAt": created_at,
         }
+
+    def get_artifact(
+        self,
+        database: Database,
+        *,
+        artifact_id: str,
+        project_id: str,
+    ) -> dict[str, str] | None:
+        with database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, type, uri, created_at
+                FROM artifacts
+                WHERE id = ? AND project_id = ?
+                """,
+                (artifact_id, project_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "type": row["type"],
+            "uri": row["uri"],
+            "createdAt": row["created_at"],
+        }

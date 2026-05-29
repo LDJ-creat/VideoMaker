@@ -33,3 +33,24 @@ def test_register_artifact_persists_record(app):
     assert artifact["id"]
     assert artifact["type"] == "json"
     assert artifact["uri"].endswith("storage/projects/project-1/artifacts/result.json")
+
+
+def test_get_artifact_returns_record(app):
+    store = ArtifactStore(app.state.storage_root)
+    created = store.register_artifact(
+        app.state.db,
+        project_id="project-1",
+        task_id="task-1",
+        artifact_type="json",
+        relative_path="artifacts/lookup.json",
+    )
+
+    fetched = store.get_artifact(
+        app.state.db,
+        artifact_id=created["id"],
+        project_id="project-1",
+    )
+
+    assert fetched is not None
+    assert fetched["id"] == created["id"]
+    assert fetched["type"] == "json"
