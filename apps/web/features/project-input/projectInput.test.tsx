@@ -32,7 +32,7 @@ describe("project input panels", () => {
       />,
     );
 
-    const input = screen.getByLabelText(/选择视频文件/i);
+    const input = screen.getByLabelText(/上传样例视频/i);
     await user.upload(input, file);
 
     await waitFor(() =>
@@ -97,9 +97,10 @@ describe("project input panels", () => {
   });
 
   it("uploads assets with image/video accept types", () => {
-    render(<AssetInputPanel projectId="proj-1" />);
-    const input = screen.getByLabelText(/图片 \/ 视频/i);
+    render(<AssetInputPanel projectId="proj-1" assets={[]} />);
+    const input = screen.getByLabelText(/上传用户素材/i);
     expect(input).toHaveAttribute("accept", "image/*,video/*");
+    expect(input).toHaveAttribute("multiple");
   });
 
   it("submits structured brief matching UserBriefRequest", async () => {

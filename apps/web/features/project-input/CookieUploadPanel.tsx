@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -72,27 +71,13 @@ export function CookieUploadPanel() {
 
   return (
     <Card className="border-dashed">
-      <CardHeader>
+      <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Cookie className="h-4 w-4" />
           平台 Cookie（全局 · URL 导入）
         </CardTitle>
-        <CardDescription>
-          保存在本机 API 的{" "}
-          <span className="font-mono text-xs">storage/global/cookies/</span>
-          ，所有项目共用。默认「按域名合并」：只更新本次导出文件里包含的网站，不会清掉抖音/B
-          站等其他平台已有条目。
-        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
-          <li>在浏览器登录目标平台并打开任意视频页</li>
-          <li>
-            在 <strong>douyin.com 视频页</strong> 用扩展导出（勿用空白模板；
-            文件里应有大量以域名开头的行）
-          </li>
-          <li>选择上传方式后上传；抖音可用但 B 站失败时，请登录 B 站后再导出并「合并上传」</li>
-        </ol>
+      <CardContent className="space-y-3 pt-0">
         <div className="flex flex-wrap gap-2 text-xs">
           <Button
             type="button"
