@@ -5,11 +5,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
+from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
@@ -25,6 +27,10 @@ class CreateProjectResponse(BaseModel):
     id: str
     name: str
     createdAt: str
+
+
+class ProjectListResponse(BaseModel):
+    projects: list[CreateProjectResponse]
 
 
 class UploadResponse(BaseModel):
@@ -54,6 +60,65 @@ class GenerationPlanResponse(BaseModel):
     gapReport: dict[str, Any] | None = None
 
 
+class GenerationPlanRequest(BaseModel):
+    brief: UserBriefPayload | None = None
+
+
+class BriefResponse(BaseModel):
+    brief: dict[str, Any] | None = None
+
+
+class ProjectAssetsResponse(BaseModel):
+    assets: list[dict[str, Any]]
+
+
+class SampleSummaryResponse(BaseModel):
+    id: str
+    status: str
+    sourceKind: str
+    hasStructure: bool
+    videoUri: str | None = None
+    sourceUrl: str | None = None
+    fileName: str | None = None
+    previewUrl: str | None = None
+
+
+class ProjectSamplesResponse(BaseModel):
+    samples: list[SampleSummaryResponse]
+
+
+def _ensure_project(store: ProjectStore, project_id: str) -> None:
+    if store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
+def _asset_with_preview(project_id: str, asset: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(asset)
+    if asset.get("type") in {"video", "image"}:
+        enriched["previewUrl"] = asset_media_path(project_id, asset["id"])
+    return enriched
+
+
+def _sample_summary(project_id: str, sample: dict[str, Any]) -> dict[str, Any]:
+    video_uri = sample.get("videoUri")
+    file_name = Path(video_uri).name if video_uri else None
+    return {
+        "id": sample["id"],
+        "status": sample["status"],
+        "sourceKind": sample["sourceKind"],
+        "hasStructure": sample.get("structure") is not None,
+        "videoUri": video_uri,
+        "sourceUrl": sample.get("sourceUrl"),
+        "fileName": file_name,
+        "previewUrl": sample_media_path(project_id, sample["id"]) if video_uri else None,
+    }
+
+
+def _media_type_for_path(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(path.name)
+    return guessed or "application/octet-stream"
+
+
 def _project_store(request: Request) -> ProjectStore:
     return ProjectStore(request.app.state.db)
 
@@ -78,6 +143,12 @@ def _infer_asset_type(filename: str, content_type: str | None) -> str:
     if mime.startswith("image/"):
         return "image"
     return "text"
+
+
+@router.get("", response_model=ProjectListResponse)
+def list_projects(request: Request) -> dict[str, Any]:
+    projects = _project_store(request).list_projects()
+    return {"projects": projects}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=CreateProjectResponse)
@@ -122,20 +193,71 @@ async def upload_sample(
     return {"id": sample_id, "taskId": None}
 
 
+@router.get("/{project_id}/brief", response_model=BriefResponse)
+def get_brief(project_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    return {"brief": store.get_brief(project_id)}
+
+
+@router.get("/{project_id}/assets", response_model=ProjectAssetsResponse)
+def list_project_assets(project_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    assets = [
+        _asset_with_preview(project_id, asset)
+        for asset in store.list_assets(project_id)
+    ]
+    return {"assets": assets}
+
+
+@router.get("/{project_id}/media/samples/{sample_id}")
+def stream_sample_media(project_id: str, sample_id: str, request: Request) -> FileResponse:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    sample = store.get_sample(sample_id)
+    if sample is None or sample["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    video_uri = sample.get("videoUri")
+    if not video_uri:
+        raise HTTPException(status_code=404, detail="Sample has no video file")
+    path = resolve_existing_file(str(video_uri))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Sample video file missing on disk")
+    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+
+
+@router.get("/{project_id}/media/assets/{asset_id}")
+def stream_asset_media(project_id: str, asset_id: str, request: Request) -> FileResponse:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    asset = store.get_asset(asset_id)
+    if asset is None or asset["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if asset.get("type") not in {"video", "image"}:
+        raise HTTPException(status_code=400, detail="Asset type is not previewable")
+    path = resolve_existing_file(str(asset["uri"]))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Asset file missing on disk")
+    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+
+
+@router.get("/{project_id}/samples", response_model=ProjectSamplesResponse)
+def list_project_samples(project_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    samples = store.list_samples(project_id)
+    return {"samples": [_sample_summary(project_id, sample) for sample in samples]}
+
+
 @router.get("/{project_id}/samples/active")
 def get_active_sample(project_id: str, request: Request) -> dict[str, Any]:
-    if _project_store(request).get_project(project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    sample = _project_store(request).get_latest_sample_with_video(project_id)
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    sample = store.get_latest_sample_with_video(project_id)
     if sample is None:
         raise HTTPException(status_code=404, detail="No sample with video file for project")
-    return {
-        "id": sample["id"],
-        "status": sample["status"],
-        "sourceKind": sample["sourceKind"],
-        "hasStructure": sample.get("structure") is not None,
-        "videoUri": sample.get("videoUri"),
-    }
+    return _sample_summary(project_id, sample)
 
 
 @router.post(
@@ -261,10 +383,19 @@ def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> 
     status_code=status.HTTP_201_CREATED,
     response_model=GenerationPlanResponse,
 )
-def create_generation_plan(project_id: str, request: Request) -> dict[str, Any]:
+def create_generation_plan(
+    project_id: str,
+    request: Request,
+    payload: GenerationPlanRequest | None = Body(default=None),
+) -> dict[str, Any]:
     store = _project_store(request)
-    if store.get_project(project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+    _ensure_project(store, project_id)
+
+    if payload is not None and payload.brief is not None:
+        store.save_brief(
+            project_id,
+            payload.brief.model_dump(by_alias=True, exclude_none=True),
+        )
 
     structure = store.get_latest_sample_structure(project_id)
     if structure is None:

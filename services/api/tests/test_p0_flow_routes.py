@@ -160,6 +160,37 @@ def test_create_project_and_get(p0_client: TestClient):
     assert fetched.json()["name"] == "Demo"
 
 
+def test_list_projects(p0_client: TestClient):
+    empty = p0_client.get("/api/projects")
+    assert empty.status_code == 200
+    assert empty.json()["projects"] == []
+
+    first = p0_client.post("/api/projects", json={"name": "First"}).json()
+    second = p0_client.post("/api/projects", json={"name": "Second"}).json()
+
+    listed = p0_client.get("/api/projects").json()["projects"]
+    assert [project["id"] for project in listed] == [second["id"], first["id"]]
+    assert [project["name"] for project in listed] == ["Second", "First"]
+
+
+def test_list_project_samples(p0_client: TestClient, tmp_path: Path):
+    project = p0_client.post("/api/projects", json={"name": "Samples"}).json()
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+
+    upload = p0_client.post(
+        f"/api/projects/{project['id']}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    )
+    assert upload.status_code == 201
+    sample_id = upload.json()["id"]
+
+    listed = p0_client.get(f"/api/projects/{project['id']}/samples").json()["samples"]
+    assert len(listed) == 1
+    assert listed[0]["id"] == sample_id
+    assert listed[0]["previewUrl"] == f"/api/projects/{project['id']}/media/samples/{sample_id}"
+
+
 def test_upload_sample_and_analyze(p0_client: TestClient, tmp_path: Path):
     project = p0_client.post("/api/projects", json={"name": "P"}).json()
     video = tmp_path / "sample.mp4"
@@ -259,6 +290,64 @@ def test_asset_brief_and_generation(p0_client: TestClient, tmp_path: Path):
     payload = result.json()
     assert payload["id"] == body["generationId"]
     assert payload.get("gapReport") is not None
+
+
+def test_brief_assets_and_media_persistence(p0_client: TestClient, tmp_path: Path) -> None:
+    project = p0_client.post("/api/projects", json={"name": "Persist"}).json()
+    project_id = project["id"]
+
+    brief_payload = {
+        "topic": "防晒喷雾",
+        "sellingPoints": ["轻薄"],
+        "mustMention": [],
+        "avoidMention": [],
+    }
+    p0_client.post(f"/api/projects/{project_id}/brief", json=brief_payload)
+    fetched = p0_client.get(f"/api/projects/{project_id}/brief")
+    assert fetched.status_code == 200
+    assert fetched.json()["brief"]["topic"] == "防晒喷雾"
+
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+    sample_id = p0_client.post(
+        f"/api/projects/{project_id}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    ).json()["id"]
+
+    image = tmp_path / "asset.jpg"
+    image.write_bytes(b"jpg-bytes")
+    asset_id = p0_client.post(
+        f"/api/projects/{project_id}/assets/upload",
+        files={"file": ("asset.jpg", image.read_bytes(), "image/jpeg")},
+    ).json()["id"]
+
+    assets = p0_client.get(f"/api/projects/{project_id}/assets").json()["assets"]
+    assert len(assets) == 1
+    assert assets[0]["previewUrl"].endswith(f"/media/assets/{asset_id}")
+
+    media = p0_client.get(f"/api/projects/{project_id}/media/samples/{sample_id}")
+    assert media.status_code == 200
+    assert media.headers["content-type"].startswith("video/")
+
+
+def test_generation_plan_accepts_brief_body(p0_client: TestClient, tmp_path: Path) -> None:
+    project = p0_client.post("/api/projects", json={"name": "BriefGen"}).json()
+    project_id = project["id"]
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"v")
+    sample_id = p0_client.post(
+        f"/api/projects/{project_id}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    ).json()["id"]
+    p0_client.post(f"/api/samples/{sample_id}/analyze")
+
+    generation = p0_client.post(
+        f"/api/projects/{project_id}/generation-plan",
+        json={"brief": {"topic": "用户主题", "sellingPoints": ["SPF50"], "mustMention": [], "avoidMention": []}},
+    )
+    assert generation.status_code == 201
+    brief = p0_client.get(f"/api/projects/{project_id}/brief").json()["brief"]
+    assert brief["topic"] == "用户主题"
 
 
 def test_retry_failed_sample_analysis_uses_resume(p0_client: TestClient, tmp_path: Path) -> None:

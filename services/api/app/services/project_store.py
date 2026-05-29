@@ -31,6 +31,23 @@ class ProjectStore:
             "createdAt": created_at,
         }
 
+    def list_projects(self) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, name, created_at FROM projects
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"] or "Untitled project",
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
     def get_project(self, project_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
@@ -204,6 +221,34 @@ class ProjectStore:
         if analysis_dir.is_dir():
             shutil.rmtree(analysis_dir)
 
+    def list_samples(self, project_id: str) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                FROM samples
+                WHERE project_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        samples: list[dict[str, Any]] = []
+        for row in rows:
+            structure = json.loads(row["structure_json"]) if row["structure_json"] else None
+            samples.append(
+                {
+                    "id": row["id"],
+                    "projectId": row["project_id"],
+                    "sourceKind": row["source_kind"],
+                    "sourceUrl": row["source_url"],
+                    "videoUri": row["video_uri"],
+                    "status": row["status"],
+                    "taskId": row["task_id"],
+                    "structure": structure,
+                }
+            )
+        return samples
+
     def get_latest_sample_with_video(self, project_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
@@ -275,6 +320,32 @@ class ProjectStore:
                 ),
             )
         return {"id": asset_id, "type": asset_type, "uri": uri}
+
+    def get_asset(self, asset_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, type, uri, description, tags_json, duration_sec
+                FROM project_assets WHERE id = ?
+                """,
+                (asset_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        asset: dict[str, Any] = {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "type": row["type"],
+            "uri": row["uri"],
+        }
+        if row["description"]:
+            asset["description"] = row["description"]
+        tags = json.loads(row["tags_json"] or "[]")
+        if tags:
+            asset["tags"] = tags
+        if row["duration_sec"] is not None:
+            asset["durationSec"] = row["duration_sec"]
+        return asset
 
     def list_assets(self, project_id: str) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
