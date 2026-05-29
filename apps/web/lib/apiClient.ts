@@ -373,4 +373,6 @@ export function getTaskEventsUrl(taskId: string): string {
   return `/api/tasks/${taskId}/events`;
 }
 
+export { artifactDisplayUrl } from "@/lib/artifactUrl";
+
 export type { ApiMeta, ApiResult };

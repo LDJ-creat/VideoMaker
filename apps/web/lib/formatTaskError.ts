@@ -1,5 +1,7 @@
 import type { ToolError } from "@videomaker/contracts";
 
+import { formatP1TaskError } from "@/lib/formatTaskError.p1";
+
 export type FormattedTaskError = {
   title: string;
   hint?: string;
@@ -32,6 +34,9 @@ export function formatTaskError(error: ToolError | undefined): FormattedTaskErro
         : platform === "youtube"
           ? "YouTube"
           : platform;
+
+  const p1Error = formatP1TaskError(error);
+  if (p1Error) return p1Error;
 
   switch (error.code) {
     case "ytdlp_cookies_required":

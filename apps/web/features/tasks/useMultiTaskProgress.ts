@@ -1,7 +1,7 @@
 "use client";
 
 import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
 
@@ -28,15 +28,34 @@ export type UseMultiTaskProgressOptions = {
   onAllTerminal?: (events: Record<string, TaskEvent>) => void;
 };
 
-export type UseMultiTaskProgressResult = {
-  events: Record<string, TaskEvent>;
-  modes: Record<string, TaskProgressMode>;
+export type MultiTaskProgressSlice = {
+  event: TaskEvent | null;
+  mode: TaskProgressMode;
   sseFailureCount: number;
   error: string | null;
 };
 
+export type UseMultiTaskProgressResult = {
+  events: Record<string, TaskEvent>;
+  modes: Record<string, TaskProgressMode>;
+  /** @deprecated Prefer `sseFailureCounts` or `byTaskId`. */
+  sseFailureCount: number;
+  sseFailureCounts: Record<string, number>;
+  byTaskId: Record<string, MultiTaskProgressSlice>;
+  error: string | null;
+  allTerminal: boolean;
+  anyFailed: boolean;
+};
+
 function isTerminal(status: TaskStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
+}
+
+function buildTaskIdsKey(tasks: MultiTaskSpec[]): string {
+  return tasks
+    .map((task) => task.taskId)
+    .sort()
+    .join("|");
 }
 
 export function useMultiTaskProgress({
@@ -48,8 +67,14 @@ export function useMultiTaskProgress({
 }: UseMultiTaskProgressOptions): UseMultiTaskProgressResult {
   const [events, setEvents] = useState<Record<string, TaskEvent>>({});
   const [modes, setModes] = useState<Record<string, TaskProgressMode>>({});
-  const [sseFailureCount, setSseFailureCount] = useState(0);
+  const [sseFailureCounts, setSseFailureCounts] = useState<
+    Record<string, number>
+  >({});
   const [error, setError] = useState<string | null>(null);
+
+  const taskIdsKey = useMemo(() => buildTaskIdsKey(tasks), [tasks]);
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
 
   const onTaskTerminalRef = useRef(onTaskTerminal);
   const onAllTerminalRef = useRef(onAllTerminal);
@@ -61,11 +86,9 @@ export function useMultiTaskProgress({
   const allTerminalNotifiedRef = useRef(false);
 
   const applyEvent = useCallback((next: TaskEvent) => {
-    setEvents((prev) => {
-      const merged = { ...prev, [next.taskId]: next };
-      eventsRef.current = merged;
-      return merged;
-    });
+    const merged = { ...eventsRef.current, [next.taskId]: next };
+    eventsRef.current = merged;
+    setEvents(merged);
     setError(null);
 
     if (isTerminal(next.status) && !notifiedTerminalRef.current.has(next.taskId)) {
@@ -73,18 +96,18 @@ export function useMultiTaskProgress({
       onTaskTerminalRef.current?.(next);
     }
 
-    const taskIds = tasks.map((task) => task.taskId);
+    const tracked = tasksRef.current;
     const allTerminal =
-      taskIds.length > 0 &&
-      taskIds.every((taskId) => {
-        const event = eventsRef.current[taskId];
+      tracked.length > 0 &&
+      tracked.every((task) => {
+        const event = eventsRef.current[task.taskId];
         return event && isTerminal(event.status);
       });
     if (allTerminal && !allTerminalNotifiedRef.current) {
       allTerminalNotifiedRef.current = true;
       onAllTerminalRef.current?.(eventsRef.current);
     }
-  }, [tasks]);
+  }, []);
 
   useEffect(() => {
     if (!enabled || tasks.length === 0) {
@@ -93,7 +116,7 @@ export function useMultiTaskProgress({
       eventsRef.current = {};
       notifiedTerminalRef.current = new Set();
       allTerminalNotifiedRef.current = false;
-      setSseFailureCount(0);
+      setSseFailureCounts({});
       return;
     }
 
@@ -104,7 +127,7 @@ export function useMultiTaskProgress({
     eventsRef.current = {};
     setEvents({});
     setModes({});
-    setSseFailureCount(0);
+    setSseFailureCounts({});
 
     for (const task of tasks) {
       const taskId = task.taskId;
@@ -138,7 +161,10 @@ export function useMultiTaskProgress({
 
       const registerSseFailure = () => {
         failures += 1;
-        setSseFailureCount((count) => count + 1);
+        setSseFailureCounts((prev) => ({
+          ...prev,
+          [taskId]: (prev[taskId] ?? 0) + 1,
+        }));
         if (failures >= SSE_FAILURE_THRESHOLD) {
           switchToPolling();
         }
@@ -167,7 +193,50 @@ export function useMultiTaskProgress({
       disposed = true;
       for (const cleanup of cleanups) cleanup();
     };
-  }, [applyEvent, enabled, tasks, watchKey]);
+  }, [applyEvent, enabled, taskIdsKey, tasks, watchKey]);
 
-  return { events, modes, sseFailureCount, error };
+  const allTerminal = useMemo(() => {
+    if (tasks.length === 0) return false;
+    return tasks.every((task) => {
+      const event = events[task.taskId];
+      return event && isTerminal(event.status);
+    });
+  }, [events, tasks]);
+
+  const anyFailed = useMemo(
+    () =>
+      Object.values(events).some(
+        (event) => event.status === "failed" || event.status === "cancelled",
+      ),
+    [events],
+  );
+
+  const byTaskId = useMemo(() => {
+    const slices: Record<string, MultiTaskProgressSlice> = {};
+    for (const task of tasks) {
+      slices[task.taskId] = {
+        event: events[task.taskId] ?? null,
+        mode: modes[task.taskId] ?? "idle",
+        sseFailureCount: sseFailureCounts[task.taskId] ?? 0,
+        error,
+      };
+    }
+    return slices;
+  }, [error, events, modes, sseFailureCounts, tasks]);
+
+  const sseFailureCount = useMemo(
+    () => Math.max(0, ...Object.values(sseFailureCounts)),
+    [sseFailureCounts],
+  );
+
+  return {
+    events,
+    modes,
+    sseFailureCount,
+    sseFailureCounts,
+    byTaskId,
+    error,
+    allTerminal,
+    anyFailed,
+  };
 }
