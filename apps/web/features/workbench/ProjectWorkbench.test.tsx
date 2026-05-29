@@ -41,7 +41,7 @@ describe("ProjectWorkbench", () => {
       data: { samples: [] },
       meta: { dataSource: "api" },
     });
-    vi.spyOn(apiClient, "getLatestGeneration").mockRejectedValue(new Error("no generation"));
+    vi.spyOn(apiClient, "getLatestGenerations").mockRejectedValue(new Error("no generation"));
     vi.spyOn(apiClient, "getActiveSample").mockRejectedValue(new Error("no sample"));
   });
 
