@@ -1,34 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
+from app.agents.content_strategist import run_content_strategist
+from app.agents.gap_planner import run_gap_planner
+from app.agents.packaging_designer import run_packaging_designer
+from app.agents.runner import AgentRunner
+from app.agents.slot_mapper import run_slot_mapper
+from app.agents.storyboard_writer import run_storyboard_writer
+from app.runtime.task_context import TaskContext
 from app.validation.schema_loader import validate_contract
 
-
-IMPORTANCE_WEIGHT = {"must_have": 1.0, "recommended": 0.8, "optional": 0.5}
 TRACK_ORDER = ["video", "image", "text", "effect", "transition", "voiceover", "bgm"]
-KEYWORD_TOKENS = {
-    "真实",
-    "使用",
-    "效率",
-    "提升",
-    "产品",
-    "场景",
-    "对比",
-    "购买",
-    "点击",
-    "benefit",
-    "proof",
-    "solution",
-    "hook",
-    "cta",
-}
-
-
-@dataclass(frozen=True)
-class SlotMappingResult:
-    slot_matches: list[dict[str, Any]]
 
 
 def build_asset_inventory(
@@ -114,7 +97,7 @@ def build_asset_inventory(
                     "startSec": 0.0,
                     "endSec": max(0.1, duration),
                     "description": asset.get("description", "") or f"moment from {asset['id']}",
-                    "tags": _build_asset_tokens(asset),
+                    "tags": list(asset.get("tags", [])),
                 }
             )
 
@@ -132,158 +115,71 @@ def build_asset_inventory(
     return inventory
 
 
-def map_slots(*, structure: dict[str, Any], inventory: dict[str, Any]) -> SlotMappingResult:
-    assets = inventory.get("assets", [])
-    moments_by_asset = {}
-    for moment in inventory.get("candidateMoments", []):
-        moments_by_asset.setdefault(moment["assetId"], []).append(moment)
-
-    used_assets: set[str] = set()
-    slots = sorted(
-        structure.get("slots", []),
-        key=lambda slot: IMPORTANCE_WEIGHT.get(slot.get("importance", "optional"), 0.5),
-        reverse=True,
-    )
-
-    slot_matches: list[dict[str, Any]] = []
-    for slot in slots:
-        candidates: list[dict[str, Any]] = []
-        slot_tokens = _tokenize(
-            " ".join(
-                [
-                    str(slot.get("visualIntent", "")),
-                    str(slot.get("scriptIntent", "")),
-                    str(slot.get("packagingHint", "")),
-                ]
-            )
-        )
-        required_types = set(slot.get("requiredAssetType", []))
-        slot_duration = max(0.01, float(slot["endSec"]) - float(slot["startSec"]))
-        slot_is_visual = bool({"video", "image"} & required_types)
-
-        for asset in assets:
-            asset_tokens = set(_build_asset_tokens(asset))
-            semantic_score = _jaccard(slot_tokens, asset_tokens)
-            type_score = _type_score(required_types=required_types, asset=asset, slot_is_visual=slot_is_visual)
-            duration_score, moment_id = _duration_score(
-                slot_duration=slot_duration,
-                asset=asset,
-                moments=moments_by_asset.get(asset["id"], []),
-            )
-            importance = IMPORTANCE_WEIGHT.get(slot.get("importance", "optional"), 0.5)
-            match_score = (
-                (type_score * 0.35 + semantic_score * 0.4 + duration_score * 0.15) * importance
-            )
-            candidates.append(
-                {
-                    "slotId": slot["id"],
-                    "assetId": asset["id"],
-                    "momentId": moment_id,
-                    "matchScore": round(max(0.0, min(1.0, match_score)), 4),
-                    "matchReason": _reason_text(type_score, semantic_score, duration_score),
-                    "_isVideo": asset["type"] == "video",
-                    "_durationDiff": abs(
-                        slot_duration - float(asset.get("durationSec", slot_duration))
-                    ),
-                    "_alreadyUsed": asset["id"] in used_assets,
-                }
-            )
-
-        if not candidates:
-            slot_matches.append(
-                {
-                    "slotId": slot["id"],
-                    "matchScore": 0.0,
-                    "matchReason": "No candidate assets",
-                }
-            )
-            continue
-
-        candidates.sort(
-            key=lambda item: (
-                item["matchScore"],
-                1 if item["_isVideo"] else 0,
-                -item["_durationDiff"],
-                0 if item["_alreadyUsed"] else 1,
-            ),
-            reverse=True,
-        )
-        best = {
-            key: value
-            for key, value in candidates[0].items()
-            if not key.startswith("_") and value is not None
-        }
-        if best.get("assetId"):
-            used_assets.add(str(best["assetId"]))
-        slot_matches.append(best)
-
-    return SlotMappingResult(slot_matches=slot_matches)
-
-
-def build_gap_report(
+def run_agent_generation(
+    runner: AgentRunner,
     *,
     structure: dict[str, Any],
-    inventory: dict[str, Any],
-    slot_matches: list[dict[str, Any]],
-) -> dict[str, Any]:
-    slots_by_id = {slot["id"]: slot for slot in structure.get("slots", [])}
-    missing_slots = []
-    weak_slots = []
-
-    for match in slot_matches:
-        slot = slots_by_id.get(match["slotId"])
-        if slot is None:
-            continue
-        score = float(match.get("matchScore", 0.0))
-        importance_weight = IMPORTANCE_WEIGHT.get(slot.get("importance", "optional"), 0.5)
-        matched_threshold, weak_threshold = _thresholds_for_importance(importance_weight)
-
-        if score >= matched_threshold:
-            continue
-
-        impact = _impact_from_importance(slot.get("importance", "optional"))
-        has_visual_partial = score >= weak_threshold and bool(match.get("assetId"))
-        suggested_fixes = _suggest_fixes(
-            slot=slot,
-            visual_density=structure.get("packaging", {}).get("visualDensity", "medium"),
-            has_visual_partial=has_visual_partial,
-            inventory=inventory,
-        )
-        record = {
-            "slotId": slot["id"],
-            "reason": "Partial match but not strong enough"
-            if has_visual_partial
-            else "No reliable asset match for slot intent",
-            "impact": impact,
-            "suggestedFixes": suggested_fixes,
-        }
-        if score >= weak_threshold:
-            weak_slots.append(record)
-        else:
-            missing_slots.append(record)
-
-    report = {
-        "id": f"gap-report-{structure['projectId']}",
-        "projectId": structure["projectId"],
-        "structureId": structure["id"],
-        "inventoryId": inventory["id"],
-        "slotMatches": slot_matches,
-        "missingSlots": missing_slots,
-        "weakSlots": weak_slots,
-        "summary": f"{len(missing_slots)} missing, {len(weak_slots)} weak slots",
-    }
-    validation = validate_contract("gap-report", report)
-    if not validation.valid:
-        raise ValueError(f"Invalid GapReport payload: {validation.errors}")
-    return report
+    inventory_baseline: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    variant: str = "default",
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    inventory = run_content_strategist(
+        runner,
+        inventory=inventory_baseline,
+        context=context,
+        generation_id=generation_id,
+    )
+    slot_matches = run_slot_mapper(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        context=context,
+        generation_id=generation_id,
+    )
+    gap_report = run_gap_planner(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        slot_matches=slot_matches,
+        context=context,
+        generation_id=generation_id,
+    )
+    storyboard = run_storyboard_writer(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        context=context,
+        generation_id=generation_id,
+    )
+    packaging_plan = run_packaging_designer(
+        runner,
+        structure=structure,
+        storyboard=storyboard,
+        context=context,
+        generation_id=generation_id,
+    )
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant=variant,
+    )
+    return inventory, slot_matches, gap_report, plan
 
 
-def build_generation_plan(
+def assemble_generation_plan(
     *,
     structure: dict[str, Any],
     inventory: dict[str, Any],
     gap_report: dict[str, Any],
     slot_matches: list[dict[str, Any]],
+    storyboard: list[dict[str, Any]],
+    packaging_plan: dict[str, Any],
     variant: str = "default",
 ) -> dict[str, Any]:
     slots_by_id = {slot["id"]: slot for slot in structure.get("slots", [])}
@@ -293,70 +189,28 @@ def build_generation_plan(
         for asset in inventory.get("assets", [])
         if isinstance(asset, dict) and asset.get("id")
     }
-
-    weak_ids = {item["slotId"] for item in gap_report.get("weakSlots", [])}
-    missing_ids = {item["slotId"] for item in gap_report.get("missingSlots", [])}
     gap_by_slot = {
         item["slotId"]: item
         for item in [*gap_report.get("weakSlots", []), *gap_report.get("missingSlots", [])]
     }
 
-    storyboard = []
     completion_actions = []
-    for index, slot in enumerate(structure.get("slots", []), start=1):
-        slot_id = slot["id"]
-        match = matches_by_slot.get(slot_id, {})
-        source = "user_asset"
-        if slot_id in missing_ids:
-            fix = _select_fix_for_slot(
-                slot=slot,
-                slot_gap=gap_by_slot[slot_id],
-                structure=structure,
-                inventory=inventory,
-                match=match,
-            )
-            source = _source_from_fix(fix)
-        elif slot_id in weak_ids:
-            fix = _select_fix_for_slot(
-                slot=slot,
-                slot_gap=gap_by_slot[slot_id],
-                structure=structure,
-                inventory=inventory,
-                match=match,
-            )
-            source = _source_from_fix(fix)
-        elif match.get("assetId") and slot_id not in missing_ids and slot_id not in weak_ids:
-            source = "user_asset"
-
-        storyboard.append(
+    for scene in storyboard:
+        slot_id = scene["slotId"]
+        if slot_id not in gap_by_slot:
+            continue
+        slot_gap = gap_by_slot[slot_id]
+        fixes = list(slot_gap.get("suggestedFixes", []))
+        strategy = fixes[0] if fixes else "text_completion"
+        completion_actions.append(
             {
-                "id": f"scene-{index}",
+                "id": f"action-{slot_id}",
                 "slotId": slot_id,
-                "startSec": slot["startSec"],
-                "endSec": slot["endSec"],
-                "visual": slot["visualIntent"],
-                "script": slot["scriptIntent"],
-                "source": source,
+                "strategy": strategy,
+                "reason": slot_gap["reason"],
+                "outputRef": f"completion://{slot_id}/{strategy}",
             }
         )
-
-        if slot_id in gap_by_slot:
-            fix = _select_fix_for_slot(
-                slot=slot,
-                slot_gap=gap_by_slot[slot_id],
-                structure=structure,
-                inventory=inventory,
-                match=match,
-            )
-            completion_actions.append(
-                {
-                    "id": f"action-{slot_id}",
-                    "slotId": slot_id,
-                    "strategy": fix,
-                    "reason": gap_by_slot[slot_id]["reason"],
-                    "outputRef": f"completion://{slot_id}/{fix}",
-                }
-            )
 
     timeline = _build_timeline(
         storyboard=storyboard,
@@ -376,12 +230,7 @@ def build_generation_plan(
         "variant": variant,
         "storyboard": storyboard,
         "timeline": timeline,
-        "packagingPlan": {
-            "styleSummary": f"Visual density: {structure.get('packaging', {}).get('visualDensity', 'medium')}",
-            "subtitle": {"preset": "clean"},
-            "titleCards": [{"preset": "hook"}],
-            "transitions": [{"preset": "quick-cut"}],
-        },
+        "packagingPlan": packaging_plan,
         "completionActions": completion_actions,
     }
     validation = validate_contract("generation-plan", plan)
@@ -397,7 +246,10 @@ def _build_timeline(
     slots: dict[str, dict[str, Any]],
     asset_type_by_id: dict[str, str | None],
 ) -> dict[str, Any]:
-    tracks = {track_type: {"id": f"track-{track_type}", "type": track_type, "clips": []} for track_type in TRACK_ORDER}
+    tracks = {
+        track_type: {"id": f"track-{track_type}", "type": track_type, "clips": []}
+        for track_type in TRACK_ORDER
+    }
 
     for scene in storyboard:
         slot_id = scene["slotId"]
@@ -455,131 +307,3 @@ def _build_timeline(
     if not validation.valid:
         raise ValueError(f"Invalid RenderTimeline payload: {validation.errors}")
     return timeline
-
-
-def _type_score(*, required_types: set[str], asset: dict[str, Any], slot_is_visual: bool) -> float:
-    if asset["type"] in required_types:
-        return 1.0
-    if slot_is_visual and asset["type"] == "text":
-        return 0.5
-    if "packaging" in required_types and asset["type"] == "text":
-        return 1.0
-    return 0.0
-
-
-def _duration_score(
-    *, slot_duration: float, asset: dict[str, Any], moments: list[dict[str, Any]]
-) -> tuple[float, str | None]:
-    if asset["type"] == "video":
-        if moments:
-            best = max(
-                moments,
-                key=lambda m: min(1.0, (float(m["endSec"]) - float(m["startSec"])) / slot_duration),
-            )
-            duration = float(best["endSec"]) - float(best["startSec"])
-            return min(1.0, max(0.0, duration / slot_duration)), best["id"]
-        duration = float(asset.get("durationSec", slot_duration))
-        return min(1.0, max(0.0, duration / slot_duration)), None
-    if asset["type"] == "image":
-        return 0.7, None
-    return 0.6, None
-
-
-def _build_asset_tokens(asset: dict[str, Any]) -> list[str]:
-    tags = list(asset.get("tags", []))
-    description = str(asset.get("description", ""))
-    return sorted(set(tags) | _tokenize(description))
-
-
-def _tokenize(text: str) -> set[str]:
-    lowered = text.lower()
-    normalized = "".join(ch if ch.isalnum() else " " for ch in lowered)
-    tokens = {token for token in normalized.split() if token}
-    for keyword in KEYWORD_TOKENS:
-        if keyword in lowered:
-            tokens.add(keyword)
-    return tokens
-
-
-def _jaccard(left: set[str], right: set[str]) -> float:
-    if not left or not right:
-        return 0.0
-    return len(left & right) / len(left | right)
-
-
-def _reason_text(type_score: float, semantic_score: float, duration_score: float) -> str:
-    return (
-        f"type={type_score:.2f}, semantic={semantic_score:.2f}, duration={duration_score:.2f}"
-    )
-
-
-def _impact_from_importance(importance: str) -> str:
-    if importance == "must_have":
-        return "high"
-    if importance == "recommended":
-        return "medium"
-    return "low"
-
-
-def _thresholds_for_importance(importance_weight: float) -> tuple[float, float]:
-    scaled_matched = 0.62 * importance_weight
-    scaled_weak = 0.38 * importance_weight
-    return scaled_matched, scaled_weak
-
-
-def _suggest_fixes(
-    *,
-    slot: dict[str, Any],
-    visual_density: str,
-    has_visual_partial: bool,
-    inventory: dict[str, Any],
-) -> list[str]:
-    fixes: list[str] = []
-    role = slot.get("role")
-    slot_visual = bool({"video", "image"} & set(slot.get("requiredAssetType", [])))
-    if slot_visual and has_visual_partial:
-        fixes.append("asset_reuse")
-
-    if role in {"benefit_card", "hook_text", "comparison"} or visual_density == "high":
-        fixes.append("packaging_completion")
-
-    if inventory.get("extractedFacts"):
-        fixes.append("text_completion")
-
-    ordered = []
-    for item in ["asset_reuse", "packaging_completion", "text_completion"]:
-        if item in fixes and item not in ordered:
-            ordered.append(item)
-    return ordered or ["text_completion"]
-
-
-def _select_fix_for_slot(
-    *,
-    slot: dict[str, Any],
-    slot_gap: dict[str, Any],
-    structure: dict[str, Any],
-    inventory: dict[str, Any],
-    match: dict[str, Any],
-) -> str:
-    fixes = list(slot_gap.get("suggestedFixes", []))
-    if fixes:
-        return str(fixes[0])
-
-    inferred = _suggest_fixes(
-        slot=slot,
-        visual_density=structure.get("packaging", {}).get("visualDensity", "medium"),
-        has_visual_partial=bool(match.get("assetId")),
-        inventory=inventory,
-    )
-    return inferred[0] if inferred else "text_completion"
-
-
-def _source_from_fix(strategy: str) -> str:
-    if strategy == "asset_reuse":
-        return "asset_reuse"
-    if strategy == "packaging_completion":
-        return "packaging_completion"
-    if strategy == "text_completion":
-        return "text_completion"
-    return "generated"
-
