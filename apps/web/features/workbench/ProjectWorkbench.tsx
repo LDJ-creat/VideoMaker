@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  EditIntentItem,
   GapReport,
   GenerationPlan,
   TaskEvent,
@@ -17,12 +18,16 @@ import {
   VariantPicker,
 } from "@/features/generation-variants/VariantPicker";
 import { VariantTabs } from "@/features/generation-variants/VariantTabs";
+import { VariantCompareView } from "@/features/generation-variants/VariantCompareView";
+import { EditIntentList } from "@/features/nl-revise/EditIntentList";
+import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
+import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
-import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import {
   BriefEditor,
   type BriefEditorHandle,
 } from "@/features/project-input/BriefEditor";
+import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
@@ -40,6 +45,7 @@ import {
 import type { DataSource } from "@/lib/api-types";
 import type {
   ActiveSampleSummary,
+  GenerationPlanEntry,
   ProjectAsset,
   UserBriefRequest,
 } from "@/lib/apiClient";
@@ -53,6 +59,7 @@ import {
   listProjectAssets,
   listProjectSamples,
   retryTask,
+  reviseGeneration,
   saveBrief,
   startSampleAnalysis,
 } from "@/lib/apiClient";
@@ -81,7 +88,7 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   result: "结果",
 };
 
-type LastPipelineAction = "analysis" | "generation" | null;
+type LastPipelineAction = "analysis" | "generation" | "revise" | null;
 
 function emptyBrief(): UserBriefRequest {
   return { sellingPoints: [], mustMention: [], avoidMention: [] };
@@ -122,12 +129,21 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     getDefaultSelectedVariantIds(),
   );
   const [highlightedSlotIds, setHighlightedSlotIds] = useState<string[]>([]);
+  const [activeGenerations, setActiveGenerations] = useState<GenerationPlanEntry[]>(
+    [],
+  );
   const [variantPlans, setVariantPlans] = useState<
     Record<string, GenerationPlan>
   >({});
   const [activeVariantGenerationId, setActiveVariantGenerationId] = useState<
     string | null
   >(null);
+  const [reviseIntents, setReviseIntents] = useState<EditIntentItem[] | null>(
+    null,
+  );
+  const [preRevisePlan, setPreRevisePlan] = useState<GenerationPlan | null>(
+    null,
+  );
 
   const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
     setDataLoading(true);
@@ -202,6 +218,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     const saved = loadProjectSession(projectId);
     if (saved?.generationId) setGenerationId(saved.generationId);
     if (saved?.lastAction) setLastAction(saved.lastAction);
+    if (saved?.activeGenerations?.length) {
+      setActiveGenerations(saved.activeGenerations);
+    }
+    if (saved?.activeVariantGenerationId) {
+      setActiveVariantGenerationId(saved.activeVariantGenerationId);
+    }
+    if (saved?.reviseIntents?.length) {
+      setReviseIntents(saved.reviseIntents);
+    }
+    if (saved?.preReviseGenerationId) {
+      void getGeneration(saved.preReviseGenerationId)
+        .then(({ data }) => setPreRevisePlan(data))
+        .catch(() => {
+          /* plan may no longer exist */
+        });
+    }
     if (saved?.taskId) {
       setTaskId(saved.taskId);
       setPanel("progress");
@@ -216,8 +248,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       sampleId,
       generationId,
       lastAction,
+      activeGenerations,
+      activeVariantGenerationId,
+      reviseIntents,
+      preReviseGenerationId: preRevisePlan?.id ?? null,
     });
-  }, [projectId, taskId, sampleId, generationId, lastAction]);
+  }, [
+    projectId,
+    taskId,
+    sampleId,
+    generationId,
+    lastAction,
+    activeGenerations,
+    activeVariantGenerationId,
+    reviseIntents,
+    preRevisePlan,
+  ]);
 
   const loadGenerationResults = useCallback(async (currentGenerationId: string) => {
     setDataLoading(true);
@@ -226,6 +272,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     try {
       const { data, meta } = await getGeneration(currentGenerationId);
       setGenerationPlan(data);
+      setVariantPlans((prev) => ({ ...prev, [data.id]: data }));
       setDataSource(meta.dataSource);
       if (data.gapReport) {
         setGapReport(data.gapReport);
@@ -243,6 +290,51 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, []);
 
+  const loadAllGenerationResults = useCallback(
+    async (entries: GenerationPlanEntry[]) => {
+      if (entries.length === 0) return;
+
+      setDataLoading(true);
+      setDataError(null);
+      setGapApiPending(false);
+      try {
+        const results = await Promise.all(
+          entries.map((entry) => getGeneration(entry.generationId)),
+        );
+        const plans: Record<string, GenerationPlan> = {};
+        for (let index = 0; index < entries.length; index += 1) {
+          plans[entries[index]!.generationId] = results[index]!.data;
+        }
+        setVariantPlans(plans);
+        setDataSource(results[0]!.meta.dataSource);
+
+        const primaryId = entries[0]!.generationId;
+        const primaryPlan = plans[primaryId];
+        if (primaryPlan) {
+          setGenerationId(primaryId);
+          setGenerationPlan(primaryPlan);
+          setActiveVariantGenerationId(primaryId);
+        }
+
+        const primaryGap = results[0]!.data.gapReport;
+        if (primaryGap) {
+          setGapReport(primaryGap);
+        } else if (results[0]!.meta.dataSource === "fixture") {
+          setGapReport(fixtureGapReport);
+          setGapApiPending(true);
+        } else {
+          setGapReport(null);
+          setGapApiPending(true);
+        }
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+      } finally {
+        setDataLoading(false);
+      }
+    },
+    [],
+  );
+
   const handleTerminal = useCallback(
     (event: TaskEvent) => {
       if (event.status === "failed" || event.status === "cancelled") {
@@ -254,14 +346,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       if (lastAction === "analysis" && sampleId) {
         void loadAnalysisResults(sampleId);
         setPanel("analysis");
-      } else if (lastAction === "generation" && generationId) {
+      } else if (lastAction === "generation") {
+        if (activeGenerations.length > 1) {
+          void loadAllGenerationResults(activeGenerations);
+        } else if (generationId) {
+          void loadGenerationResults(generationId);
+        }
+        setPanel("result");
+      } else if (lastAction === "revise" && generationId) {
         void loadGenerationResults(generationId);
         setPanel("result");
       }
     },
     [
+      activeGenerations,
       generationId,
       lastAction,
+      loadAllGenerationResults,
       loadAnalysisResults,
       loadGenerationResults,
       sampleId,
@@ -324,9 +425,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         brief,
         variants: selectedVariantIds,
       });
+      setActiveGenerations(data.generations);
       const primary = data.generations[0];
       if (primary) {
         setGenerationId(primary.generationId);
+        setActiveVariantGenerationId(primary.generationId);
         if (primary.taskId) {
           setTaskId(primary.taskId);
         }
@@ -339,10 +442,82 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, [projectId, selectedVariantIds]);
 
+  const activeResultPlan =
+    (activeVariantGenerationId
+      ? variantPlans[activeVariantGenerationId]
+      : null) ?? generationPlan;
+
+  const activeResultGenerationId =
+    activeVariantGenerationId ?? generationId;
+
+  const handleRevise = useCallback(
+    async (instruction: string) => {
+      const targetGenerationId = activeResultGenerationId;
+      const sourcePlan = activeResultPlan;
+      if (!targetGenerationId || !sourcePlan) {
+        setDataError("请先完成生成计划后再改片。");
+        return;
+      }
+
+      setBusy(true);
+      setDataError(null);
+      setLastAction("revise");
+      setPreRevisePlan(sourcePlan);
+      try {
+        const { data } = await reviseGeneration(targetGenerationId, instruction);
+        setReviseIntents(data.intents);
+        setGenerationId(data.generationId);
+        setTaskId(data.taskId);
+        setActiveGenerations((prev) =>
+          prev.length > 0
+            ? prev.map((entry) =>
+                entry.generationId === targetGenerationId
+                  ? {
+                      ...entry,
+                      generationId: data.generationId,
+                      taskId: data.taskId,
+                    }
+                  : entry,
+              )
+            : [
+                {
+                  generationId: data.generationId,
+                  variant: sourcePlan.variant,
+                  taskId: data.taskId,
+                },
+              ],
+        );
+        setActiveVariantGenerationId(data.generationId);
+        setVariantPlans((prev) => {
+          const next = { ...prev };
+          delete next[targetGenerationId];
+          return next;
+        });
+        setPanel("progress");
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+        setLastAction(null);
+        setPreRevisePlan(null);
+        setReviseIntents(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [activeResultGenerationId, activeResultPlan],
+  );
+
   const loadDemoFixtures = useCallback(() => {
     setStructure(fixtureVideoStructure);
     setGapReport(fixtureGapReport);
     setGenerationPlan(fixtureGenerationPlan);
+    setActiveGenerations(
+      fixtureMultiVariantGenerations.map((entry) => ({
+        generationId: entry.generationId,
+        variant: entry.variant,
+        taskId: entry.taskId,
+        label: entry.label,
+      })),
+    );
     setVariantPlans({
       [fixtureGenerationPlan.id]: fixtureGenerationPlan,
       [fixtureGenerationPlanHighClick.id]: fixtureGenerationPlanHighClick,
@@ -353,6 +528,17 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setGapApiPending(true);
     setDataError(null);
   }, []);
+
+  const hasMultipleVariants = activeGenerations.length > 1;
+  const comparePlans = activeGenerations
+    .map((entry) => variantPlans[entry.generationId])
+    .filter((plan): plan is GenerationPlan => plan != null);
+  const variantTabs = activeGenerations.map((entry) => ({
+    generationId: entry.generationId,
+    variant: entry.variant,
+    label: entry.label,
+    plan: variantPlans[entry.generationId] ?? null,
+  }));
 
   const handleRetryFailedTask = useCallback(async () => {
     const activeTaskId =
@@ -488,7 +674,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         )}
 
         {panel === "progress" && (
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             <TaskProgressPanel
               event={event}
               mode={mode}
@@ -496,7 +682,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               error={error}
               retryBusy={busy}
               retryLabel={
-                lastAction === "generation" ? "重试生成计划" : "重试样例分析"
+                lastAction === "revise"
+                  ? "重试改片"
+                  : lastAction === "generation"
+                    ? "重试生成计划"
+                    : "重试样例分析"
               }
               onRetry={
                 event?.status === "failed" && (taskId || event.taskId) && !busy
@@ -504,6 +694,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   : undefined
               }
             />
+            {lastAction === "revise" && reviseIntents && reviseIntents.length > 0 && (
+              <EditIntentList intents={reviseIntents} />
+            )}
           </div>
         )}
 
@@ -571,17 +764,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         )}
 
         {panel === "result" && (
-          <div className="lg:col-span-2">
-            {Object.keys(variantPlans).length > 1 ? (
+          <div className="lg:col-span-2 space-y-4">
+            {preRevisePlan &&
+              generationPlan &&
+              preRevisePlan.id !== generationPlan.id && (
+                <TimelineDiffSummary before={preRevisePlan} after={generationPlan} />
+              )}
+
+            {hasMultipleVariants && comparePlans.length > 1 && (
+              <VariantCompareView plans={comparePlans} />
+            )}
+
+            {hasMultipleVariants ? (
               <VariantTabs
-                tabs={fixtureMultiVariantGenerations.map((entry) => ({
-                  generationId: entry.generationId,
-                  variant: entry.variant,
-                  label: entry.label,
-                  plan: variantPlans[entry.generationId] ?? null,
-                }))}
+                tabs={variantTabs}
                 activeGenerationId={
-                  activeVariantGenerationId ?? fixtureGenerationPlan.id
+                  activeVariantGenerationId ?? activeGenerations[0]!.generationId
                 }
                 onActiveChange={setActiveVariantGenerationId}
               />
@@ -589,6 +787,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               <GenerationResultView plan={generationPlan} showTimeline />
             ) : (
               <EmptyPanel message="暂无生成结果。" />
+            )}
+
+            {(generationPlan || activeGenerations.length > 0) && (
+              <ReviseInputBar
+                onSubmit={handleRevise}
+                busy={busy}
+                disabled={!activeResultGenerationId}
+              />
             )}
           </div>
         )}
