@@ -1,0 +1,13 @@
+{
+  "template": "benefit-card",
+  "durationSec": 3,
+  "params": {
+    "title": "三大核心卖点",
+    "bullets": ["轻量便携", "续航一整天", "专业级画质"],
+    "colors": {
+      "primary": "#2563eb",
+      "background": "#0b0d12",
+      "text": "#ffffff"
+    }
+  }
+}
