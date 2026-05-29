@@ -9,6 +9,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  GeneratedAssetBadge,
+  resolveClipProvider,
+} from "@/features/aigc-preview/GeneratedAssetBadge";
 import { cn } from "@/lib/utils";
 
 const TRACK_COLORS: Record<TimelineTrackType, string> = {
@@ -42,12 +46,13 @@ export function TimelinePreview({ timeline }: TimelinePreviewProps) {
             <p className="font-mono text-xs uppercase text-muted-foreground">
               {track.type}
             </p>
-            <div className="relative h-10 rounded-md bg-muted/40">
+            <div className="relative h-12 rounded-md bg-muted/40">
               {track.clips.map((clip) => {
                 const rawLeft = (clip.startSec / duration) * 100;
                 const rawWidth = ((clip.endSec - clip.startSec) / duration) * 100;
                 const left = Math.min(Math.max(rawLeft, 0), 100);
                 const width = Math.min(Math.max(rawWidth, 2), 100 - left);
+                const provider = resolveClipProvider(clip.generatedBy);
                 return (
                   <div
                     key={clip.id}
@@ -57,11 +62,19 @@ export function TimelinePreview({ timeline }: TimelinePreviewProps) {
                       `${clip.startSec}-${clip.endSec}s`
                     }
                     className={cn(
-                      "absolute top-1 h-8 min-w-[2%] rounded px-1 text-[10px] text-white shadow-sm transition-transform hover:scale-y-110",
+                      "absolute top-1 flex h-10 min-w-[2%] flex-col justify-center rounded px-1 text-[10px] text-white shadow-sm transition-transform hover:scale-y-110",
                       TRACK_COLORS[track.type],
                     )}
                     style={{ left: `${left}%`, width: `${width}%` }}
-                  />
+                  >
+                    {provider && (
+                      <GeneratedAssetBadge
+                        provider={provider}
+                        generatedBy={clip.generatedBy}
+                        className="mb-0.5 w-fit bg-black/30 text-[9px] text-white"
+                      />
+                    )}
+                  </div>
                 );
               })}
             </div>

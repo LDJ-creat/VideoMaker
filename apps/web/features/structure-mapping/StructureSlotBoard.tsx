@@ -10,12 +10,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { slotHighlightClass } from "@/features/structure-evidence/StructureEvidencePanel";
+import { cn } from "@/lib/utils";
 
 type StructureSlotBoardProps = {
   structure: VideoStructure;
+  highlightedSlotIds?: string[];
 };
 
-export function StructureSlotBoard({ structure }: StructureSlotBoardProps) {
+export function StructureSlotBoard({
+  structure,
+  highlightedSlotIds = [],
+}: StructureSlotBoardProps) {
   return (
     <Card>
       <CardHeader>
@@ -28,7 +34,11 @@ export function StructureSlotBoard({ structure }: StructureSlotBoardProps) {
         {structure.slots.map((slot) => (
           <div
             key={slot.id}
-            className="rounded-lg border border-border bg-muted/20 p-4"
+            data-testid={`structure-slot-${slot.id}`}
+            className={cn(
+              "rounded-lg border border-border bg-muted/20 p-4",
+              slotHighlightClass(highlightedSlotIds.includes(slot.id)),
+            )}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <Badge variant="outline">{slot.role}</Badge>

@@ -1,8 +1,11 @@
 import type {
+  AgentRunLog,
+  EditIntentItem,
   GapReport,
   GenerationPlan,
   TaskEvent,
   UserBrief,
+  VariantDefinition,
   VideoStructure,
 } from "@videomaker/contracts";
 
@@ -10,6 +13,71 @@ import type { ApiMeta, ApiResult } from "@/lib/api-types";
 import { metaFromResponse } from "@/lib/api-types";
 import { setLastDataSource } from "@/lib/data-source-store";
 import { ApiClientError } from "@/lib/errors";
+import {
+  getEnabledVariants,
+  getVariantLabel,
+  loadVariantRegistry as loadWebVariantRegistry,
+} from "@/lib/variantRegistry";
+
+export type { VariantDefinition };
+
+export type ProviderStatus = {
+  configured: boolean;
+  model?: string;
+  driver?: string;
+};
+
+export type ModelGatewayStatusResponse = {
+  fixtureMode: boolean;
+  providers: {
+    text: ProviderStatus;
+    vision: ProviderStatus;
+    tts: ProviderStatus;
+    image: ProviderStatus;
+    video: ProviderStatus;
+  };
+};
+
+export type GenerationPlanEntry = {
+  generationId: string;
+  variant: string;
+  taskId: string;
+  label?: string;
+};
+
+export type MultiVariantGenerationResponse = {
+  generations: GenerationPlanEntry[];
+};
+
+export type CreateGenerationPlanBody = {
+  variants?: string[];
+  brief?: UserBrief;
+};
+
+export type ReviseGenerationResponse = {
+  sourceGenerationId: string;
+  generationId: string;
+  taskId: string;
+  intents: EditIntentItem[];
+};
+
+export function loadVariantRegistry(): VariantDefinition[] {
+  return loadWebVariantRegistry();
+}
+
+export function getDefaultVariantIds(): string[] {
+  return getEnabledVariants().map((variant) => variant.id);
+}
+
+function normalizeCreateGenerationPlanBody(
+  body?: CreateGenerationPlanBody | UserBrief,
+): CreateGenerationPlanBody {
+  if (!body) return {};
+  if ("sellingPoints" in body || "mustMention" in body || "avoidMention" in body) {
+    return { brief: body as UserBrief };
+  }
+  return body as CreateGenerationPlanBody;
+}
 
 export type CreateSampleFromUrlRequest = {
   url: string;
@@ -221,14 +289,44 @@ export async function getTask(taskId: string): Promise<ApiResult<TaskEvent>> {
 
 export async function createGenerationPlan(
   projectId: string,
-  brief?: UserBriefRequest,
-): Promise<ApiResult<{ generationId: string; taskId?: string; gapReport?: GapReport }>> {
+  body?: CreateGenerationPlanBody | UserBriefRequest,
+): Promise<ApiResult<MultiVariantGenerationResponse>> {
+  const normalized = normalizeCreateGenerationPlanBody(body);
+  const payload: CreateGenerationPlanBody = {
+    ...normalized,
+    variants: normalized.variants ?? getDefaultVariantIds(),
+  };
   return apiFetch(`/api/projects/${projectId}/generation-plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(brief ? { brief } : {}),
+    body: JSON.stringify(payload),
   });
 }
+
+export async function getModelGatewayStatus(): Promise<
+  ApiResult<ModelGatewayStatusResponse>
+> {
+  return apiFetch("/api/settings/model-gateway");
+}
+
+export async function getGenerationAgentRuns(
+  generationId: string,
+): Promise<ApiResult<{ runs: AgentRunLog[] }>> {
+  return apiFetch(`/api/generations/${generationId}/agent-runs`);
+}
+
+export async function reviseGeneration(
+  generationId: string,
+  instruction: string,
+): Promise<ApiResult<ReviseGenerationResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+}
+
+export { getVariantLabel };
 
 export async function getGeneration(
   generationId: string,

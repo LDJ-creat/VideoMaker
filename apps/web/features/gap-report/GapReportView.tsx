@@ -1,6 +1,6 @@
 "use client";
 
-import type { GapReport } from "@videomaker/contracts";
+import type { CompletionAction, GapReport } from "@videomaker/contracts";
 import { Upload } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,18 +12,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { GeneratedAssetBadge } from "@/features/aigc-preview/GeneratedAssetBadge";
 
 type GapReportViewProps = {
   report: GapReport;
+  completionActions?: CompletionAction[];
   onUploadAsset?: (slotId: string) => void;
   onGenerate?: (slotId: string) => void;
 };
 
 export function GapReportView({
   report,
+  completionActions = [],
   onUploadAsset,
   onGenerate,
 }: GapReportViewProps) {
+  const actionsBySlot = new Map(
+    completionActions.map((action) => [action.slotId, action]),
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -68,6 +75,8 @@ export function GapReportView({
                 title={`槽位 ${slot.slotId}`}
                 body={slot.reason}
                 meta={`影响 ${slot.impact}`}
+                suggestedProviders={slot.suggestedFixes}
+                completionAction={actionsBySlot.get(slot.slotId)}
                 onUploadAsset={onUploadAsset}
                 onGenerate={onGenerate}
               />
@@ -91,6 +100,8 @@ export function GapReportView({
                 title={`槽位 ${slot.slotId}`}
                 body={slot.reason}
                 meta={slot.suggestedFixes.join(", ")}
+                suggestedProviders={slot.suggestedFixes}
+                completionAction={actionsBySlot.get(slot.slotId)}
                 onUploadAsset={onUploadAsset}
                 onGenerate={onGenerate}
                 showActions
@@ -109,6 +120,8 @@ function GapCard({
   title,
   body,
   meta,
+  suggestedProviders,
+  completionAction,
   showActions,
   onUploadAsset,
   onGenerate,
@@ -118,6 +131,8 @@ function GapCard({
   title: string;
   body: string;
   meta: string;
+  suggestedProviders?: string[];
+  completionAction?: CompletionAction;
   showActions?: boolean;
   onUploadAsset?: (slotId: string) => void;
   onGenerate?: (slotId: string) => void;
@@ -151,6 +166,24 @@ function GapCard({
       </div>
       <p className="text-sm text-muted-foreground">{body}</p>
       <p className="mt-2 font-mono text-xs text-muted-foreground">{meta}</p>
+      {(completionAction?.provider || (suggestedProviders?.length ?? 0) > 0) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {completionAction?.provider && (
+            <GeneratedAssetBadge
+              provider={completionAction.provider}
+              generatedBy={{
+                provider: completionAction.provider,
+                template: completionAction.strategy,
+              }}
+            />
+          )}
+          {suggestedProviders
+            ?.filter((provider) => provider !== completionAction?.provider)
+            .map((provider) => (
+              <GeneratedAssetBadge key={provider} provider={provider} />
+            ))}
+        </div>
+      )}
       {(showActions || tone !== "matched") && (
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
