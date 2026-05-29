@@ -6,6 +6,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, 
 from pydantic import BaseModel
 
 from app.services.cookie_store import CookieStore, UploadMode
+from app.services.model_gateway_status import get_model_gateway_status
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -33,6 +34,17 @@ def _cookie_store(request: Request) -> CookieStore:
 @router.get("/cookies", response_model=CookieStatusResponse)
 def get_global_cookies(request: Request) -> dict[str, Any]:
     return _cookie_store(request).get_status()
+
+
+@router.get("/model-gateway")
+def get_model_gateway_settings() -> dict[str, Any]:
+    """Return ModelGateway provider readiness from process env (no secrets).
+
+    Env vars mirror ``services/worker/app/gateway/config.py``:
+    ``TEXT_*``, ``VISION_*``, ``TTS_*``, ``IMAGE_*``, ``VIDEO_*``,
+    and ``VIDEOMAKER_FIXTURE_MODE``.
+    """
+    return get_model_gateway_status()
 
 
 @router.post("/cookies/upload", status_code=status.HTTP_201_CREATED, response_model=CookieUploadResponse)
