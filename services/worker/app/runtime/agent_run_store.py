@@ -57,6 +57,10 @@ class AgentRunStore:
     def __init__(self, storage_root: Path) -> None:
         self._storage_root = Path(storage_root)
 
+    @property
+    def storage_root(self) -> Path:
+        return self._storage_root
+
     def record(self, *, project_id: str, log: AgentRunLog) -> Path:
         payload = log.to_payload()
         validation = validate_contract("agent-run-log", payload)
