@@ -3,83 +3,39 @@
   "projectId": "project-1",
   "structureId": "video-structure-project-1",
   "inventoryId": "inventory-project-1",
-  "slotMatches": [
-    {
-      "slotId": "seg-hook-hook_visual-1",
-      "assetId": "asset-text-1",
-      "matchScore": 0.265,
-      "matchReason": "type=0.50, semantic=0.00, duration=0.60"
-    },
-    {
-      "slotId": "seg-cta-cta-1",
-      "assetId": "asset-text-1",
-      "matchScore": 0.44,
-      "matchReason": "type=1.00, semantic=0.00, duration=0.60"
-    },
-    {
-      "slotId": "seg-hook-hook_text-2",
-      "assetId": "asset-text-1",
-      "matchScore": 0.352,
-      "matchReason": "type=1.00, semantic=0.00, duration=0.60"
-    },
-    {
-      "slotId": "seg-2-benefit_card-1",
-      "assetId": "asset-text-1",
-      "matchScore": 0.352,
-      "matchReason": "type=1.00, semantic=0.00, duration=0.60"
-    },
-    {
-      "slotId": "seg-3-proof-1",
-      "assetId": "asset-text-1",
-      "matchScore": 0.352,
-      "matchReason": "type=1.00, semantic=0.00, duration=0.60"
-    }
-  ],
+  "slotMatches": [],
   "missingSlots": [
     {
       "slotId": "seg-hook-hook_visual-1",
-      "reason": "No reliable asset match for slot intent",
+      "reason": "无商品特写或 hook 视觉素材",
       "impact": "high",
-      "suggestedFixes": [
-        "text_completion"
-      ]
+      "suggestedFixes": ["image_generation"]
     }
   ],
   "weakSlots": [
     {
       "slotId": "seg-cta-cta-1",
-      "reason": "Partial match but not strong enough",
+      "reason": "文案可覆盖 CTA，但转化导向的视觉包装不足",
       "impact": "high",
-      "suggestedFixes": [
-        "text_completion"
-      ]
+      "suggestedFixes": ["asset_reuse"]
     },
     {
       "slotId": "seg-hook-hook_text-2",
-      "reason": "Partial match but not strong enough",
+      "reason": "hook 文字仅有弱匹配文案",
       "impact": "medium",
-      "suggestedFixes": [
-        "packaging_completion",
-        "text_completion"
-      ]
+      "suggestedFixes": ["hyperframes_material"]
     },
     {
       "slotId": "seg-2-benefit_card-1",
-      "reason": "Partial match but not strong enough",
+      "reason": "卖点卡缺少包装化视觉",
       "impact": "medium",
-      "suggestedFixes": [
-        "packaging_completion",
-        "text_completion"
-      ]
+      "suggestedFixes": ["hyperframes_material"]
     },
     {
       "slotId": "seg-3-proof-1",
-      "reason": "Partial match but not strong enough",
+      "reason": "proof 槽位缺少实拍对比画面",
       "impact": "medium",
-      "suggestedFixes": [
-        "asset_reuse",
-        "text_completion"
-      ]
+      "suggestedFixes": ["asset_reuse"]
     }
   ],
   "summary": "1 missing, 4 weak slots"
