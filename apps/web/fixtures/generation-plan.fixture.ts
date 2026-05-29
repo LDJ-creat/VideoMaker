@@ -61,6 +61,10 @@ export const fixtureGenerationPlan: GenerationPlan = {
             endSec: 3,
             content: "夏天出门还在被晒黑？",
             styleRef: "bold_hook",
+            generatedBy: {
+              provider: "hyperframes_material",
+              template: "title-lower-third",
+            },
           },
           {
             id: "clip-t2",
@@ -68,6 +72,10 @@ export const fixtureGenerationPlan: GenerationPlan = {
             endSec: 28,
             content: "限时第二件半价",
             styleRef: "cta_card",
+            generatedBy: {
+              provider: "hyperframes_material",
+              template: "benefit-card",
+            },
           },
         ],
       },
@@ -80,6 +88,10 @@ export const fixtureGenerationPlan: GenerationPlan = {
             startSec: 0,
             endSec: 28,
             sourceRef: "tts-narration-001",
+            generatedBy: {
+              provider: "tts",
+              model: "tts-1",
+            },
           },
         ],
       },
@@ -104,6 +116,10 @@ export const fixtureGenerationPlan: GenerationPlan = {
             startSec: 12,
             endSec: 18,
             sourceRef: "benefit-card.png",
+            generatedBy: {
+              provider: "image_generation",
+              model: "dall-e-3",
+            },
           },
         ],
       },
@@ -146,6 +162,17 @@ export const fixtureGenerationPlan: GenerationPlan = {
       strategy: "packaging_completion",
       reason: "缺少 CTA 包装素材",
       outputRef: "pack-cta-001",
+      provider: "hyperframes_material",
+      rationale: "HyperFrames benefit-card 模板补全 CTA 贴纸",
+    },
+    {
+      id: "action-2",
+      slotId: "slot-benefit",
+      strategy: "image_generation",
+      reason: "缺少利益点配图",
+      outputRef: "img-benefit-001",
+      provider: "image_generation",
+      rationale: "DALL-E 生成三要点配图",
     },
   ],
 };

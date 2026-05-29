@@ -129,6 +129,36 @@ export const fixtureVideoStructure: VideoStructure = {
       summary: "前 3 秒平均镜头时长 0.8s，节奏极快",
       confidence: 0.91,
     },
+    {
+      targetId: "seg-hook",
+      source: "asr",
+      summary: "「夏天出门还在被晒黑？」反问式开场",
+      confidence: 0.88,
+    },
+    {
+      targetId: "slot-hook-visual",
+      source: "keyframe",
+      summary: "0.6s 处产品对比特写关键帧",
+      confidence: 0.85,
+    },
+    {
+      targetId: "seg-solution",
+      source: "asr",
+      summary: "「轻薄 SPF50+，一喷成膜不黏腻」核心卖点口播",
+      confidence: 0.9,
+    },
+    {
+      targetId: "slot-product",
+      source: "keyframe",
+      summary: "5.2s 产品喷雾上手演示关键帧",
+      confidence: 0.87,
+    },
+    {
+      targetId: "seg-cta",
+      source: "asr",
+      summary: "「限时第二件半价，评论区领券」转化口播",
+      confidence: 0.86,
+    },
   ],
   confidence: 0.87,
 };
