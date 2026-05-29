@@ -13,10 +13,13 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { TaskArtifactPreview } from "@/features/tasks/TaskArtifactPreview";
+import { getTaskStageLabel } from "@/features/tasks/stageLabels";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 import { formatTaskError } from "@/lib/formatTaskError";
 
 type TaskProgressPanelProps = {
+  projectId?: string;
   event: TaskEvent | null;
   mode: TaskProgressMode;
   sseFailureCount: number;
@@ -34,6 +37,7 @@ const MODE_LABEL: Record<TaskProgressMode, string> = {
 };
 
 export function TaskProgressPanel({
+  projectId,
   event,
   mode,
   sseFailureCount,
@@ -55,6 +59,8 @@ export function TaskProgressPanel({
     );
   }
 
+  const stageLabel = getTaskStageLabel(event.stage);
+
   return (
     <Card className="border-ai/20">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -63,8 +69,10 @@ export function TaskProgressPanel({
             任务进度
             <Badge variant="ai">{event.status}</Badge>
           </CardTitle>
-          <CardDescription className="font-mono text-xs">
-            {event.taskId} · {event.stage}
+          <CardDescription>
+            <span className="font-mono text-xs">{event.taskId}</span>
+            <span className="mx-1">·</span>
+            <span>{stageLabel}</span>
           </CardDescription>
         </div>
         <Badge variant="outline">{MODE_LABEL[mode]}</Badge>
@@ -79,6 +87,14 @@ export function TaskProgressPanel({
           </div>
           <Progress value={event.progress} />
         </div>
+
+        {projectId && (
+          <TaskArtifactPreview
+            projectId={projectId}
+            artifactRefs={event.artifactRefs}
+            stage={event.stage}
+          />
+        )}
 
         {sseFailureCount > 0 && mode === "sse" && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -125,11 +141,6 @@ export function TaskProgressPanel({
         <ScrollArea className="h-28 rounded-md border border-border bg-muted/30 p-3 font-mono text-xs">
           <p>[{event.updatedAt}] stage={event.stage}</p>
           <p>status={event.status} progress={event.progress}</p>
-          {event.artifactRefs?.map((ref) => (
-            <p key={ref.id}>
-              artifact {ref.type}: {ref.uri}
-            </p>
-          ))}
         </ScrollArea>
       </CardContent>
     </Card>
