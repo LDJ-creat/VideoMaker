@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any, Callable
 
+from app.gateway.model_gateway import ModelGateway
 from app.validation.schema_loader import ValidationErrorItem, validate_contract
 
 
@@ -35,6 +36,7 @@ class LLMTool:
     fixture_mode: bool = True
     fixtures: dict[str, dict[str, Any]] | None = None
     backend: ModelBackend | None = None
+    gateway: ModelGateway | None = None
     api_key_env: str = "OPENAI_API_KEY"
 
     def __post_init__(self) -> None:
@@ -54,22 +56,27 @@ class LLMTool:
             self.last_raw_output = json.dumps(payload, ensure_ascii=False)
             return self._validate_payload(payload=payload, schema_name=schema_name)
 
-        api_key = os.getenv(self.api_key_env)
-        if not api_key:
-            raise LLMToolConfigError(
-                f"Missing API key env '{self.api_key_env}' for live LLM mode"
-            )
-        if self.backend is None:
-            raise LLMToolConfigError("No LLM backend configured for live mode")
-
-        raw = self.backend(task, inputs)
-        if isinstance(raw, str):
-            self.last_raw_output = raw
-            payload = json.loads(raw)
-        else:
-            payload = raw
+        if self.gateway is not None:
+            payload = self.gateway.complete_json(task, inputs, schema_name)
             self.last_raw_output = json.dumps(payload, ensure_ascii=False)
-        return self._validate_payload(payload=payload, schema_name=schema_name)
+            return self._validate_payload(payload=payload, schema_name=schema_name)
+
+        if self.backend is not None:
+            api_key = os.getenv(self.api_key_env)
+            if not api_key:
+                raise LLMToolConfigError(
+                    f"Missing API key env '{self.api_key_env}' for live LLM mode"
+                )
+            raw = self.backend(task, inputs)
+            if isinstance(raw, str):
+                self.last_raw_output = raw
+                payload = json.loads(raw)
+            else:
+                payload = raw
+                self.last_raw_output = json.dumps(payload, ensure_ascii=False)
+            return self._validate_payload(payload=payload, schema_name=schema_name)
+
+        raise LLMToolConfigError("No ModelGateway configured for live mode")
 
     def _validate_payload(
         self, *, payload: dict[str, Any], schema_name: str
@@ -82,4 +89,3 @@ class LLMTool:
             raw_output=self.last_raw_output,
             validation_errors=validation.errors,
         )
-
