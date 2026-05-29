@@ -7,6 +7,7 @@ import pytest
 
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
+from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError, load_agent_fixtures
@@ -50,7 +51,7 @@ def test_agent_runner_fixture_mode_returns_valid_structure(tmp_path: Path) -> No
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(_fixtures_dir())),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     output = runner.run(
@@ -67,7 +68,7 @@ def test_agent_runner_invalid_fixture_raises_and_logs_failure(tmp_path: Path) ->
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures={"structure_analyst": {"id": "bad"}}),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     with pytest.raises(LLMToolValidationError):
@@ -91,7 +92,7 @@ def test_agent_runner_missing_fixture_raises_config_error(tmp_path: Path) -> Non
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures={}),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     with pytest.raises(LLMToolConfigError):
@@ -111,7 +112,7 @@ def test_agent_runner_post_validate_failure_logs_invalid_output(tmp_path: Path) 
             fixtures={"slot_mapper": {"slotMatches": [{"slotId": "only-id"}]}},
         ),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
 

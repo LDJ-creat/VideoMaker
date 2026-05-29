@@ -7,7 +7,8 @@ import time
 from typing import Any
 
 from app.agents.prompt_loader import PromptLoader
-from app.runtime.agent_run_store import AgentRunLog, AgentRunStore
+from app.observability.sink import ObservabilitySink
+from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError
 
@@ -16,7 +17,7 @@ from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationErr
 class AgentRunner:
     llm: LLMTool
     prompt_loader: PromptLoader
-    run_store: AgentRunStore
+    observability_sink: ObservabilitySink
     model_name: str = "fixture"
 
     def run(
@@ -73,21 +74,20 @@ class AgentRunner:
             raise
         finally:
             latency_ms = (time.perf_counter() - started) * 1000
-            self.run_store.record(
-                project_id=context.project_id,
-                log=AgentRunLog(
-                    agent_name=agent_name,
-                    prompt_version=prompt_version,
-                    model=self.model_name,
-                    task=task,
-                    input_summary=input_summary,
-                    output_valid=valid,
-                    latency_ms=latency_ms,
-                    task_id=context.task_id,
-                    generation_id=generation_id,
-                    validation_errors=errors,
-                ),
-            )
+            payload = AgentRunLog(
+                agent_name=agent_name,
+                prompt_version=prompt_version,
+                model=self.model_name,
+                task=task,
+                input_summary=input_summary,
+                output_valid=valid,
+                latency_ms=latency_ms,
+                task_id=context.task_id,
+                generation_id=generation_id,
+                validation_errors=errors,
+            ).to_payload()
+            payload["projectId"] = context.project_id
+            self.observability_sink.record_agent_run(payload)
 
         assert output is not None
         return output

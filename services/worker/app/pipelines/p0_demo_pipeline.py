@@ -31,7 +31,7 @@ from app.pipelines.revise_pipeline import (
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
-from app.runtime.agent_run_store import AgentRunStore
+from app.observability.sink import build_observability_sink
 from app.runtime.checkpoint import (
     AnalysisCheckpoint,
     GenerationCheckpoint,
@@ -87,7 +87,7 @@ class P0DemoPipeline:
         return AgentRunner(
             llm=self._llm,
             prompt_loader=PromptLoader(),
-            run_store=AgentRunStore(self._storage_root),
+            observability_sink=build_observability_sink(self._storage_root),
             model_name="fixture" if self._llm.fixture_mode else "live",
         )
 

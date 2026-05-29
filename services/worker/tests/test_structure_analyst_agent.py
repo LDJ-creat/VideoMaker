@@ -9,6 +9,7 @@ import pytest
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
 from app.agents.structure_analyst import run_structure_analyst
+from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -25,7 +26,7 @@ def test_run_structure_analyst_fixture_mode_with_validator(tmp_path: Path) -> No
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(fixtures_dir)),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     analysis = _fixture_analysis()
@@ -66,7 +67,7 @@ def test_run_structure_analyst_uses_vision_profile_when_keyframes_encoded(tmp_pa
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=False, gateway=gateway),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
         model_name="vision-test",
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
@@ -106,7 +107,7 @@ def test_run_structure_analyst_repair_omits_images_on_second_attempt(tmp_path: P
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=False, gateway=gateway),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
 
@@ -138,7 +139,7 @@ def test_run_structure_analyst_fails_on_invalid_evidence_after_repair(tmp_path: 
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=False, gateway=gateway),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
 

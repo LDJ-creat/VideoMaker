@@ -130,6 +130,7 @@ def test_run_agent_generation_sets_variant_on_plan(tmp_path: Path) -> None:
     from app.agents.prompt_loader import PromptLoader
     from app.agents.runner import AgentRunner
     from app.pipelines.generation_pipeline import run_agent_generation
+    from app.observability.sink import LocalFileSink
     from app.runtime.agent_run_store import AgentRunStore
     from app.runtime.task_context import TaskContext
     from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -138,7 +139,7 @@ def test_run_agent_generation_sets_variant_on_plan(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(fixtures_dir)),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     structure = json.loads(

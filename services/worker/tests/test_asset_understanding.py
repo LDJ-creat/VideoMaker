@@ -16,6 +16,7 @@ from app.pipelines.asset_understanding import (
     score_shot_moment,
 )
 from app.pipelines.generation_pipeline import build_asset_inventory, run_agent_generation
+from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -94,7 +95,7 @@ def test_run_asset_understanding_enriches_video_moments(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id=project_id, task_id="task-1", storage_root=tmp_path)
 
@@ -171,7 +172,7 @@ def test_run_asset_understanding_picks_global_top_moments_across_assets(tmp_path
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id=project_id, task_id="task-1", storage_root=tmp_path)
     baseline = build_asset_inventory(
@@ -222,7 +223,7 @@ def test_run_asset_understanding_adds_image_moment(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     baseline = build_asset_inventory(
@@ -268,7 +269,7 @@ def test_run_asset_understanding_respects_avoid_mention_in_facts(tmp_path: Path)
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     baseline = build_asset_inventory(
@@ -310,7 +311,7 @@ def test_run_agent_generation_accepts_pre_enriched_inventory(tmp_path: Path) -> 
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
 

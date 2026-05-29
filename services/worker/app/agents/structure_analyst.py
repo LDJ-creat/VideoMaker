@@ -79,23 +79,23 @@ def _run_live(
         raise
     finally:
         latency_ms = (time.perf_counter() - started) * 1000
-        runner.run_store.record(
-            project_id=context.project_id,
-            log=AgentRunLog(
-                agent_name="structure_analyst",
-                prompt_version=runner.prompt_loader.version("structure_analyst"),
-                model=runner.model_name,
-                task=TASK_KEY,
-                input_summary=json.dumps(
-                    {"agent": "structure_analyst", "vision": bool(keyframes)},
-                    ensure_ascii=False,
-                )[:500],
-                output_valid=valid,
-                latency_ms=latency_ms,
-                task_id=context.task_id,
-                validation_errors=errors,
-            ),
-        )
+        # Sample-analysis live path: no generationId (not tied to a generation task).
+        payload = AgentRunLog(
+            agent_name="structure_analyst",
+            prompt_version=runner.prompt_loader.version("structure_analyst"),
+            model=runner.model_name,
+            task=TASK_KEY,
+            input_summary=json.dumps(
+                {"agent": "structure_analyst", "vision": bool(keyframes)},
+                ensure_ascii=False,
+            )[:500],
+            output_valid=valid,
+            latency_ms=latency_ms,
+            task_id=context.task_id,
+            validation_errors=errors,
+        ).to_payload()
+        payload["projectId"] = context.project_id
+        runner.observability_sink.record_agent_run(payload)
     assert output is not None
     return output
 

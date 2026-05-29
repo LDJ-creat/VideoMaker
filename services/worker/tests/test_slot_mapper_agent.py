@@ -15,6 +15,7 @@ from app.agents.slot_mapper import (
     run_slot_mapper,
 )
 from app.pipelines.gap_selection import VideoGenQuota
+from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -91,7 +92,7 @@ def test_run_slot_mapper_fixture_natural_language(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(_fixtures_dir())),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     structure = _load_structure_fixture()
@@ -183,7 +184,7 @@ def test_run_gap_planner_end_to_end(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(_fixtures_dir())),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(tmp_path),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
     )
     context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
     structure = _load_structure_fixture()

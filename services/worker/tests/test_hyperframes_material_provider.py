@@ -11,6 +11,7 @@ from app.agents.runner import AgentRunner
 from app.providers.completion_registry import register_default_providers
 from app.providers.hyperframes_material_provider import HyperFramesMaterialProvider
 from app.providers.material_types import MaterialContext
+from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
 from app.tools.hyperframes_tool import CommandResult, HyperFramesTool
@@ -123,7 +124,7 @@ def test_hyperframes_provider_runs_material_author_via_runner(tmp_path: Path) ->
     agent_runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures={"material_author": spec}),
         prompt_loader=PromptLoader(),
-        run_store=AgentRunStore(storage_root),
+        observability_sink=LocalFileSink(AgentRunStore(storage_root)),
         model_name="fixture",
     )
     material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
