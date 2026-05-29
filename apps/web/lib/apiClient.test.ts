@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_SOURCE_HEADER } from "@/lib/api-types";
 import {
+  createGenerationPlan,
+  getGenerationAgentRuns,
+  getModelGatewayStatus,
   importSampleFromUrl,
+  reviseGeneration,
   uploadAsset,
   uploadSampleVideo,
 } from "@/lib/apiClient";
@@ -72,5 +76,96 @@ describe("apiClient request shapes", () => {
     await expect(
       uploadAsset("proj-1", new File(["x"], "a.jpg", { type: "image/jpeg" })),
     ).rejects.toBeInstanceOf(ApiClientError);
+  });
+
+  it("POSTs multi-variant generation plan body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          generations: [
+            {
+              generationId: "gen-1",
+              variant: "high_click",
+              taskId: "task-1",
+            },
+          ],
+        }),
+        {
+          status: 201,
+          headers: { [DATA_SOURCE_HEADER]: "fixture" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createGenerationPlan("proj-1", {
+      variants: ["high_click"],
+      brief: { sellingPoints: [], mustMention: [], avoidMention: [] },
+    });
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      variants: ["high_click"],
+    });
+    expect(result.data.generations[0]?.variant).toBe("high_click");
+  });
+
+  it("GETs model gateway status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          fixtureMode: true,
+          providers: {
+            text: { configured: true },
+            vision: { configured: true },
+            tts: { configured: false },
+            image: { configured: true },
+            video: { configured: false },
+          },
+        }),
+        { status: 200, headers: { [DATA_SOURCE_HEADER]: "fixture" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getModelGatewayStatus();
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/settings/model-gateway");
+    expect(result.data.fixtureMode).toBe(true);
+  });
+
+  it("POSTs revise generation instruction", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sourceGenerationId: "gen-src",
+          generationId: "gen-new",
+          taskId: "task-new",
+          intents: [],
+        }),
+        { status: 202, headers: { [DATA_SOURCE_HEADER]: "fixture" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await reviseGeneration("gen-src", "字幕少一点");
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      instruction: "字幕少一点",
+    });
+  });
+
+  it("GETs generation agent runs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ runs: [] }), {
+        status: 200,
+        headers: { [DATA_SOURCE_HEADER]: "api" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getGenerationAgentRuns("gen-1");
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "/api/generations/gen-1/agent-runs",
+    );
   });
 });

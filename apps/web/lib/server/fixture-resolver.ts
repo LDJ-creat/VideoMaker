@@ -1,7 +1,13 @@
 import {
-  fixtureGenerationPlan,
+  fixtureAgentRuns,
+  fixtureEditIntent,
   fixtureGapReport,
+  fixtureGenerationPlan,
+  fixtureGenerationPlanHighClick,
+  fixtureModelGatewayStatus,
+  fixtureMultiVariantGenerations,
   fixtureProject,
+  fixtureReviseGenerationResponse,
   fixtureTaskEvent,
   fixtureVideoStructure,
 } from "@/fixtures";
@@ -10,6 +16,21 @@ type FixtureResult = {
   status: number;
   body: unknown;
 };
+
+function parseGenerationPlanVariants(requestBody?: string): string[] {
+  if (!requestBody) {
+    return fixtureMultiVariantGenerations.map((entry) => entry.variant);
+  }
+  try {
+    const parsed = JSON.parse(requestBody) as { variants?: string[] };
+    if (parsed.variants?.length) {
+      return parsed.variants;
+    }
+  } catch {
+    /* ignore */
+  }
+  return fixtureMultiVariantGenerations.map((entry) => entry.variant);
+}
 
 export function resolveFixture(
   method: string,
@@ -108,6 +129,17 @@ export function resolveFixture(
   }
 
   if (
+    method === "GET" &&
+    segments[0] === "settings" &&
+    segments[1] === "model-gateway"
+  ) {
+    return {
+      status: 200,
+      body: fixtureModelGatewayStatus,
+    };
+  }
+
+  if (
     method === "POST" &&
     segments[0] === "settings" &&
     segments[1] === "cookies" &&
@@ -168,13 +200,13 @@ export function resolveFixture(
     segments[0] === "projects" &&
     segments[2] === "generation-plan"
   ) {
+    const requestedVariants = parseGenerationPlanVariants(requestBody);
+    const generations = fixtureMultiVariantGenerations.filter((entry) =>
+      requestedVariants.includes(entry.variant),
+    );
     return {
       status: 201,
-      body: {
-        generationId: fixtureGenerationPlan.id,
-        taskId: fixtureTaskEvent.taskId,
-        gapReport: fixtureGapReport,
-      },
+      body: { generations },
     };
   }
 
@@ -191,9 +223,45 @@ export function resolveFixture(
   }
 
   if (method === "GET" && segments[0] === "generations" && segments.length === 2) {
+    const generationId = segments[1];
+    const plan =
+      generationId === fixtureGenerationPlanHighClick.id
+        ? fixtureGenerationPlanHighClick
+        : { ...fixtureGenerationPlan, id: generationId };
     return {
       status: 200,
-      body: { ...fixtureGenerationPlan, id: segments[1], gapReport: fixtureGapReport },
+      body: { ...plan, gapReport: fixtureGapReport },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "generations" &&
+    segments[2] === "revise"
+  ) {
+    return {
+      status: 202,
+      body: {
+        ...fixtureReviseGenerationResponse,
+        sourceGenerationId: segments[1],
+        intents: fixtureEditIntent.intents,
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "generations" &&
+    segments[2] === "agent-runs"
+  ) {
+    return {
+      status: 200,
+      body: {
+        runs: fixtureAgentRuns.map((run) => ({
+          ...run,
+          generationId: segments[1],
+        })),
+      },
     };
   }
 
