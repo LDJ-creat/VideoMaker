@@ -30,6 +30,7 @@ class AgentRunner:
         progress: int = 50,
         generation_id: str | None = None,
         post_validate: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        profile: str = "text",
     ) -> dict[str, Any]:
         prompt_version = self.prompt_loader.version(agent_name)
         system = self.prompt_loader.load(agent_name)
@@ -50,7 +51,12 @@ class AgentRunner:
         valid = True
         errors: list[str] = []
         try:
-            output = self.llm.generate_json(task, merged_inputs, schema_name)
+            output = self.llm.generate_json(
+                task,
+                merged_inputs,
+                schema_name,
+                profile=profile,
+            )
             if post_validate is not None:
                 output = post_validate(output)
         except LLMToolValidationError as exc:
