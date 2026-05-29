@@ -6,15 +6,26 @@ VideoMaker is a competition project for an AI short-video creation system. The p
 
 The competition brief is stored in `VideoMaker.md`. The user's original solution sketch is stored in `VideoMakerDesign.md`. The refined project design and implementation plans are the source of truth for development:
 
-- `docs/superpowers/specs/2026-05-27-videomaker-design.md`
-- `docs/superpowers/plans/2026-05-27-videomaker-p0-implementation-plan.md`
-- `docs/superpowers/plans/2026-05-27-contracts-foundation-plan.md`
-- `docs/superpowers/plans/2026-05-27-api-task-artifacts-plan.md`
-- `docs/superpowers/plans/2026-05-27-worker-video-analysis-plan.md`
-- `docs/superpowers/plans/2026-05-27-web-workbench-plan.md`
-- `docs/superpowers/plans/2026-05-27-agent-generation-plan.md`
-- `docs/superpowers/plans/2026-05-27-hyperframes-render-plan.md`
-- `docs/superpowers/plans/2026-05-27-integration-p0-demo-flow-plan.md`
+- `docs/superpowers/specs/2026-05-27-videomaker-design.md` (architecture spec)
+- `docs/superpowers/plans/P0/` (archived P0 implementation plans; see index below)
+- `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` (active P1 master plan)
+
+### P0 Plan Archive (`docs/superpowers/plans/P0/`)
+
+| Plan | Purpose |
+|------|---------|
+| `2026-05-27-videomaker-p0-implementation-plan.md` | Master P0 execution order |
+| `2026-05-27-contracts-foundation-plan.md` | Shared schemas and TypeScript types |
+| `2026-05-27-api-task-artifacts-plan.md` | FastAPI tasks, SSE, artifacts |
+| `2026-05-27-worker-video-analysis-plan.md` | FFmpeg, OpenCV, Whisper, sample pipeline |
+| `2026-05-27-web-workbench-plan.md` | Next.js workbench and task progress |
+| `2026-05-27-agent-generation-plan.md` | Slot mapping, gap report, generation plan |
+| `2026-05-27-hyperframes-render-plan.md` | RenderTimeline → HyperFrames preview |
+| `2026-05-27-integration-p0-demo-flow-plan.md` | End-to-end API + worker wiring |
+| `2026-05-28-web-workbench-hardening-plan.md` | Workbench persistence and UX hardening |
+| `2026-05-28-parallel-agent-prompts.md` | Parallel worktree agent prompts |
+
+Legacy copies may still exist under `docs/superpowers/plans/`; prefer the `P0/` archive for completed work.
 
 ## Product Direction
 
@@ -39,26 +50,40 @@ The key scoring dimensions are:
 - visible migration process
 - verifiable output such as storyboard, timeline, or demo video
 
+## P0 Status (merged on `main`)
+
+P0 module work is complete on `main`. The following feature/integration branches were implemented and merged:
+
+- `feature/contracts-foundation`
+- `feature/api-task-artifacts`
+- `feature/worker-video-analysis`
+- `feature/web-workbench`
+- `feature/agent-generation`
+- `feature/hyperframes-render`
+- `integration/p0-demo-flow`
+
+Post-P0 fixes (also on `main`) include checkpoint resume, global cookie upload, project/sample/asset API hydration, workbench result reload (`GET .../generations/latest`), and upload UX improvements.
+
+Demo verification checklist: `docs/demos/p0-demo-checklist.md`.
+
+## P1 Status (in planning)
+
+P1 master plan: `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md`.
+
+P1 execution order and per-plan agent prompts: `docs/superpowers/plans/2026-05-29-p1-execution-order-and-prompts.md`.
+
+P1 submodule plans (under `docs/superpowers/plans/2026-05-29-p1-*-plan.md`): contracts extension, ModelGateway, agent orchestration, LLM structure, asset understanding, semantic mapping/gap, AIGC material, HyperFrames material, multi-variant, NL revise, web workbench, observability.
+
+P1 focus: real LLM Agent pipeline (no rule semantic fallback), ModelGateway (OpenAI-compatible text/vision/TTS/image + pluggable video), AIGC material completion, HyperFrames clip-level material generation, default variants `high_click` + `high_conversion`, NL revise. Submodule plans listed in the master plan §3; execute per execution-order doc.
+
 ## Current Implementation State
 
-The following foundations are already merged into `main`:
+### Contracts (`packages/contracts`)
 
-### Contracts Foundation
+TypeScript types and JSON Schemas for:
 
-Package: `packages/contracts`
-
-Includes TypeScript types and JSON Schemas for:
-
-- `ArtifactRef`
-- `ToolError`
-- `TaskEvent`
-- `VideoStructure`
-- `AssetInventory`
-- `GapReport`
-- `GenerationPlan`
-- `RenderTimeline`
-
-Validation commands:
+- `ArtifactRef`, `ToolError`, `TaskEvent`
+- `VideoStructure`, `AssetInventory`, `GapReport`, `GenerationPlan`, `RenderTimeline`
 
 ```powershell
 cd packages/contracts
@@ -66,22 +91,11 @@ npm run check
 npm run validate:schemas
 ```
 
-### API Task / Artifact Foundation
+### API (`services/api`)
 
-Service: `services/api`
+FastAPI app factory: `app.main.create_app`. SQLite metadata in `services/api/storage/videomaker.sqlite3` (gitignored). Runtime artifacts under repo `storage/`.
 
-Implemented:
-
-- FastAPI app factory: `app.main.create_app`
-- SQLite schema/session
-- `TaskEventService`
-- `ArtifactStore`
-- task routes
-- SSE progress stream
-- polling fallback endpoint
-- retry and cancel endpoints
-
-Implemented endpoints:
+**Task progress (authoritative in SQLite, SSE + polling on frontend):**
 
 ```http
 GET /health
@@ -93,7 +107,82 @@ POST /api/tasks/{task_id}/retry
 POST /api/tasks/{task_id}/cancel
 ```
 
-`POST /api/tasks/{task_id}/retry` re-dispatches the worker for the same `task_id` with `resume=true` when the task belongs to a sample analysis or generation run. Failed sample analysis should be retried through this endpoint (not by creating a new analyze task).
+`POST /api/tasks/{task_id}/retry` re-dispatches the worker for the same `task_id` with `resume=true` for sample analysis or generation. Do not create a new analyze task for retries.
+
+**Projects and P0 demo flow:**
+
+```http
+GET /api/projects
+POST /api/projects
+GET /api/projects/{project_id}
+GET /api/projects/{project_id}/brief
+POST /api/projects/{project_id}/brief
+GET /api/projects/{project_id}/assets
+POST /api/projects/{project_id}/assets/upload
+GET /api/projects/{project_id}/samples
+GET /api/projects/{project_id}/samples/active
+POST /api/projects/{project_id}/samples/upload
+POST /api/projects/{project_id}/samples/from-url
+GET /api/projects/{project_id}/media/samples/{sample_id}
+GET /api/projects/{project_id}/media/assets/{asset_id}
+POST /api/projects/{project_id}/generation-plan
+GET /api/projects/{project_id}/generations/latest
+GET /api/settings/cookies
+POST /api/settings/cookies/upload
+```
+
+Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; use global settings routes.
+
+**Samples and generations:**
+
+```http
+POST /api/samples/{sample_id}/analyze
+GET /api/samples/{sample_id}/structure
+GET /api/samples/{sample_id}/analysis
+GET /api/generations/{generation_id}
+```
+
+Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
+
+```powershell
+cd services/api
+python -m pytest
+python -m compileall app
+```
+
+`pyproject.toml` sets pytest `--basetemp=.pytest-tmp` because the default Windows temp path may be inaccessible in this environment.
+
+### Worker (`services/worker`)
+
+Pipelines and tools:
+
+- `SampleAnalysisPipeline` / `p0_demo_pipeline` — metadata, shots, Whisper ASR, deterministic `structure_pipeline`
+- `generation_pipeline` — asset inventory, slot mapping, gap report, generation plan
+- Tools: `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, optional `hyperframes_tool`
+- Render: `render_timeline_to_hyperframes`, `hyperframes_backend` (preview under `generations/{generationId}/render/`)
+
+```powershell
+cd services/worker
+python -m pytest
+python -m compileall app
+```
+
+### Web (`apps/web`)
+
+Next.js workbench at `/projects` and `/projects/{projectId}`:
+
+- Task progress: SSE primary, polling fallback (`useTaskProgress`)
+- Panels: input, progress, analysis, structure slots, gap, timeline, result
+- Loads projects, samples, assets, brief, and latest generation from API on mount (not sessionStorage-only)
+
+```powershell
+cd apps/web
+npm run typecheck
+npm run test
+npm run dev
+```
+
+Fixture fallback when API unreachable: `VIDEOMAKER_USE_FIXTURE_FALLBACK=true` (see `apps/web/lib/server/fixture-resolver.ts`).
 
 ### Checkpoint Resume (P0)
 
@@ -107,15 +196,7 @@ storage/projects/{projectId}/
 
 Sample analysis artifacts live in `samples/{sampleId}/analysis/`. Generation stage JSON lives in `generations/{generationId}/`. The frontend retry button calls `POST /api/tasks/{taskId}/retry` and keeps the same SSE/polling task id.
 
-API validation commands:
-
-```powershell
-cd services/api
-python -m pytest
-python -m compileall app
-```
-
-`services/api/pyproject.toml` sets pytest `--basetemp=.pytest-tmp` because the default Windows temp path may be inaccessible in this environment.
+Global yt-dlp cookies: `storage/global/cookies/` (shared across projects).
 
 ## Architecture Rules
 
@@ -132,27 +213,18 @@ Do not bypass these contracts with ad hoc JSON shapes. If a contract must change
 
 ## Long Task Progress
 
-Use this policy for long-running work:
-
 ```text
 SQLite task/artifact state is authoritative.
 SSE is the primary realtime channel.
 Polling is the fallback and page-refresh recovery channel.
 ```
 
-SSE endpoint:
-
 ```http
 GET /api/tasks/{task_id}/events
-```
-
-Polling endpoint:
-
-```http
 GET /api/tasks/{task_id}
 ```
 
-The current SSE route supports `?once=true` for tests and one-shot reads. Default behavior should be used by frontend clients.
+The SSE route supports `?once=true` for tests and one-shot reads. Frontend clients should use default streaming behavior.
 
 ## Storage Rules
 
@@ -160,6 +232,7 @@ Runtime artifacts belong under:
 
 ```text
 storage/projects/{projectId}/
+storage/global/cookies/
 ```
 
 API-local runtime storage is ignored:
@@ -174,44 +247,24 @@ Do not commit generated videos, SQLite databases, temp files, model outputs, or 
 
 Use isolated worktrees for feature work. Do not implement substantial features directly on `main`.
 
-Current completed branches:
-
-- `feature/contracts-foundation`
-- `feature/api-task-artifacts`
-
-Recommended next branches:
-
-- `feature/worker-video-analysis`
-- `feature/web-workbench`
-- `feature/agent-generation`
-- `feature/hyperframes-render`
-- `integration/p0-demo-flow`
-
-Recommended pattern:
+P0 branches listed above are merged; new work should start from current `main` with a new `feature/<name>` or `integration/<name>` branch.
 
 ```powershell
 git worktree add .worktrees/<name> -b feature/<name> main
 ```
 
-Before creating project-local worktrees, ensure `.worktrees/` remains ignored.
+Ensure `.worktrees/` remains ignored.
 
-## Development Order
+## Post-P0 Development
 
-Already completed:
+When extending beyond P0:
 
-1. repository docs and P0 design
-2. contracts foundation
-3. API task/artifact foundation
+1. Read `docs/superpowers/specs/2026-05-27-videomaker-design.md` for boundaries.
+2. Use `docs/superpowers/plans/P0/` for how the current system works; add new plans under `docs/superpowers/plans/YYYY-MM-DD-<module-name>-plan.md`.
+3. Do not parallelize schema changes casually — update `packages/contracts` first, then dependents.
+4. Run module verification (below) before claiming work is done.
 
-Recommended next work:
-
-1. `worker-video-analysis`: FFmpeg/OpenCV/Whisper adapters, sample analysis artifacts, progress events.
-2. `web-workbench`: frontend shell, task progress hook, structure/gap/timeline visualization using fixtures and API endpoints.
-3. `agent-generation`: structure extraction, asset inventory, slot mapping, gap report, generation plan.
-4. `hyperframes-render`: convert `RenderTimeline` to HyperFrames preview/render outputs.
-5. `integration/p0-demo-flow`: wire actual end-to-end demo.
-
-Do not parallelize schema changes casually. Contracts must be reviewed and merged before dependent branches consume them.
+Likely post-P0 themes (not yet planned here): real LLM structure extraction, async job queue, production auth, richer editor UX, full MP4 render automation.
 
 ## Testing Expectations
 
@@ -231,7 +284,19 @@ python -m pytest
 python -m compileall app
 ```
 
-For frontend, worker, agent, and render modules, add module-specific tests and document commands in the relevant plan file before implementation.
+```powershell
+cd services/worker
+python -m pytest
+python -m compileall app
+```
+
+```powershell
+cd apps/web
+npm run typecheck
+npm run test
+```
+
+Document new module-specific commands in the subsystem plan file.
 
 ## Code Style And Safety
 
@@ -248,20 +313,13 @@ For frontend, worker, agent, and render modules, add module-specific tests and d
 When starting a new session:
 
 1. Read this file first.
-2. Read the main design spec.
-3. Read the relevant plan file for the task.
-4. Check `git status --short`.
-5. Use a feature worktree unless the user explicitly asks for a small docs-only change on `main`.
-6. Run existing tests before and after changes.
-7. Keep commits scoped to the task.
-
-If the user asks to start a new module, first create or update a subsystem plan under:
-
-```text
-docs/superpowers/plans/YYYY-MM-DD-<module-name>-plan.md
-```
-
-Then implement that plan task-by-task with verification and commits.
+2. Read `docs/superpowers/specs/2026-05-27-videomaker-design.md`.
+3. For P0 behavior, read the relevant plan in `docs/superpowers/plans/P0/` (or the master P0 plan).
+4. For new features, read or write the active plan under `docs/superpowers/plans/`.
+5. Check `git status --short`.
+6. Use a feature worktree unless the user explicitly asks for a small docs-only change on `main`.
+7. Run existing tests before and after changes.
+8. Keep commits scoped to the task.
 
 ## Plan Quality Gate
 
