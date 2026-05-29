@@ -6,7 +6,8 @@ from pathlib import Path
 from app.agents.gap_planner import apply_provider_selection, reconcile_gap_buckets
 from app.agents.slot_mapper import post_validate_slot_matches
 from app.config.variants import clear_registry_cache, load_variant_gap_planner_overrides
-from app.pipelines.gap_selection import VideoGenQuota, select_provider
+from app.pipelines.gap_selection import select_provider
+from app.runtime.video_gen_quota import VideoGenQuota
 
 
 def _fixtures_dir() -> Path:

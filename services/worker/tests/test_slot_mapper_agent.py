@@ -14,7 +14,7 @@ from app.agents.slot_mapper import (
     post_validate_slot_matches,
     run_slot_mapper,
 )
-from app.pipelines.gap_selection import VideoGenQuota
+from app.runtime.video_gen_quota import VideoGenQuota
 from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext

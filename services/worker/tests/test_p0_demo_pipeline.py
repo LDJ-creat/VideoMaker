@@ -4,11 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from app.pipelines.p0_demo_pipeline import P0DemoPipeline
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
-from app.validation.schema_loader import validate_contract
 
 
 class _RecordingPipeline(P0DemoPipeline):
@@ -58,25 +55,14 @@ def _load_structure_fixture() -> dict[str, Any]:
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
-def test_p0_demo_pipeline_generation_uses_fixture_structure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fake_render_material(self, spec, **kwargs):  # noqa: ANN001
-        output_clip = kwargs["output_clip"]
-        output_clip.parent.mkdir(parents=True, exist_ok=True)
-        output_clip.write_bytes(b"mock-mp4")
-        return {
-            "ok": True,
-            "artifactPath": str(output_clip),
-            "durationSec": float(spec.get("durationSec", 3)),
-        }
-
-    monkeypatch.setattr(
-        "app.tools.hyperframes_material_tool.HyperFramesMaterialTool.render_material",
-        _fake_render_material,
-    )
-
+def test_p0_demo_pipeline_fixture_e2e_dual_variant_and_revise_without_hf_cli(
+    tmp_path: Path,
+) -> None:
+    """Full fixture-mode generation + revise must not require live HyperFrames CLI."""
     fixture_path = Path(__file__).parent / "fixtures" / "sample_analysis.json"
     sample_analysis = json.loads(fixture_path.read_text(encoding="utf-8"))
     structure = _load_structure_fixture()
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
 
     pipeline = _RecordingPipeline(tmp_path, sample_analysis, structure)
     events: list[dict[str, Any]] = []
@@ -85,10 +71,41 @@ def test_p0_demo_pipeline_generation_uses_fixture_structure(tmp_path: Path, monk
         events.append(kwargs)
         return kwargs
 
-    result = pipeline.run_generation(
+    for variant in ("high_click", "high_conversion"):
+        result = pipeline.run_generation(
+            project_id="project-1",
+            task_id=f"task-{variant}",
+            generation_id=f"gen-{variant}",
+            structure=structure,
+            user_brief={
+                "topic": "果汁机",
+                "sellingPoints": ["便携"],
+                "mustMention": [],
+                "avoidMention": [],
+            },
+            assets=[
+                {
+                    "id": "asset-1",
+                    "type": "text",
+                    "uri": "storage://caption.txt",
+                    "description": "caption",
+                    "tags": ["卖点"],
+                }
+            ],
+            emit=emit,
+            variant=variant,
+        )
+        assert result["ok"] is True
+        assert result["plan"]["variant"] == variant
+        assert result["gapReport"]["projectId"] == "project-1"
+        assert result["plan"]["timeline"]["tracks"]
+
+    revise = pipeline.run_revise(
         project_id="project-1",
-        task_id="task-gen",
-        generation_id="gen-1",
+        task_id="task-revise",
+        source_generation_id="gen-high_click",
+        generation_id="gen-revised",
+        instruction="开头更抓人，字幕少一点",
         structure=structure,
         user_brief={
             "topic": "果汁机",
@@ -107,10 +124,11 @@ def test_p0_demo_pipeline_generation_uses_fixture_structure(tmp_path: Path, monk
         ],
         emit=emit,
     )
-
-    assert result["ok"] is True
-    assert result["gapReport"]["projectId"] == "project-1"
-    assert result["plan"]["timeline"]["tracks"]
+    assert revise["ok"] is True
+    assert len(revise.get("intents", [])) >= 1
+    stages = [event["stage"] for event in events]
+    assert "parsing_edit_intent" in stages
+    assert "generating_material" in stages
     assert events[-1]["status"] == "succeeded"
 
 
