@@ -101,6 +101,27 @@ def test_llm_tool_live_mode_uses_gateway() -> None:
         "structure",
         {"sample": "live"},
         "video-structure",
+        profile="text",
+    )
+
+
+def test_llm_tool_live_mode_passes_vision_profile() -> None:
+    gateway = MagicMock()
+    gateway.complete_json.return_value = {"analyses": []}
+    tool = LLMTool(fixture_mode=False, gateway=gateway)
+
+    tool.generate_json(
+        task="asset_moment_vision",
+        inputs={"moments": []},
+        schema_name=None,
+        profile="vision",
+    )
+
+    gateway.complete_json.assert_called_once_with(
+        "asset_moment_vision",
+        {"moments": []},
+        None,
+        profile="vision",
     )
 
 

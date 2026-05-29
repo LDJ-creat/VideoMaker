@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 import httpx
 import pytest
@@ -103,6 +104,53 @@ def test_complete_text_routes_vision_profile() -> None:
     text = gateway.complete_text("Describe", {"image": "frame-1"}, profile="vision")
     assert text == "vision ok"
     assert seen_models == ["vision-model"]
+
+
+def test_complete_json_routes_vision_profile_with_image_parts() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        seen["model"] = body["model"]
+        user_content = body["messages"][1]["content"]
+        assert isinstance(user_content, list)
+        assert user_content[0]["type"] == "text"
+        assert any(part.get("type") == "image_url" for part in user_content)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps({"analyses": []})}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    config = GatewayConfig(
+        text=ProviderConfig("https://text.example/v1", "text-key", "text-model"),
+        vision=ProviderConfig("https://vision.example/v1", "vision-key", "vision-model"),
+        tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
+        image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
+        video_driver="generic_job",
+        video=ProviderConfig("https://video.example/v1", "video-key", "video-model"),
+    )
+    gateway = ModelGateway(config=config, client=client)
+
+    result = gateway.complete_json(
+        "Describe moments",
+        {
+            "inputs": {
+                "moments": [
+                    {
+                        "id": "moment-1",
+                        "keyframeBase64": "abc123",
+                    }
+                ]
+            }
+        },
+        "asset-inventory",
+        profile="vision",
+    )
+
+    assert result == {"analyses": []}
+    assert seen["model"] == "vision-model"
 
 
 def test_complete_json_raises_gateway_error_on_invalid_json() -> None:

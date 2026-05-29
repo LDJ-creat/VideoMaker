@@ -11,6 +11,7 @@ from app.agents.runner import AgentRunner
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.structure_analyst import run_structure_analyst
 from app.pipelines.generation_pipeline import build_asset_inventory, run_agent_generation
+from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
@@ -252,13 +253,7 @@ class P0DemoPipeline:
                 status="running",
                 stage="analyzing_assets",
                 progress=10,
-                message="Building asset inventory",
-            )
-            emit(
-                status="running",
-                stage="mapping_slots",
-                progress=35,
-                message="Running generation agents",
+                message="Analyzing user brief and uploaded assets",
             )
             try:
                 inventory_baseline = build_asset_inventory(
@@ -266,10 +261,36 @@ class P0DemoPipeline:
                     user_brief=user_brief,
                     assets=assets,
                 )
+                inventory = run_asset_understanding(
+                    runner,
+                    inventory=inventory_baseline,
+                    context=context,
+                    generation_id=generation_id,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="analyzing_assets",
+                    progress=10,
+                    message="Asset understanding failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
+            checkpoint.mark_stage_complete("analyzing_assets")
+            checkpoint.save(checkpoint_path)
+
+            emit(
+                status="running",
+                stage="mapping_slots",
+                progress=35,
+                message="Mapping structure slots to assets",
+            )
+            try:
                 inventory, mapping_slot_matches, gap_report, plan = run_agent_generation(
                     runner,
                     structure=structure,
-                    inventory_baseline=inventory_baseline,
+                    inventory=inventory,
                     context=context,
                     generation_id=generation_id,
                 )
@@ -300,7 +321,6 @@ class P0DemoPipeline:
                 json.dumps(plan, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
-            checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.mark_stage_complete("mapping_slots")
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.mark_stage_complete("building_timeline")

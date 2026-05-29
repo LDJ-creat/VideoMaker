@@ -49,6 +49,8 @@ class LLMTool:
         task: str,
         inputs: dict[str, Any],
         schema_name: str | None,
+        *,
+        profile: str = "text",
     ) -> dict[str, Any]:
         if self.fixture_mode:
             if task not in self.fixtures:
@@ -60,7 +62,12 @@ class LLMTool:
             return self._validate_payload(payload=payload, schema_name=schema_name)
 
         if self.gateway is not None:
-            payload = self.gateway.complete_json(task, inputs, schema_name)
+            payload = self.gateway.complete_json(
+                task,
+                inputs,
+                schema_name,
+                profile=profile,
+            )
             self.last_raw_output = json.dumps(payload, ensure_ascii=False)
             if schema_name is None:
                 return payload

@@ -85,14 +85,65 @@ class ModelGateway:
         inputs: dict[str, Any],
         *,
         json_only: bool,
-    ) -> list[dict[str, str]]:
-        system_parts = [task]
+        profile: str = "text",
+    ) -> list[dict[str, Any]]:
+        system_parts: list[str] = []
+        if isinstance(inputs.get("systemPrompt"), str) and inputs["systemPrompt"].strip():
+            system_parts.append(inputs["systemPrompt"].strip())
+        system_parts.append(task)
         if json_only:
             system_parts.append("Respond with valid JSON only.")
+
+        user_inputs = inputs.get("inputs", inputs)
+        if profile == "vision":
+            user_message = self._build_vision_user_message(user_inputs)
+        else:
+            user_message = {
+                "role": "user",
+                "content": json.dumps(user_inputs, ensure_ascii=False),
+            }
+
         return [
             {"role": "system", "content": "\n\n".join(system_parts)},
-            {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
+            user_message,
         ]
+
+    def _build_vision_user_message(self, user_inputs: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(user_inputs)
+        moments = payload.get("moments")
+        content_parts: list[dict[str, Any]] = []
+
+        if isinstance(moments, list):
+            sanitized_moments: list[dict[str, Any]] = []
+            for moment in moments:
+                if not isinstance(moment, dict):
+                    continue
+                sanitized = {
+                    key: value
+                    for key, value in moment.items()
+                    if key != "keyframeBase64"
+                }
+                sanitized_moments.append(sanitized)
+                keyframe = moment.get("keyframeBase64")
+                if isinstance(keyframe, str) and keyframe.strip():
+                    content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{keyframe.strip()}",
+                            },
+                        }
+                    )
+            payload["moments"] = sanitized_moments
+
+        content_parts.insert(
+            0,
+            {
+                "type": "text",
+                "text": json.dumps(payload, ensure_ascii=False),
+            },
+        )
+        return {"role": "user", "content": content_parts}
 
     @staticmethod
     def build_structure_messages(
@@ -163,7 +214,7 @@ class ModelGateway:
         profile: str = "text",
     ) -> str:
         provider = self._chat_provider(profile)
-        messages = self._build_messages(task, inputs, json_only=False)
+        messages = self._build_messages(task, inputs, json_only=False, profile=profile)
         result = provider.complete(messages, model=provider.config.model)
         self.last_latency_ms = provider.last_latency_ms
         return result
@@ -178,7 +229,7 @@ class ModelGateway:
     ) -> dict[str, Any]:
         _ = schema_name
         provider = self._chat_provider(profile)
-        messages = self._build_messages(task, inputs, json_only=True)
+        messages = self._build_messages(task, inputs, json_only=True, profile=profile)
         raw = provider.complete(
             messages,
             model=provider.config.model,
