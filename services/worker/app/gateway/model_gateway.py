@@ -94,6 +94,67 @@ class ModelGateway:
             {"role": "user", "content": json.dumps(inputs, ensure_ascii=False)},
         ]
 
+    @staticmethod
+    def build_structure_messages(
+        *,
+        system_prompt: str,
+        text_payload: dict[str, Any],
+        keyframes: list[dict[str, Any]] | None = None,
+        json_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Build chat messages for StructureAnalyst (text or multimodal)."""
+        system_parts = [system_prompt]
+        if json_only:
+            system_parts.append("Respond with valid JSON only.")
+        if keyframes:
+            user_content: list[dict[str, Any]] = [
+                {"type": "text", "text": json.dumps(text_payload, ensure_ascii=False)},
+            ]
+            for frame in keyframes:
+                image_b64 = frame.get("imageBase64")
+                if not image_b64:
+                    continue
+                mime_type = frame.get("mimeType", "image/jpeg")
+                user_content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_b64}"},
+                    }
+                )
+            user_message: dict[str, Any] = {"role": "user", "content": user_content}
+        else:
+            user_message = {
+                "role": "user",
+                "content": json.dumps(text_payload, ensure_ascii=False),
+            }
+        return [
+            {"role": "system", "content": "\n\n".join(system_parts)},
+            user_message,
+        ]
+
+    def complete_json_messages(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        profile: str = "text",
+    ) -> dict[str, Any]:
+        """Complete a chat request and parse the model response as JSON."""
+        provider = self._chat_provider(profile)
+        raw = provider.complete(
+            messages,
+            model=provider.config.model,
+            response_format={"type": "json_object"},
+        )
+        self.last_latency_ms = provider.last_latency_ms
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise GatewayError(
+                code="invalid_json",
+                message=f"Model output is not valid JSON: {raw}",
+                retryable=False,
+            ) from exc
+
     def complete_text(
         self,
         task: str,
