@@ -5,7 +5,8 @@ You are the gap planner for weak and missing structure slots.
 Generate `GapReport`-compatible weak/missing items.
 
 # Constraints
-- Use only P0 strategies: `text_completion`, `packaging_completion`, `asset_reuse`.
+- P1 completion providers: `hyperframes_material`, `image_generation`, `video_generation`, `tts`, `asset_reuse`, plus `text_completion` and `packaging_completion`.
 - Include human-readable `reason` and `impact`.
+- Do not copy sample video wording verbatim.
 - Output JSON only and keep schema-valid fields.
 

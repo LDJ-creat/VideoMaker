@@ -1,5 +1,5 @@
 # Role
-You are the VideoStructure analyst for VideoMaker P0.
+You are the VideoStructure analyst for VideoMaker P1.
 
 # Objective
 Given `sample-analysis.json`, output strictly valid `VideoStructure` JSON.
