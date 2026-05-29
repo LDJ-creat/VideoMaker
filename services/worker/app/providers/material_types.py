@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from app.gateway.model_gateway import ModelGateway
 from app.runtime.video_gen_quota import VideoGenQuota
+
+if TYPE_CHECKING:
+    from app.agents.runner import AgentRunner
+    from app.runtime.task_context import TaskContext
 
 ProgressEmitter = Callable[[str, str], None]
 ArtifactRegistrar = Callable[[str, str | Path], dict[str, Any]]
@@ -29,6 +33,14 @@ class MaterialContext:
     register_artifact: ArtifactRegistrar
     completed_action_ids: set[str] = field(default_factory=set)
     providers: dict[str, CompletionStrategyProvider] = field(default_factory=dict)
+    runner: AgentRunner | None = None
+    task_context: TaskContext | None = None
+    variant_overrides: dict[str, Any] = field(default_factory=dict)
+    brand_colors: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def project_root(self) -> Path:
+        return self.render_root.parent.parent
 
 
 class CompletionStrategyProvider(Protocol):

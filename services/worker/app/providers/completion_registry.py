@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.providers.asset_reuse_provider import AssetReuseProvider
+from app.providers.hyperframes_material_provider import HyperFramesMaterialProvider
 from app.providers.image_generation_provider import ImageGenerationProvider
 from app.providers.material_types import (
     ArtifactRegistrar,
@@ -16,22 +17,31 @@ from app.providers.material_types import (
 from app.providers.tts_provider import TTSProvider
 from app.providers.video_generation_provider import VideoGenerationProvider
 from app.runtime.video_gen_quota import VideoGenQuota
+from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
 from app.tools.image_gen_tool import ImageGenTool, ToolError
 from app.tools.tts_tool import TTSTool
 from app.tools.video_gen_tool import VideoGenTool
 
-# Providers implemented in this plan. HyperFrames is registered in the HF plan (Wave 3).
+# Executable material providers (AIGC + HyperFrames clip generation).
+MATERIAL_PROVIDERS = frozenset(
+    {"asset_reuse", "image_generation", "video_generation", "tts", "hyperframes_material"}
+)
 AIGC_PROVIDERS = frozenset({"asset_reuse", "image_generation", "video_generation", "tts"})
-SKIPPED_PROVIDERS = frozenset({"hyperframes_material", "text_completion", "packaging_completion"})
+SKIPPED_PROVIDERS = frozenset({"text_completion", "packaging_completion"})
 
 
-def filter_aigc_completion_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def filter_material_completion_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     filtered: list[dict[str, Any]] = []
     for action in actions:
         provider = str(action.get("provider") or action.get("strategy", ""))
-        if provider in AIGC_PROVIDERS:
+        if provider in MATERIAL_PROVIDERS:
             filtered.append(action)
     return filtered
+
+
+def filter_aigc_completion_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Backward-compatible alias; prefer ``filter_material_completion_actions``."""
+    return filter_material_completion_actions(actions)
 
 
 def expected_output_path(action: dict[str, Any], generated_root: Path) -> Path:
@@ -45,6 +55,9 @@ def expected_output_path(action: dict[str, Any], generated_root: Path) -> Path:
         return generated_root / f"{slot_id}.wav"
     if provider == "asset_reuse":
         return generated_root / f"{slot_id}-reuse.mp4"
+    if provider == "hyperframes_material":
+        action_id = str(action.get("id") or f"action-{slot_id}")
+        return generated_root / f"{action_id}.mp4"
     return generated_root / f"{slot_id}.bin"
 
 
@@ -70,6 +83,7 @@ def register_default_providers(ctx: MaterialContext) -> None:
             TTSTool(gateway=ctx.gateway, emit_progress=ctx.emit_progress)
         ),
         "asset_reuse": AssetReuseProvider(),
+        "hyperframes_material": HyperFramesMaterialProvider(HyperFramesMaterialTool()),
     }
 
 
@@ -102,7 +116,8 @@ def execute_completion_plan(
     """Execute completion actions via registered providers.
 
     When ``only_aigc`` is True (pipeline default), providers in ``SKIPPED_PROVIDERS``
-    are ignored — e.g. ``hyperframes_material`` is completed in the HF plan.
+    are ignored. Registered providers in ``MATERIAL_PROVIDERS`` execute, including
+    ``hyperframes_material``.
     When False, unknown providers raise ``ToolError`` (used in unit tests).
     """
     results: list[MaterialResult] = []
@@ -110,9 +125,9 @@ def execute_completion_plan(
         provider_name = str(action.get("provider") or action.get("strategy", ""))
         if only_aigc and provider_name in SKIPPED_PROVIDERS:
             continue
-        if only_aigc and provider_name not in AIGC_PROVIDERS:
+        if only_aigc and provider_name not in MATERIAL_PROVIDERS:
             continue
-        if provider_name not in AIGC_PROVIDERS:
+        if provider_name not in MATERIAL_PROVIDERS:
             raise ToolError(
                 code="provider_not_registered",
                 message=f"No completion provider registered for {provider_name}",
@@ -168,6 +183,7 @@ def apply_material_results_to_plan(
     plan: dict[str, Any],
     *,
     results: list[MaterialResult],
+    render_root: Path | None = None,
 ) -> dict[str, Any]:
     results_by_action = {str(item.get("actionId")): item for item in results if item.get("actionId")}
     by_slot: dict[str, MaterialResult] = {}
@@ -199,21 +215,40 @@ def apply_material_results_to_plan(
                 merged_scene["source"] = "generated"
                 artifact = result.get("artifactRef") or {}
                 if artifact.get("uri"):
-                    merged_scene["visual"] = str(artifact.get("uri"))
+                    merged_scene["visual"] = _material_source_ref(
+                        str(artifact.get("uri")),
+                        render_root=render_root,
+                    )
             updated_storyboard.append(merged_scene)
         plan["storyboard"] = updated_storyboard
 
     plan["timeline"] = _apply_generated_sources_to_timeline(
         plan.get("timeline", {}),
         results=results,
+        render_root=render_root,
     )
     return plan
+
+
+def _material_source_ref(uri: str, *, render_root: Path | None) -> str:
+    if render_root is None:
+        return uri
+    path = Path(uri)
+    if not path.is_file():
+        return uri
+    dest_dir = render_root / "materials"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / path.name
+    if not dest.exists() or dest.stat().st_size == 0:
+        dest.write_bytes(path.read_bytes())
+    return f"materials/{path.name}"
 
 
 def _apply_generated_sources_to_timeline(
     timeline: dict[str, Any],
     *,
     results: list[MaterialResult],
+    render_root: Path | None = None,
 ) -> dict[str, Any]:
     by_slot: dict[str, MaterialResult] = {}
     for result in results:
@@ -239,7 +274,7 @@ def _apply_generated_sources_to_timeline(
             uri = artifact.get("uri")
             if not uri:
                 continue
-            clip["sourceRef"] = uri
+            clip["sourceRef"] = _material_source_ref(str(uri), render_root=render_root)
             clip["generatedBy"] = {
                 "provider": str(result.get("provider", "")),
             }
