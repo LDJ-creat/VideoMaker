@@ -44,6 +44,34 @@ class DemoPipeline(Protocol):
         assets: list[dict[str, Any]],
         emit: Any,
         resume: bool = False,
+        variant: str = "default",
+    ) -> dict[str, Any]: ...
+
+    def run_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        source_generation_id: str,
+        generation_id: str,
+        instruction: str,
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        emit: Any,
+        intents: list[dict[str, Any]] | None = None,
+        variant: str | None = None,
+        resume: bool = False,
+    ) -> dict[str, Any]: ...
+
+    def parse_edit_intent(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        emit: Any,
     ) -> dict[str, Any]: ...
 
 
@@ -187,19 +215,77 @@ class SubprocessDemoPipeline:
         assets: list[dict[str, Any]],
         emit: Any,
         resume: bool = False,
+        variant: str = "default",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "mode": "run_generation",
+            "apiBaseUrl": self._api_base_url,
+            "storageRoot": str(self._storage_root),
+            "taskId": task_id,
+            "projectId": project_id,
+            "generationId": generation_id,
+            "structure": structure,
+            "userBrief": user_brief,
+            "assets": assets,
+            "resume": resume,
+            "variant": variant,
+        }
+        return self._invoke(payload)
+
+    def run_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        source_generation_id: str,
+        generation_id: str,
+        instruction: str,
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        emit: Any,
+        intents: list[dict[str, Any]] | None = None,
+        variant: str | None = None,
+        resume: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "mode": "run_revise",
+            "apiBaseUrl": self._api_base_url,
+            "storageRoot": str(self._storage_root),
+            "taskId": task_id,
+            "projectId": project_id,
+            "sourceGenerationId": source_generation_id,
+            "generationId": generation_id,
+            "instruction": instruction,
+            "structure": structure,
+            "userBrief": user_brief,
+            "assets": assets,
+            "resume": resume,
+        }
+        if intents is not None:
+            payload["intents"] = intents
+        if variant is not None:
+            payload["variant"] = variant
+        return self._invoke(payload)
+
+    def parse_edit_intent(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        emit: Any,
     ) -> dict[str, Any]:
         return self._invoke(
             {
-                "mode": "run_generation",
+                "mode": "parse_edit_intent",
                 "apiBaseUrl": self._api_base_url,
                 "storageRoot": str(self._storage_root),
                 "taskId": task_id,
                 "projectId": project_id,
-                "generationId": generation_id,
-                "structure": structure,
-                "userBrief": user_brief,
-                "assets": assets,
-                "resume": resume,
+                "instruction": instruction,
+                "sourcePlan": source_plan,
             }
         )
 
@@ -483,6 +569,149 @@ class PipelineRunner:
 
         self._run(job)
 
+    def parse_edit_intent(
+        self,
+        *,
+        project_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        task_id = "parse-edit-intent"
+        pipeline = self._get_pipeline()
+        if hasattr(pipeline, "parse_edit_intent"):
+            result = pipeline.parse_edit_intent(
+                project_id=project_id,
+                task_id=task_id,
+                instruction=instruction,
+                source_plan=source_plan,
+                emit=self._make_emit(task_id),
+            )
+            intents = result.get("intents")
+            if isinstance(intents, list) and intents:
+                return intents
+        return self._parse_edit_intent_rules(instruction, source_plan)
+
+    @staticmethod
+    def _parse_edit_intent_rules(instruction: str, source_plan: dict[str, Any]) -> list[dict[str, Any]]:
+        import importlib.util
+        import sys
+
+        module_path = _worker_root() / "app" / "pipelines" / "intent_applier.py"
+        spec = importlib.util.spec_from_file_location("videomaker_intent_applier", module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load intent applier from {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        source_summary = module.build_source_summary(source_plan)
+        payload = module.parse_edit_intent_for_api(instruction, source_summary)
+        intents = payload.get("intents")
+        if not isinstance(intents, list) or not intents:
+            raise ValueError("No edit intents parsed from instruction")
+        return intents
+
+    @staticmethod
+    def _validate_edit_intents(intents: list[dict[str, Any]]) -> None:
+        import json
+
+        import jsonschema
+
+        schema_path = (
+            _worker_root().parent.parent / "packages" / "contracts" / "schemas" / "edit-intent.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        try:
+            jsonschema.validate(instance={"intents": intents}, schema=schema)
+        except jsonschema.ValidationError as exc:
+            raise ValueError(f"Invalid EditIntent payload: {exc.message}") from exc
+
+    def start_revise(
+        self,
+        *,
+        project_id: str,
+        source_generation_id: str,
+        generation_id: str,
+        task_id: str,
+        instruction: str,
+        intents: list[dict[str, Any]],
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        variant: str | None = None,
+        resume: bool = False,
+    ) -> None:
+        def job() -> None:
+            try:
+                self.project_store.update_generation(generation_id, status="running", task_id=task_id)
+                if resume:
+                    self._emit(
+                        task_id,
+                        status="running",
+                        stage="parsing_edit_intent",
+                        progress=5,
+                        message="Resuming generation revise from checkpoint",
+                    )
+                pipeline = self._get_pipeline()
+                if not hasattr(pipeline, "run_revise"):
+                    raise RuntimeError("Pipeline does not support revise")
+                result = pipeline.run_revise(
+                    project_id=project_id,
+                    task_id=task_id,
+                    source_generation_id=source_generation_id,
+                    generation_id=generation_id,
+                    instruction=instruction,
+                    structure=structure,
+                    user_brief=user_brief,
+                    assets=assets,
+                    emit=self._make_emit(task_id),
+                    intents=intents,
+                    variant=variant,
+                    resume=resume,
+                )
+                if result.get("ok"):
+                    self.project_store.update_generation(
+                        generation_id,
+                        status="succeeded",
+                        structure_id=structure.get("id"),
+                        inventory_id=result["inventory"]["id"],
+                        gap_report=result["gapReport"],
+                        plan=result["plan"],
+                    )
+                else:
+                    self.project_store.update_generation(
+                        generation_id,
+                        status="failed",
+                        gap_report=result.get("gapReport"),
+                        plan=result.get("plan"),
+                    )
+                    self._ensure_task_failed(
+                        task_id,
+                        result=result,
+                        default_stage="parsing_edit_intent",
+                        default_code="revise_failed",
+                    )
+            except Exception as exc:  # pragma: no cover
+                logger.exception(
+                    "Revise failed task_id=%s generation_id=%s",
+                    task_id,
+                    generation_id,
+                )
+                self._emit(
+                    task_id,
+                    status="failed",
+                    stage="parsing_edit_intent",
+                    progress=0,
+                    message="Revise failed",
+                    error={
+                        "code": "revise_failed",
+                        "message": str(exc),
+                        "retryable": True,
+                    },
+                )
+                self.project_store.update_generation(generation_id, status="failed")
+
+        self._run(job)
+
     def retry_task(self, task_id: str) -> dict[str, Any]:
         current = self.task_events.get_task(task_id)
         if current is None:
@@ -528,6 +757,41 @@ class PipelineRunner:
             }
             assets = self.project_store.list_assets(generation["projectId"])
             variant = str(generation.get("variant") or (generation.get("plan") or {}).get("variant") or "default")
+            generation_root = (
+                self.storage_root
+                / "projects"
+                / generation["projectId"]
+                / "generations"
+                / generation["id"]
+            )
+            revise_context_path = generation_root / "revise-context.json"
+            if revise_context_path.is_file():
+                revise_context = json.loads(revise_context_path.read_text(encoding="utf-8"))
+                source_generation_id = str(revise_context.get("sourceGenerationId", ""))
+                instruction = str(revise_context.get("instruction") or "")
+                intents: list[dict[str, Any]] = []
+                edit_intent_path = generation_root / "edit-intent.json"
+                if edit_intent_path.is_file():
+                    payload = json.loads(edit_intent_path.read_text(encoding="utf-8"))
+                    if isinstance(payload.get("intents"), list):
+                        intents = payload["intents"]
+                if not source_generation_id:
+                    raise ValueError("Revise generation is missing sourceGenerationId")
+                self.start_revise(
+                    project_id=generation["projectId"],
+                    source_generation_id=source_generation_id,
+                    generation_id=generation["id"],
+                    task_id=task_id,
+                    instruction=instruction,
+                    intents=intents,
+                    structure=structure,
+                    user_brief=brief,
+                    assets=assets,
+                    variant=variant,
+                    resume=True,
+                )
+                return updated
+
             self.start_generation(
                 project_id=generation["projectId"],
                 generation_id=generation["id"],

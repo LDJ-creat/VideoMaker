@@ -1,17 +1,80 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from app.services.generation_responses import build_generation_plan_response
+from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
+from app.services.task_events import TaskEventService
 
 router = APIRouter(prefix="/api/generations", tags=["generations"])
+
+MAX_REVISE_INSTRUCTION_LEN = 2000
+
+
+class ReviseGenerationRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
 def _project_store(request: Request) -> ProjectStore:
     return ProjectStore(request.app.state.db)
+
+
+def _task_events(request: Request) -> TaskEventService:
+    return TaskEventService(request.app.state.db)
+
+
+def _pipeline_runner(request: Request) -> PipelineRunner:
+    return request.app.state.pipeline_runner
+
+
+def _load_source_plan(storage_root: Path, project_id: str, generation_id: str) -> dict[str, Any]:
+    plan_path = (
+        storage_root
+        / "projects"
+        / project_id
+        / "generations"
+        / generation_id
+        / "generation-plan.json"
+    )
+    if not plan_path.is_file():
+        raise FileNotFoundError("generation-plan.json not found on disk")
+    return json.loads(plan_path.read_text(encoding="utf-8"))
+
+
+def _persist_edit_intent(
+    storage_root: Path,
+    project_id: str,
+    generation_id: str,
+    intents: list[dict[str, Any]],
+    *,
+    instruction: str,
+    source_generation_id: str,
+) -> None:
+    generation_root = storage_root / "projects" / project_id / "generations" / generation_id
+    generation_root.mkdir(parents=True, exist_ok=True)
+    (generation_root / "edit-intent.json").write_text(
+        json.dumps({"intents": intents}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    revise_context_path = generation_root / "revise-context.json"
+    if not revise_context_path.is_file():
+        revise_context_path.write_text(
+            json.dumps(
+                {
+                    "sourceGenerationId": source_generation_id,
+                    "instruction": instruction,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
 
 @router.get("/{generation_id}")
@@ -21,3 +84,101 @@ def get_generation(generation_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Generation not found")
 
     return build_generation_plan_response(record)
+
+
+@router.post("/{generation_id}/revise", status_code=status.HTTP_202_ACCEPTED)
+def revise_generation(
+    generation_id: str,
+    payload: ReviseGenerationRequest,
+    request: Request,
+) -> dict[str, Any]:
+    store = _project_store(request)
+    source = store.get_generation(generation_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    if str(source.get("status")) != "succeeded":
+        raise HTTPException(
+            status_code=400,
+            detail="Source generation must be succeeded before revise",
+        )
+
+    project_id = str(source["projectId"])
+    storage_root: Path = request.app.state.storage_root
+    runner = _pipeline_runner(request)
+
+    source_plan = source.get("plan")
+    if not isinstance(source_plan, dict):
+        try:
+            source_plan = _load_source_plan(storage_root, project_id, generation_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Source generation has no plan artifacts for revise",
+            ) from exc
+
+    try:
+        intents = runner.parse_edit_intent(
+            project_id=project_id,
+            instruction=payload.instruction,
+            source_plan=source_plan,
+        )
+        runner._validate_edit_intents(intents)  # noqa: SLF001
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    structure = store.get_latest_sample_structure(project_id)
+    if structure is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No analyzed sample structure for project. Complete sample analysis first.",
+        )
+
+    brief = store.get_brief(project_id) or {
+        "topic": "Demo topic",
+        "sellingPoints": [],
+        "mustMention": [],
+        "avoidMention": [],
+    }
+    assets = store.list_assets(project_id)
+    variant = str(source.get("variant") or source_plan.get("variant") or "default")
+
+    task = _task_events(request).create_task(
+        project_id,
+        stage="parsing_edit_intent",
+        message="Queued generation revise",
+    )
+    new_generation = store.create_generation(
+        project_id=project_id,
+        task_id=task["taskId"],
+        status="queued",
+        variant=variant,
+    )
+    _persist_edit_intent(
+        storage_root,
+        project_id,
+        new_generation["id"],
+        intents,
+        instruction=payload.instruction,
+        source_generation_id=generation_id,
+    )
+
+    runner.start_revise(
+        project_id=project_id,
+        source_generation_id=generation_id,
+        generation_id=new_generation["id"],
+        task_id=task["taskId"],
+        instruction=payload.instruction,
+        intents=intents,
+        structure=structure,
+        user_brief=brief,
+        assets=assets,
+        variant=variant,
+    )
+
+    return {
+        "sourceGenerationId": generation_id,
+        "generationId": new_generation["id"],
+        "taskId": task["taskId"],
+        "intents": intents,
+    }
