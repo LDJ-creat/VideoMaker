@@ -10,6 +10,7 @@ from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.structure_analyst import run_structure_analyst
+from app.config.variants import load_variant_gap_planner_overrides
 from app.gateway.model_gateway import ModelGateway
 from app.pipelines.generation_pipeline import (
     FixtureMaterialGateway,
@@ -392,6 +393,9 @@ class P0DemoPipeline:
                     emit_progress=material_progress,
                     register_artifact=context.register_artifact,
                     material_state_path=material_state_path,
+                    runner=runner,
+                    task_context=context,
+                    variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", "default"))),
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")

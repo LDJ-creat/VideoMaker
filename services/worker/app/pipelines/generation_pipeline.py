@@ -324,6 +324,10 @@ def run_generating_material(
     emit_progress: ProgressEmitter,
     register_artifact: ArtifactRegistrar,
     material_state_path: Path | None = None,
+    runner: AgentRunner | None = None,
+    task_context: TaskContext | None = None,
+    variant_overrides: dict[str, Any] | None = None,
+    brand_colors: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -345,6 +349,10 @@ def run_generating_material(
         emit_progress=emit_progress,
         register_artifact=register_artifact,
         completed_action_ids=set(completed_ids),
+        runner=runner,
+        task_context=task_context,
+        variant_overrides=dict(variant_overrides or {}),
+        brand_colors=dict(brand_colors or {}),
     )
     register_default_providers(ctx)
 
@@ -369,7 +377,7 @@ def run_generating_material(
             retryable=bool(error.get("retryable", False)),
         )
 
-    updated_plan = apply_material_results_to_plan(plan, results=results)
+    updated_plan = apply_material_results_to_plan(plan, results=results, render_root=render_root)
     save_material_state(
         state_path,
         quota=ctx.quota,
