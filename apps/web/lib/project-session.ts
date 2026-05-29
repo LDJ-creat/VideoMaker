@@ -1,10 +1,18 @@
+import type { EditIntentItem } from "@videomaker/contracts";
+
+import type { GenerationPlanEntry } from "@/lib/apiClient";
+
 const STORAGE_PREFIX = "videomaker:project:";
 
 export type ProjectSessionState = {
   taskId: string | null;
   sampleId: string | null;
   generationId: string | null;
-  lastAction: "analysis" | "generation" | null;
+  lastAction: "analysis" | "generation" | "revise" | null;
+  activeGenerations?: GenerationPlanEntry[];
+  activeVariantGenerationId?: string | null;
+  reviseIntents?: EditIntentItem[] | null;
+  preReviseGenerationId?: string | null;
 };
 
 export function loadProjectSession(projectId: string): ProjectSessionState | null {

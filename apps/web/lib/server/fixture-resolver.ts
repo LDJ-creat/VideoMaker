@@ -7,7 +7,9 @@ import {
   fixtureModelGatewayStatus,
   fixtureMultiVariantGenerations,
   fixtureProject,
+  fixtureGenerationPlanRevised,
   fixtureReviseGenerationResponse,
+  fixtureReviseTaskEvent,
   fixtureTaskEvent,
   fixtureVideoStructure,
 } from "@/fixtures";
@@ -189,9 +191,14 @@ export function resolveFixture(
   }
 
   if (method === "GET" && segments[0] === "tasks" && segments.length === 2) {
+    const taskId = segments[1];
+    const body =
+      taskId === fixtureReviseTaskEvent.taskId
+        ? fixtureReviseTaskEvent
+        : { ...fixtureTaskEvent, taskId };
     return {
       status: 200,
-      body: { ...fixtureTaskEvent, taskId: segments[1] },
+      body,
     };
   }
 
@@ -238,9 +245,11 @@ export function resolveFixture(
   if (method === "GET" && segments[0] === "generations" && segments.length === 2) {
     const generationId = segments[1];
     const plan =
-      generationId === fixtureGenerationPlanHighClick.id
-        ? fixtureGenerationPlanHighClick
-        : { ...fixtureGenerationPlan, id: generationId };
+      generationId === fixtureGenerationPlanRevised.id
+        ? fixtureGenerationPlanRevised
+        : generationId === fixtureGenerationPlanHighClick.id
+          ? fixtureGenerationPlanHighClick
+          : { ...fixtureGenerationPlan, id: generationId };
     return {
       status: 200,
       body: { ...plan, gapReport: fixtureGapReport },

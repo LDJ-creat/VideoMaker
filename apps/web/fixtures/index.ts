@@ -10,7 +10,9 @@ export {
 } from "./multi-variant.fixture";
 export {
   fixtureEditIntent,
+  fixtureGenerationPlanRevised,
   fixtureReviseGenerationResponse,
+  fixtureReviseTaskEvent,
 } from "./edit-intent.fixture";
 export { fixtureModelGatewayStatus } from "./model-gateway-status.fixture";
 export { fixtureAgentRuns } from "./agent-runs.fixture";
