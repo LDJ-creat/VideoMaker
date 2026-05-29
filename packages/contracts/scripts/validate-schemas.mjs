@@ -1,9 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const schemasDir = join(root, "schemas");
+const registryPath = join(root, "variants", "registry.yaml");
 const files = (await readdir(schemasDir)).filter((file) =>
   file.endsWith(".schema.json"),
 );
@@ -35,4 +37,23 @@ for (const file of files) {
   }
 }
 
-console.log(`Validated ${files.length} schema files.`);
+const registryRaw = await readFile(registryPath, "utf8");
+const registry = parse(registryRaw);
+
+if (!registry?.variants || typeof registry.variants !== "object") {
+  throw new Error("variants/registry.yaml must define a variants map.");
+}
+
+const enabledIds = Object.entries(registry.variants)
+  .filter(([, entry]) => entry && typeof entry === "object" && entry.enabled === true)
+  .map(([id]) => id)
+  .sort();
+
+const expectedEnabled = ["high_click", "high_conversion"];
+if (JSON.stringify(enabledIds) !== JSON.stringify(expectedEnabled)) {
+  throw new Error(
+    `Expected enabled variants ${expectedEnabled.join(", ")}, got ${enabledIds.join(", ")}`,
+  );
+}
+
+console.log(`Validated ${files.length} schema files and variant registry.`);

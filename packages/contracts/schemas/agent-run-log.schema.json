@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/agent-run-log.schema.json",
+  "title": "AgentRunLog",
+  "type": "object",
+  "required": [
+    "id",
+    "agentName",
+    "promptVersion",
+    "model",
+    "task",
+    "inputSummary",
+    "outputValid",
+    "latencyMs",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string" },
+    "generationId": { "type": "string" },
+    "agentName": { "type": "string", "minLength": 1 },
+    "promptVersion": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "task": { "type": "string" },
+    "inputSummary": { "type": "string" },
+    "outputValid": { "type": "boolean" },
+    "validationErrors": { "type": "array", "items": { "type": "string" } },
+    "latencyMs": { "type": "number", "minimum": 0 },
+    "tokenUsage": {
+      "type": "object",
+      "required": ["prompt", "completion"],
+      "properties": {
+        "prompt": { "type": "number", "minimum": 0 },
+        "completion": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

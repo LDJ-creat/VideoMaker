@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/edit-intent.schema.json",
+  "title": "EditIntent",
+  "type": "object",
+  "required": ["intents"],
+  "properties": {
+    "intents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "operation", "params", "rationale"],
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "generation_plan.storyboard",
+              "generation_plan.packaging",
+              "render_timeline",
+              "generation_params"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "adjust_hook",
+              "reduce_subtitles",
+              "increase_subtitles",
+              "reorder_selling_points",
+              "change_pace",
+              "change_packaging_style",
+              "adjust_cta"
+            ]
+          },
+          "params": { "type": "object" },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -8,9 +8,13 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build": "tsc --emitDeclarationOnly",
+    "test": "node --import tsx --test tests/*.test.ts",
     "validate:schemas": "node scripts/validate-schemas.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.4.0"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0",
+    "yaml": "^2.6.0"
   }
 }

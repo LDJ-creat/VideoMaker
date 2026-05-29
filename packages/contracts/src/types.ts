@@ -20,7 +20,15 @@ export type TaskStage =
   | "generating_storyboard"
   | "building_timeline"
   | "rendering"
-  | "completed";
+  | "completed"
+  | "running_agent"
+  | "generating_material"
+  | "generating_image"
+  | "generating_video"
+  | "generating_tts"
+  | "rendering_material"
+  | "parsing_edit_intent"
+  | "applying_edit_intent";
 
 export type ArtifactType =
   | "video"
@@ -54,6 +62,68 @@ export type TaskEvent = {
   artifactRefs?: ArtifactRef[];
   error?: ToolError;
   updatedAt: string;
+};
+
+export type EditIntentTarget =
+  | "generation_plan.storyboard"
+  | "generation_plan.packaging"
+  | "render_timeline"
+  | "generation_params";
+
+export type EditIntentOperation =
+  | "adjust_hook"
+  | "reduce_subtitles"
+  | "increase_subtitles"
+  | "reorder_selling_points"
+  | "change_pace"
+  | "change_packaging_style"
+  | "adjust_cta";
+
+export type EditIntentItem = {
+  target: EditIntentTarget;
+  operation: EditIntentOperation;
+  params: Record<string, unknown>;
+  rationale: string;
+};
+
+export type EditIntent = {
+  intents: EditIntentItem[];
+};
+
+export type MaterialTemplate =
+  | "benefit-card"
+  | "title-lower-third"
+  | "ken-burns"
+  | "custom";
+
+export type MaterialSpecParams = {
+  title?: string;
+  bullets?: string[];
+  colors?: Record<string, unknown>;
+  assetRefs?: ArtifactRef[];
+  subtitle?: string;
+};
+
+export type MaterialSpec = {
+  template: MaterialTemplate;
+  durationSec: number;
+  params: MaterialSpecParams;
+};
+
+export type AgentRunLog = {
+  id: string;
+  taskId?: string;
+  generationId?: string;
+  agentName: string;
+  promptVersion: string;
+  model: string;
+  task: string;
+  inputSummary: string;
+  outputValid: boolean;
+  validationErrors?: string[];
+  latencyMs: number;
+  tokenUsage?: { prompt: number; completion: number };
+  createdAt: string;
 };
 
 export type VideoMetadata = {
@@ -209,6 +279,8 @@ export type ContentFact = {
   source: string;
 };
 
+export type CandidateSegmentRole = "hook" | "mid" | "cta";
+
 export type CandidateMoment = {
   id: string;
   assetId: string;
@@ -216,6 +288,9 @@ export type CandidateMoment = {
   endSec: number;
   description: string;
   tags: string[];
+  visualTags?: string[];
+  highlightScore?: number;
+  suggestedSegmentRoles?: CandidateSegmentRole[];
 };
 
 export type AssetInventory = {
@@ -231,9 +306,19 @@ export type CompletionStrategy =
   | "text_completion"
   | "packaging_completion"
   | "asset_reuse"
+  | "hyperframes_material"
   | "image_generation"
   | "video_generation"
   | "tts";
+
+export type CompletionProvider =
+  | "asset_reuse"
+  | "hyperframes_material"
+  | "image_generation"
+  | "video_generation"
+  | "tts"
+  | "text_completion"
+  | "packaging_completion";
 
 export type SlotMatch = {
   slotId: string;
@@ -280,6 +365,13 @@ export type ClipTransform = {
   opacity?: number;
 };
 
+export type GeneratedBy = {
+  provider: string;
+  model?: string;
+  promptVersion?: string;
+  template?: string;
+};
+
 export type TimelineClip = {
   id: string;
   startSec: number;
@@ -288,7 +380,7 @@ export type TimelineClip = {
   content?: string;
   styleRef?: string;
   transform?: ClipTransform;
-  generatedBy?: string;
+  generatedBy?: string | GeneratedBy;
 };
 
 export type TimelineTrack = {
@@ -337,6 +429,9 @@ export type CompletionAction = {
   strategy: CompletionStrategy;
   reason: string;
   outputRef: string;
+  provider?: CompletionProvider;
+  rationale?: string;
+  artifactRef?: ArtifactRef;
 };
 
 export type GenerationPlan = {

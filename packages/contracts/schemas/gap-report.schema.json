@@ -35,7 +35,18 @@
           "impact": { "type": "string", "enum": ["low", "medium", "high"] },
           "suggestedFixes": {
             "type": "array",
-            "items": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] }
+            "items": {
+              "type": "string",
+              "enum": [
+                "text_completion",
+                "packaging_completion",
+                "asset_reuse",
+                "hyperframes_material",
+                "image_generation",
+                "video_generation",
+                "tts"
+              ]
+            }
           }
         },
         "additionalProperties": false
@@ -52,7 +63,18 @@
           "impact": { "type": "string", "enum": ["low", "medium", "high"] },
           "suggestedFixes": {
             "type": "array",
-            "items": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] }
+            "items": {
+              "type": "string",
+              "enum": [
+                "text_completion",
+                "packaging_completion",
+                "asset_reuse",
+                "hyperframes_material",
+                "image_generation",
+                "video_generation",
+                "tts"
+              ]
+            }
           }
         },
         "additionalProperties": false

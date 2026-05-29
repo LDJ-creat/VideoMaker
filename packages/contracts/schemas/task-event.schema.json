@@ -26,7 +26,15 @@
         "generating_storyboard",
         "building_timeline",
         "rendering",
-        "completed"
+        "completed",
+        "running_agent",
+        "generating_material",
+        "generating_image",
+        "generating_video",
+        "generating_tts",
+        "rendering_material",
+        "parsing_edit_intent",
+        "applying_edit_intent"
       ]
     },
     "progress": { "type": "integer", "minimum": 0, "maximum": 100 },

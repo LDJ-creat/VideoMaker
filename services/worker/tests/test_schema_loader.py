@@ -14,7 +14,10 @@ def test_schema_loader_discovers_all_contract_schemas() -> None:
     assert "gap-report" in names
     assert "generation-plan" in names
     assert "render-timeline" in names
-    assert len(names) >= 8
+    assert "edit-intent" in names
+    assert "material-spec" in names
+    assert "agent-run-log" in names
+    assert len(names) >= 11
 
 
 def test_validate_contract_returns_structured_errors() -> None:

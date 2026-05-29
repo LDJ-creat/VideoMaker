@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/material-spec.schema.json",
+  "title": "MaterialSpec",
+  "type": "object",
+  "required": ["template", "durationSec", "params"],
+  "properties": {
+    "template": {
+      "type": "string",
+      "enum": ["benefit-card", "title-lower-third", "ken-burns", "custom"]
+    },
+    "durationSec": { "type": "number", "minimum": 0.5, "maximum": 30 },
+    "params": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "bullets": { "type": "array", "items": { "type": "string" } },
+        "colors": { "type": "object", "additionalProperties": true },
+        "assetRefs": {
+          "type": "array",
+          "items": { "$ref": "artifact-ref.schema.json" }
+        },
+        "subtitle": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

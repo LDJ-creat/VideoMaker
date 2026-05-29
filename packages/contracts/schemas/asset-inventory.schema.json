@@ -62,7 +62,13 @@
           "startSec": { "type": "number", "minimum": 0 },
           "endSec": { "type": "number", "minimum": 0 },
           "description": { "type": "string" },
-          "tags": { "type": "array", "items": { "type": "string" } }
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "visualTags": { "type": "array", "items": { "type": "string" } },
+          "highlightScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "suggestedSegmentRoles": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["hook", "mid", "cta"] }
+          }
         },
         "additionalProperties": false
       }

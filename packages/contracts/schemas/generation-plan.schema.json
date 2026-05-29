@@ -48,9 +48,34 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "slotId": { "type": "string", "minLength": 1 },
-          "strategy": { "type": "string", "enum": ["text_completion", "packaging_completion", "asset_reuse", "image_generation", "video_generation", "tts"] },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "text_completion",
+              "packaging_completion",
+              "asset_reuse",
+              "hyperframes_material",
+              "image_generation",
+              "video_generation",
+              "tts"
+            ]
+          },
           "reason": { "type": "string" },
-          "outputRef": { "type": "string" }
+          "outputRef": { "type": "string" },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "asset_reuse",
+              "hyperframes_material",
+              "image_generation",
+              "video_generation",
+              "tts",
+              "text_completion",
+              "packaging_completion"
+            ]
+          },
+          "rationale": { "type": "string" },
+          "artifactRef": { "$ref": "artifact-ref.schema.json" }
         },
         "additionalProperties": false
       }
