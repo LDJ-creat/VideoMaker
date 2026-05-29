@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock
+import json
 
 import pytest
 
@@ -10,7 +11,10 @@ from app.providers.completion_registry import (
     register_default_providers,
     save_material_state,
 )
+from app.providers.hyperframes_material_provider import HyperFramesMaterialProvider
 from app.runtime.video_gen_quota import VideoGenQuota
+from app.tools.hyperframes_tool import CommandResult, HyperFramesTool
+from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
 from app.tools.image_gen_tool import ToolError
 
 
@@ -148,13 +152,68 @@ def test_second_video_generation_raises_quota_error(tmp_path: Path) -> None:
     assert ctx.quota.used == 1
 
 
-def test_unknown_provider_fails_without_fallback(tmp_path: Path) -> None:
+def test_execute_hyperframes_material_action(tmp_path: Path) -> None:
+    structure = {
+        "slots": [
+            {
+                "id": "seg-2-benefit_card-1",
+                "role": "benefit_card",
+                "scriptIntent": "highlight benefits",
+                "visualIntent": "card",
+                "importance": "must_have",
+                "requiredAssetType": ["packaging"],
+            }
+        ]
+    }
+    project_root = tmp_path / "projects" / "project-1"
+    generated_root = project_root / "generations" / "gen-1" / "generated"
+    render_root = project_root / "renders" / "gen-1"
+    generated_root.mkdir(parents=True, exist_ok=True)
+    render_root.mkdir(parents=True, exist_ok=True)
+
+    def cli_runner(command: list[str], cwd: Path) -> CommandResult:
+        if "render" in command:
+            output_index = command.index("--output") + 1
+            Path(command[output_index]).write_bytes(b"mock-mp4")
+        return CommandResult(returncode=0, stdout="ok", stderr="")
+
+    ctx = _make_ctx(
+        tmp_path,
+        structure=structure,
+        render_root=render_root,
+        generated_root=generated_root,
+    )
+    register_default_providers(ctx)
+    ctx.providers["hyperframes_material"] = HyperFramesMaterialProvider(
+        HyperFramesMaterialTool(hyperframes_tool=HyperFramesTool(command_runner=cli_runner))
+    )
+
+    spec_path = Path(__file__).parent / "fixtures" / "material_specs" / "benefit_card.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    action = {
+        "id": "action-hf",
+        "slotId": "seg-2-benefit_card-1",
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "reason": "card",
+        "outputRef": "completion://seg-2-benefit_card-1/hyperframes_material",
+        "materialSpec": spec,
+    }
+
+    results = execute_completion_plan([action], ctx)
+
+    assert len(results) == 1
+    assert results[0]["ok"] is True
+    assert (generated_root / "action-hf.mp4").exists()
+
+
+def test_unimplemented_provider_fails_without_fallback(tmp_path: Path) -> None:
     ctx = _make_ctx(tmp_path)
     register_default_providers(ctx)
 
     with pytest.raises(ToolError) as exc_info:
         execute_completion_plan(
-            [_action("action-hf", "slot-x", "hyperframes_material")],
+            [_action("action-text", "slot-x", "text_completion")],
             ctx,
             only_aigc=False,
         )

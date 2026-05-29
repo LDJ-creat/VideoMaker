@@ -163,7 +163,7 @@ def test_apply_provider_selection_overrides_suggested_fixes() -> None:
         gap_report,
         structure=structure,
         slot_matches=slot_matches,
-        quota=VideoGenQuota(remaining=1),
+        quota=VideoGenQuota(max_calls=1),
         variant_overrides={"videoGenPriority": "high"},
     )
     missing = updated["missingSlots"][0]
@@ -200,7 +200,7 @@ def test_run_gap_planner_end_to_end(tmp_path: Path) -> None:
         slot_matches=slot_matches,
         context=context,
         variant="high_click",
-        quota=VideoGenQuota(remaining=1),
+        quota=VideoGenQuota(max_calls=1),
     )
     assert report["slotMatches"] == slot_matches
     assert report["missingSlots"]

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.pipelines.p0_demo_pipeline import P0DemoPipeline
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
 from app.validation.schema_loader import validate_contract
@@ -56,7 +58,22 @@ def _load_structure_fixture() -> dict[str, Any]:
     return json.loads(fixture_path.read_text(encoding="utf-8"))
 
 
-def test_p0_demo_pipeline_generation_uses_fixture_structure(tmp_path: Path) -> None:
+def test_p0_demo_pipeline_generation_uses_fixture_structure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_render_material(self, spec, **kwargs):  # noqa: ANN001
+        output_clip = kwargs["output_clip"]
+        output_clip.parent.mkdir(parents=True, exist_ok=True)
+        output_clip.write_bytes(b"mock-mp4")
+        return {
+            "ok": True,
+            "artifactPath": str(output_clip),
+            "durationSec": float(spec.get("durationSec", 3)),
+        }
+
+    monkeypatch.setattr(
+        "app.tools.hyperframes_material_tool.HyperFramesMaterialTool.render_material",
+        _fake_render_material,
+    )
+
     fixture_path = Path(__file__).parent / "fixtures" / "sample_analysis.json"
     sample_analysis = json.loads(fixture_path.read_text(encoding="utf-8"))
     structure = _load_structure_fixture()
