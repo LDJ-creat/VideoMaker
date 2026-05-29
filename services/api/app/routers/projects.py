@@ -252,6 +252,53 @@ def stream_asset_media(project_id: str, asset_id: str, request: Request) -> File
     return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
 
 
+def _resolve_project_media_file(
+    request: Request,
+    project_id: str,
+    relative_path: str,
+) -> Path:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    try:
+        path = _artifact_store(request).resolve_project_path(project_id, relative_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Media file missing on disk")
+    return path
+
+
+@router.get("/{project_id}/media/file/{file_path:path}")
+def stream_project_media_file(
+    project_id: str,
+    file_path: str,
+    request: Request,
+) -> FileResponse:
+    path = _resolve_project_media_file(request, project_id, file_path)
+    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+
+
+@router.get("/{project_id}/media/artifacts/{artifact_id}")
+def stream_project_artifact_media(
+    project_id: str,
+    artifact_id: str,
+    request: Request,
+) -> FileResponse:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    artifact = _artifact_store(request).get_artifact(
+        request.app.state.db,
+        artifact_id=artifact_id,
+        project_id=project_id,
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    path = resolve_existing_file(artifact["uri"])
+    if path is None:
+        raise HTTPException(status_code=404, detail="Artifact file missing on disk")
+    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+
+
 @router.get("/{project_id}/samples", response_model=ProjectSamplesResponse)
 def list_project_samples(project_id: str, request: Request) -> dict[str, Any]:
     store = _project_store(request)
