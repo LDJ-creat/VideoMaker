@@ -45,6 +45,25 @@ def _default_command_runner(command: list[str], cwd: Path) -> CommandResult:
     )
 
 
+def fixture_command_runner() -> CommandRunner:
+    """Stub HyperFrames CLI for fixture_mode / CI without npx hyperframes."""
+
+    def runner(command: list[str], cwd: Path) -> CommandResult:
+        _ = cwd
+        if "render" in command:
+            output_index = command.index("--output") + 1
+            output_path = Path(command[output_index])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"mock-mp4")
+        return CommandResult(returncode=0, stdout="ok", stderr="")
+
+    return runner
+
+
+def build_fixture_hyperframes_tool() -> HyperFramesTool:
+    return HyperFramesTool(command_runner=fixture_command_runner())
+
+
 class HyperFramesTool:
     def __init__(self, command_runner: CommandRunner | None = None) -> None:
         self._command_runner = command_runner or _default_command_runner

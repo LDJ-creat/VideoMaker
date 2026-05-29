@@ -18,6 +18,7 @@ from app.providers.tts_provider import TTSProvider
 from app.providers.video_generation_provider import VideoGenerationProvider
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
+from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
 from app.tools.image_gen_tool import ImageGenTool, ToolError
 from app.tools.tts_tool import TTSTool
 from app.tools.video_gen_tool import VideoGenTool
@@ -72,6 +73,13 @@ def action_artifact_satisfied(action: dict[str, Any], generated_root: Path) -> b
 
 
 def register_default_providers(ctx: MaterialContext) -> None:
+    from app.pipelines.generation_pipeline import is_fixture_material_gateway
+
+    hf_material_tool = HyperFramesMaterialTool()
+    if is_fixture_material_gateway(ctx.gateway):
+        hf_material_tool = HyperFramesMaterialTool(
+            hyperframes_tool=build_fixture_hyperframes_tool(),
+        )
     ctx.providers = {
         "image_generation": ImageGenerationProvider(
             ImageGenTool(gateway=ctx.gateway, emit_progress=ctx.emit_progress)
@@ -83,7 +91,7 @@ def register_default_providers(ctx: MaterialContext) -> None:
             TTSTool(gateway=ctx.gateway, emit_progress=ctx.emit_progress)
         ),
         "asset_reuse": AssetReuseProvider(),
-        "hyperframes_material": HyperFramesMaterialProvider(HyperFramesMaterialTool()),
+        "hyperframes_material": HyperFramesMaterialProvider(hf_material_tool),
     }
 
 

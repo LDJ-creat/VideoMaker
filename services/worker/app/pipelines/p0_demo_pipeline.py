@@ -15,6 +15,7 @@ from app.gateway.model_gateway import ModelGateway
 from app.pipelines.generation_pipeline import (
     FixtureMaterialGateway,
     build_asset_inventory,
+    is_fixture_material_gateway,
     is_material_stage_done,
     run_agent_generation,
     run_generating_material,
@@ -31,6 +32,7 @@ from app.pipelines.revise_pipeline import (
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
+from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
 from app.observability.sink import build_observability_sink
 from app.runtime.checkpoint import (
     AnalysisCheckpoint,
@@ -97,6 +99,11 @@ class P0DemoPipeline:
         if self._llm.fixture_mode:
             return FixtureMaterialGateway()
         return ModelGateway.from_env()
+
+    def _uses_fixture_runtime(self) -> bool:
+        if self._llm.gateway is not None:
+            return is_fixture_material_gateway(self._llm.gateway)
+        return self._llm.fixture_mode
 
     def analyze_sample(
         self,
@@ -536,7 +543,8 @@ class P0DemoPipeline:
                     message=message,
                 )
 
-            backend = HyperFramesRenderBackend()
+            render_tool = build_fixture_hyperframes_tool() if self._uses_fixture_runtime() else None
+            backend = HyperFramesRenderBackend(tool=render_tool)
             render_output = backend.render(
                 RenderOptions(
                     project_id=project_id,

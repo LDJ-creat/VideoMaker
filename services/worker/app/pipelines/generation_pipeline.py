@@ -348,6 +348,8 @@ ArtifactRegistrar = Callable[[str, str | Path], dict[str, Any]]
 class FixtureMaterialGateway:
     """Deterministic media responses for fixture/demo runs without live APIs."""
 
+    is_fixture = True
+
     def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
         _ = prompt, options
         return b"\x89PNG\r\n\x1a\n\x00"
@@ -366,6 +368,11 @@ class FixtureMaterialGateway:
             job_id=job_id,
             video_bytes=b"fixture-mp4-bytes",
         )
+
+
+def is_fixture_material_gateway(gateway: Any) -> bool:
+    """True when material completion should use deterministic fixture stubs."""
+    return isinstance(gateway, FixtureMaterialGateway)
 
 
 def is_material_stage_done(
