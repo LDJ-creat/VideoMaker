@@ -1,8 +1,23 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from app.agents.gap_planner import run_gap_planner
+from app.gateway.model_gateway import ModelGateway
+from app.gateway.providers.pluggable_video import VideoJobResult
+from app.providers.completion_registry import (
+    MaterialContext,
+    action_artifact_satisfied,
+    apply_material_results_to_plan,
+    execute_completion_plan,
+    filter_aigc_completion_actions,
+    load_material_state,
+    register_default_providers,
+    save_material_state,
+)
+from app.runtime.video_gen_quota import VideoGenQuota
+from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
@@ -254,6 +269,113 @@ def assemble_generation_plan(
     if not validation.valid:
         raise ValueError(f"Invalid GenerationPlan payload: {validation.errors}")
     return plan
+
+
+ProgressEmitter = Callable[[str, str], None]
+ArtifactRegistrar = Callable[[str, str | Path], dict[str, Any]]
+
+
+class FixtureMaterialGateway:
+    """Deterministic media responses for fixture/demo runs without live APIs."""
+
+    def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
+        _ = prompt, options
+        return b"\x89PNG\r\n\x1a\n\x00"
+
+    def synthesize_speech(self, text: str, *, options: dict[str, Any] | None = None) -> bytes:
+        _ = text, options
+        return b"RIFF----WAVEfmt "
+
+    def submit_video_job(self, prompt: str, *, options: dict[str, Any] | None = None) -> str:
+        _ = prompt, options
+        return "fixture-video-job"
+
+    def poll_video_job(self, job_id: str) -> VideoJobResult:
+        return VideoJobResult(
+            status="succeeded",
+            job_id=job_id,
+            video_bytes=b"fixture-mp4-bytes",
+        )
+
+
+def is_material_stage_done(
+    generation_root: Path,
+    plan: dict[str, Any],
+) -> bool:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    if not actions:
+        return True
+    generated_root = generation_root / "generated"
+    for action in actions:
+        if not action_artifact_satisfied(action, generated_root):
+            return False
+    return True
+
+
+def run_generating_material(
+    *,
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    slot_matches: list[dict[str, Any]],
+    structure: dict[str, Any],
+    generation_root: Path,
+    render_root: Path,
+    gateway: ModelGateway | FixtureMaterialGateway,
+    emit_progress: ProgressEmitter,
+    register_artifact: ArtifactRegistrar,
+    material_state_path: Path | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    generated_root = generation_root / "generated"
+    generated_root.mkdir(parents=True, exist_ok=True)
+    state_path = material_state_path or (generation_root / "material-state.json")
+    quota, completed_ids = load_material_state(state_path)
+
+    ctx = MaterialContext(
+        project_id=str(plan.get("projectId", "")),
+        generation_id=str(plan.get("id", "")),
+        render_root=render_root,
+        generated_root=generated_root,
+        gateway=gateway,  # type: ignore[arg-type]
+        quota=quota,
+        inventory=inventory,
+        slot_matches=slot_matches,
+        storyboard=list(plan.get("storyboard", [])),
+        structure=structure,
+        emit_progress=emit_progress,
+        register_artifact=register_artifact,
+        completed_action_ids=set(completed_ids),
+    )
+    register_default_providers(ctx)
+
+    pending = [
+        action
+        for action in actions
+        if not (
+            str(action["id"]) in ctx.completed_action_ids
+            and action_artifact_satisfied(action, generated_root)
+        )
+    ]
+    if not pending:
+        return plan, []
+
+    results = execute_completion_plan(pending, ctx, fail_fast=True)
+    failed = next((item for item in results if not item.get("ok")), None)
+    if failed is not None:
+        error = failed.get("error") or {}
+        raise ToolError(
+            code=str(error.get("code", "material_failed")),
+            message=str(error.get("message", "Material completion failed")),
+            retryable=bool(error.get("retryable", False)),
+        )
+
+    updated_plan = apply_material_results_to_plan(plan, results=results)
+    save_material_state(
+        state_path,
+        quota=ctx.quota,
+        completed_action_ids=ctx.completed_action_ids,
+    )
+    return updated_plan, results
 
 
 def _build_timeline(

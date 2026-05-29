@@ -10,7 +10,15 @@ from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.structure_analyst import run_structure_analyst
-from app.pipelines.generation_pipeline import build_asset_inventory, run_agent_generation
+from app.gateway.model_gateway import ModelGateway
+from app.pipelines.generation_pipeline import (
+    FixtureMaterialGateway,
+    build_asset_inventory,
+    is_material_stage_done,
+    run_agent_generation,
+    run_generating_material,
+)
+from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
@@ -74,6 +82,13 @@ class P0DemoPipeline:
             run_store=AgentRunStore(self._storage_root),
             model_name="fixture" if self._llm.fixture_mode else "live",
         )
+
+    def _build_material_gateway(self) -> ModelGateway | FixtureMaterialGateway:
+        if self._llm.gateway is not None:
+            return self._llm.gateway
+        if self._llm.fixture_mode:
+            return FixtureMaterialGateway()
+        return ModelGateway.from_env()
 
     def analyze_sample(
         self,
@@ -225,6 +240,7 @@ class P0DemoPipeline:
         inventory: dict[str, Any] | None = None
         gap_report: dict[str, Any] | None = None
         plan: dict[str, Any] | None = None
+        slot_matches: list[dict[str, Any]] = []
 
         if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
             inventory = json.loads((generation_root / "asset-inventory.json").read_text(encoding="utf-8"))
@@ -323,13 +339,88 @@ class P0DemoPipeline:
             )
             checkpoint.mark_stage_complete("mapping_slots")
             checkpoint.mark_stage_complete("planning_completion")
-            checkpoint.mark_stage_complete("building_timeline")
             checkpoint.save(checkpoint_path)
             emit(
                 status="running",
                 stage="planning_completion",
                 progress=55,
                 message="Planning completion actions",
+            )
+
+        slot_matches_path = generation_root / "slot-matches.json"
+        if slot_matches_path.is_file():
+            slot_matches_payload = json.loads(slot_matches_path.read_text(encoding="utf-8"))
+            slot_matches = list(slot_matches_payload.get("slotMatches", []))
+
+        material_state_path = generation_root / "material-state.json"
+        material_skipped = resume and is_material_stage_done(generation_root, plan)
+        if material_skipped:
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=62,
+                message="(resumed) generated materials ready",
+                artifact_refs=context.artifact_refs,
+            )
+        else:
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=60,
+                message="Generating AIGC completion materials",
+                artifact_refs=context.artifact_refs,
+            )
+
+            def material_progress(stage: str, message: str) -> None:
+                emit(
+                    status="running",
+                    stage=stage,
+                    progress=65,
+                    message=message,
+                    artifact_refs=list(context.artifact_refs),
+                )
+
+            try:
+                plan, _material_results = run_generating_material(
+                    plan=plan,
+                    inventory=inventory,
+                    slot_matches=slot_matches,
+                    structure=structure,
+                    generation_root=generation_root,
+                    render_root=render_root,
+                    gateway=self._build_material_gateway(),
+                    emit_progress=material_progress,
+                    register_artifact=context.register_artifact,
+                    material_state_path=material_state_path,
+                )
+            except ToolError as exc:
+                checkpoint.mark_failed("generating_material")
+                checkpoint.save(checkpoint_path)
+                emit(
+                    status="failed",
+                    stage="generating_material",
+                    progress=60,
+                    message="Material generation failed",
+                    error={
+                        "code": exc.code,
+                        "message": exc.message,
+                        "retryable": exc.retryable,
+                    },
+                )
+                return {"ok": False, "error": str(exc)}
+
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("generating_material")
+            checkpoint.save(checkpoint_path)
+            emit(
+                status="running",
+                stage="generating_material",
+                progress=70,
+                message="AIGC materials generated",
+                artifact_refs=list(context.artifact_refs),
             )
 
         if should_skip_generation_stage("building_timeline", checkpoint, generation_root, resume=resume):
