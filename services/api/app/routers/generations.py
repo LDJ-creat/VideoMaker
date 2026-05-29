@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.services.agent_runs import list_agent_runs_for_generation
 from app.services.generation_responses import build_generation_plan_response
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -75,6 +76,21 @@ def _persist_edit_intent(
             ),
             encoding="utf-8",
         )
+
+
+@router.get("/{generation_id}/agent-runs")
+def get_generation_agent_runs(generation_id: str, request: Request) -> dict[str, Any]:
+    record = _project_store(request).get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    runs = list_agent_runs_for_generation(
+        storage_root,
+        project_id=str(record["projectId"]),
+        generation_id=generation_id,
+    )
+    return {"runs": runs}
 
 
 @router.get("/{generation_id}")
