@@ -1,0 +1,16 @@
+{
+  "intents": [
+    {
+      "target": "generation_plan.storyboard",
+      "operation": "adjust_hook",
+      "params": { "strength": "high" },
+      "rationale": "用户希望开头更抓人"
+    },
+    {
+      "target": "generation_plan.packaging",
+      "operation": "reduce_subtitles",
+      "params": {},
+      "rationale": "用户希望减少字幕"
+    }
+  ]
+}
