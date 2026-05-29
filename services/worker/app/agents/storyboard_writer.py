@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.runner import AgentRunner
+from app.config.variants import load_agent_overrides
 from app.runtime.task_context import TaskContext
 
 
@@ -32,7 +33,9 @@ def run_storyboard_writer(
     context: TaskContext,
     progress: int = 52,
     generation_id: str | None = None,
+    variant: str = "default",
 ) -> list[dict[str, Any]]:
+    variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     output = runner.run(
         "storyboard_writer",
         task=TASK_KEY,
@@ -41,6 +44,7 @@ def run_storyboard_writer(
             "structure": structure,
             "inventory": inventory,
             "gapReport": gap_report,
+            "variantOverrides": variant_overrides,
         },
         context=context,
         progress=progress,

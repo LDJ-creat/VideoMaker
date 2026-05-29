@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.runner import AgentRunner
+from app.config.variants import load_agent_overrides
 from app.runtime.task_context import TaskContext
 from app.validation.schema_loader import validate_contract
 
@@ -40,12 +41,18 @@ def run_packaging_designer(
     context: TaskContext,
     progress: int = 58,
     generation_id: str | None = None,
+    variant: str = "default",
 ) -> dict[str, Any]:
+    variant_overrides = load_agent_overrides(variant, "packaging_designer")
     output = runner.run(
         "packaging_designer",
         task=TASK_KEY,
         schema_name=None,
-        inputs={"structure": structure, "storyboard": storyboard},
+        inputs={
+            "structure": structure,
+            "storyboard": storyboard,
+            "variantOverrides": variant_overrides,
+        },
         context=context,
         progress=progress,
         generation_id=generation_id,

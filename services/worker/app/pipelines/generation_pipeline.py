@@ -174,6 +174,7 @@ def run_agent_generation(
         context=context,
         generation_id=generation_id,
         variant=variant,
+        quota=VideoGenQuota(max_calls=1),
     )
     storyboard = run_storyboard_writer(
         runner,
@@ -182,6 +183,7 @@ def run_agent_generation(
         gap_report=gap_report,
         context=context,
         generation_id=generation_id,
+        variant=variant,
     )
     packaging_plan = run_packaging_designer(
         runner,
@@ -189,6 +191,7 @@ def run_agent_generation(
         storyboard=storyboard,
         context=context,
         generation_id=generation_id,
+        variant=variant,
     )
     plan = assemble_generation_plan(
         structure=structure,

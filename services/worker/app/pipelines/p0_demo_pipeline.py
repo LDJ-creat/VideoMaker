@@ -212,6 +212,7 @@ class P0DemoPipeline:
         assets: list[dict[str, Any]],
         emit: EmitFn,
         resume: bool = False,
+        variant: str = "default",
     ) -> dict[str, Any]:
         project_root = self._storage_root / "projects" / project_id
         generation_root = generation_artifact_root(project_root, generation_id)
@@ -310,6 +311,7 @@ class P0DemoPipeline:
                     inventory=inventory,
                     context=context,
                     generation_id=generation_id,
+                    variant=variant,
                 )
             except _AGENT_FAILURES as exc:
                 emit(
@@ -395,7 +397,7 @@ class P0DemoPipeline:
                     material_state_path=material_state_path,
                     runner=runner,
                     task_context=context,
-                    variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", "default"))),
+                    variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", variant))),
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")
