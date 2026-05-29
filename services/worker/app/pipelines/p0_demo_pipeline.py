@@ -8,6 +8,7 @@ from typing import Any
 
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
+from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.structure_analyst import run_structure_analyst
 from app.pipelines.generation_pipeline import build_asset_inventory, run_agent_generation
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
@@ -24,10 +25,17 @@ from app.runtime.checkpoint import (
 )
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError, default_fixture_llm
+from app.validation.structure_validator import StructureValidationError
 
 
 EmitFn = Callable[..., dict[str, Any]]
-_AGENT_FAILURES = (LLMToolValidationError, LLMToolConfigError, ValueError)
+_AGENT_FAILURES = (
+    LLMToolValidationError,
+    LLMToolConfigError,
+    StructureValidationError,
+    KeyframeEncodingError,
+    ValueError,
+)
 
 
 def _load_sample_analysis(storage_root: Path, project_id: str, sample_id: str) -> dict[str, Any]:
@@ -141,6 +149,7 @@ class P0DemoPipeline:
                     context=context,
                     project_id=project_id,
                     source_video_id=sample_id,
+                    analysis_root=analysis_root,
                 )
             except _AGENT_FAILURES as exc:
                 emit(
