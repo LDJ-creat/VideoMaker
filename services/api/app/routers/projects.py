@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
-from app.services.generation_responses import build_generation_plan_response
+from app.services.generation_responses import build_latest_generations_response
+from app.services.variant_registry import get_variant_label, resolve_requested_variants
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -55,14 +56,22 @@ class UserBriefPayload(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class GenerationPlanResponse(BaseModel):
-    generationId: str
-    taskId: str | None = None
-    gapReport: dict[str, Any] | None = None
+class GenerationPlanEntry(BaseModel):
+    generationId: str = Field(alias="generationId")
+    variant: str
+    taskId: str = Field(alias="taskId")
+    label: str
+
+    model_config = {"populate_by_name": True}
+
+
+class MultiVariantGenerationResponse(BaseModel):
+    generations: list[GenerationPlanEntry]
 
 
 class GenerationPlanRequest(BaseModel):
     brief: UserBriefPayload | None = None
+    variants: list[str] | None = None
 
 
 class BriefResponse(BaseModel):
@@ -381,24 +390,26 @@ def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> 
 
 @router.get("/{project_id}/generations/latest")
 def get_latest_generation(project_id: str, request: Request) -> dict[str, Any]:
+    """P1: returns latest completed generation per variant for frontend reload."""
     store = _project_store(request)
     _ensure_project(store, project_id)
-    record = store.get_latest_generation_with_plan(project_id)
-    if record is None:
+    records = store.get_latest_generations_with_plan(project_id)
+    if not records:
         raise HTTPException(status_code=404, detail="No completed generation for project")
-    return build_generation_plan_response(record)
+    return build_latest_generations_response(records)
 
 
 @router.post(
     "/{project_id}/generation-plan",
     status_code=status.HTTP_201_CREATED,
-    response_model=GenerationPlanResponse,
+    response_model=MultiVariantGenerationResponse,
 )
 def create_generation_plan(
     project_id: str,
     request: Request,
     payload: GenerationPlanRequest | None = Body(default=None),
 ) -> dict[str, Any]:
+    """P1: spawns one task + generation record per requested variant (default: high_click + high_conversion)."""
     store = _project_store(request)
     _ensure_project(store, project_id)
 
@@ -407,6 +418,11 @@ def create_generation_plan(
             project_id,
             payload.brief.model_dump(by_alias=True, exclude_none=True),
         )
+
+    try:
+        variant_ids = resolve_requested_variants(None if payload is None else payload.variants)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     structure = store.get_latest_sample_structure(project_id)
     if structure is None:
@@ -432,22 +448,35 @@ def create_generation_plan(
     }
     assets = store.list_assets(project_id)
 
-    task = _task_events(request).create_task(
-        project_id,
-        stage="analyzing_assets",
-        message="Queued generation plan",
-    )
-    generation = store.create_generation(project_id=project_id, task_id=task["taskId"], status="queued")
-    _pipeline_runner(request).start_generation(
-        project_id=project_id,
-        generation_id=generation["id"],
-        task_id=task["taskId"],
-        structure=structure,
-        user_brief=brief,
-        assets=assets,
-    )
-    return {
-        "generationId": generation["id"],
-        "taskId": task["taskId"],
-        "gapReport": None,
-    }
+    generations: list[dict[str, Any]] = []
+    for variant in variant_ids:
+        task = _task_events(request).create_task(
+            project_id,
+            stage="analyzing_assets",
+            message=f"Queued generation plan ({variant})",
+        )
+        generation = store.create_generation(
+            project_id=project_id,
+            task_id=task["taskId"],
+            status="queued",
+            variant=variant,
+        )
+        _pipeline_runner(request).start_generation(
+            project_id=project_id,
+            generation_id=generation["id"],
+            task_id=task["taskId"],
+            structure=structure,
+            user_brief=brief,
+            assets=assets,
+            variant=variant,
+        )
+        generations.append(
+            {
+                "generationId": generation["id"],
+                "variant": variant,
+                "taskId": task["taskId"],
+                "label": get_variant_label(variant),
+            }
+        )
+
+    return {"generations": generations}

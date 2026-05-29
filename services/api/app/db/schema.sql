@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS generations (
   plan_json TEXT,
   status TEXT NOT NULL,
   task_id TEXT,
+  variant TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

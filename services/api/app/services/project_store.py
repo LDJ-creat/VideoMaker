@@ -8,6 +8,7 @@ from typing import Any
 
 from app.db.session import Database
 from app.services.task_events import now_iso
+from app.services.variant_registry import default_variant_ids
 
 
 class ProjectStore:
@@ -186,25 +187,14 @@ class ProjectStore:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
                 FROM generations WHERE task_id = ?
                 """,
                 (task_id,),
             ).fetchone()
         if row is None:
             return None
-        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
-        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
-        return {
-            "id": row["id"],
-            "projectId": row["project_id"],
-            "structureId": row["structure_id"],
-            "inventoryId": row["inventory_id"],
-            "gapReport": gap_report,
-            "plan": plan,
-            "status": row["status"],
-            "taskId": row["task_id"],
-        }
+        return self._parse_generation_row(row)
 
     def clear_sample_analysis(self, sample_id: str, *, storage_root: Path) -> None:
         sample = self.get_sample(sample_id)
@@ -402,6 +392,7 @@ class ProjectStore:
         project_id: str,
         task_id: str | None = None,
         status: str = "queued",
+        variant: str | None = None,
     ) -> dict[str, Any]:
         generation_id = str(uuid.uuid4())
         created_at = now_iso()
@@ -410,9 +401,9 @@ class ProjectStore:
                 """
                 INSERT INTO generations (
                   id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
-                  status, task_id, created_at, updated_at
+                  status, task_id, variant, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generation_id,
@@ -423,11 +414,18 @@ class ProjectStore:
                     None,
                     status,
                     task_id,
+                    variant,
                     created_at,
                     created_at,
                 ),
             )
-        return {"id": generation_id, "projectId": project_id, "status": status, "taskId": task_id}
+        return {
+            "id": generation_id,
+            "projectId": project_id,
+            "status": status,
+            "taskId": task_id,
+            "variant": variant,
+        }
 
     def update_generation(
         self,
@@ -469,52 +467,65 @@ class ProjectStore:
                 values,
             )
 
+    def _parse_generation_row(self, row: Any) -> dict[str, Any]:
+        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
+        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
+        variant = row["variant"]
+        if variant is None and isinstance(plan, dict):
+            variant = plan.get("variant")
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "structureId": row["structure_id"],
+            "inventoryId": row["inventory_id"],
+            "gapReport": gap_report,
+            "plan": plan,
+            "status": row["status"],
+            "taskId": row["task_id"],
+            "variant": variant,
+        }
+
     def get_generation(self, generation_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
                 FROM generations WHERE id = ?
                 """,
                 (generation_id,),
             ).fetchone()
         if row is None:
             return None
-        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
-        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
-        return {
-            "id": row["id"],
-            "projectId": row["project_id"],
-            "structureId": row["structure_id"],
-            "inventoryId": row["inventory_id"],
-            "gapReport": gap_report,
-            "plan": plan,
-            "status": row["status"],
-            "taskId": row["task_id"],
-        }
+        return self._parse_generation_row(row)
 
     def get_latest_generation_with_plan(self, project_id: str) -> dict[str, Any] | None:
+        records = self.get_latest_generations_with_plan(project_id)
+        return records[0] if records else None
+
+    def get_latest_generations_with_plan(self, project_id: str) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
                 FROM generations
                 WHERE project_id = ? AND plan_json IS NOT NULL
-                ORDER BY updated_at DESC LIMIT 1
+                ORDER BY updated_at DESC
                 """,
                 (project_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        plan = json.loads(row["plan_json"]) if row["plan_json"] else None
-        gap_report = json.loads(row["gap_report_json"]) if row["gap_report_json"] else None
-        return {
-            "id": row["id"],
-            "projectId": row["project_id"],
-            "structureId": row["structure_id"],
-            "inventoryId": row["inventory_id"],
-            "gapReport": gap_report,
-            "plan": plan,
-            "status": row["status"],
-            "taskId": row["task_id"],
-        }
+            ).fetchall()
+        latest_by_variant: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            record = self._parse_generation_row(row)
+            variant = str(record.get("variant") or "default")
+            if variant in latest_by_variant:
+                continue
+            latest_by_variant[variant] = record
+        order = default_variant_ids()
+        ordered: list[dict[str, Any]] = []
+        for variant_id in order:
+            if variant_id in latest_by_variant:
+                ordered.append(latest_by_variant[variant_id])
+        for variant_id, record in latest_by_variant.items():
+            if variant_id not in order:
+                ordered.append(record)
+        return ordered

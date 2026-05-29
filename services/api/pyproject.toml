@@ -10,7 +10,8 @@ dependencies = [
   "python-multipart>=0.0.9",
   "uvicorn[standard]>=0.30",
   "jsonschema>=4.23",
-  "referencing>=0.35"
+  "referencing>=0.35",
+  "pyyaml>=6.0"
 ]
 
 [tool.pytest.ini_options]

@@ -12,6 +12,7 @@ class FakeDemoPipeline:
     last_cookies_path: str | None = None
     last_resume: bool = False
     last_retry_task_id: str | None = None
+    last_variant: str = "default"
 
     def analyze_sample(
         self,
@@ -73,9 +74,11 @@ class FakeDemoPipeline:
         assets: list[dict[str, Any]],
         emit: Any,
         resume: bool = False,
+        variant: str = "default",
     ) -> dict[str, Any]:
         FakeDemoPipeline.last_resume = resume
         FakeDemoPipeline.last_retry_task_id = task_id
+        FakeDemoPipeline.last_variant = variant
         emit(status="running", stage="analyzing_assets", progress=10, message="fake gen")
         inventory = {
             "id": f"inventory-{project_id}",
@@ -86,7 +89,7 @@ class FakeDemoPipeline:
             "candidateMoments": [],
         }
         gap_report = {
-            "id": f"gap-{project_id}",
+            "id": f"gap-{project_id}-{variant}",
             "projectId": project_id,
             "structureId": structure["id"],
             "inventoryId": inventory["id"],
@@ -101,7 +104,7 @@ class FakeDemoPipeline:
             "structureId": structure["id"],
             "inventoryId": inventory["id"],
             "gapReportId": gap_report["id"],
-            "variant": "default",
+            "variant": variant,
             "storyboard": [],
             "timeline": {"durationSec": 10.0, "tracks": []},
             "packagingPlan": {
@@ -281,22 +284,34 @@ def test_asset_brief_and_generation(p0_client: TestClient, tmp_path: Path):
     generation = p0_client.post(f"/api/projects/{project['id']}/generation-plan")
     assert generation.status_code == 201
     body = generation.json()
-    assert body["generationId"]
-    task = p0_client.get(f"/api/tasks/{body['taskId']}").json()
+    assert "generations" in body
+    assert len(body["generations"]) == 2
+    variants = {entry["variant"] for entry in body["generations"]}
+    assert variants == {"high_click", "high_conversion"}
+    task_ids = {entry["taskId"] for entry in body["generations"]}
+    generation_ids = {entry["generationId"] for entry in body["generations"]}
+    assert len(task_ids) == 2
+    assert len(generation_ids) == 2
+
+    first = body["generations"][0]
+    task = p0_client.get(f"/api/tasks/{first['taskId']}").json()
     assert task["status"] == "succeeded"
 
-    result = p0_client.get(f"/api/generations/{body['generationId']}")
+    result = p0_client.get(f"/api/generations/{first['generationId']}")
     assert result.status_code == 200
     payload = result.json()
-    assert payload["id"] == body["generationId"]
+    assert payload["id"] == first["generationId"]
     assert payload.get("gapReport") is not None
 
     latest = p0_client.get(f"/api/projects/{project['id']}/generations/latest")
     assert latest.status_code == 200
     latest_payload = latest.json()
-    assert latest_payload["id"] == body["generationId"]
-    assert latest_payload.get("gapReport") is not None
-    assert latest_payload.get("timeline") is not None
+    assert "generations" in latest_payload
+    assert len(latest_payload["generations"]) == 2
+    latest_by_variant = {entry["variant"]: entry for entry in latest_payload["generations"]}
+    assert latest_by_variant["high_click"]["plan"].get("gapReport") is not None
+    assert latest_by_variant["high_conversion"]["plan"].get("gapReport") is not None
+    assert latest_by_variant["high_click"]["plan"].get("timeline") is not None
 
 
 def test_brief_assets_and_media_persistence(p0_client: TestClient, tmp_path: Path) -> None:

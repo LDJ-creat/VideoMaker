@@ -16,9 +16,15 @@ class Database:
 
 
 def _migrate_schema(connection: sqlite3.Connection) -> None:
-    columns = {row[1] for row in connection.execute("PRAGMA table_info(projects)").fetchall()}
-    if "cookies_uri" not in columns:
+    project_columns = {row[1] for row in connection.execute("PRAGMA table_info(projects)").fetchall()}
+    if "cookies_uri" not in project_columns:
         connection.execute("ALTER TABLE projects ADD COLUMN cookies_uri TEXT")
+
+    generation_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(generations)").fetchall()
+    }
+    if "variant" not in generation_columns:
+        connection.execute("ALTER TABLE generations ADD COLUMN variant TEXT")
 
 
 def initialize_database(database: Database) -> None:
