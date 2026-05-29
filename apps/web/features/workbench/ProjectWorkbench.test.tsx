@@ -32,6 +32,16 @@ describe("ProjectWorkbench", () => {
     capturedOnTerminal = undefined;
     mockTaskEvent = null;
     vi.restoreAllMocks();
+    vi.spyOn(apiClient, "getBrief").mockRejectedValue(new Error("no brief"));
+    vi.spyOn(apiClient, "listProjectAssets").mockResolvedValue({
+      data: { assets: [] },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listProjectSamples").mockResolvedValue({
+      data: { samples: [] },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getActiveSample").mockRejectedValue(new Error("no sample"));
   });
 
   afterEach(() => {
@@ -42,7 +52,7 @@ describe("ProjectWorkbench", () => {
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
 
-    expect(screen.getByText(/样例视频/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "样例视频" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "进度" }));
     expect(screen.getByText(/任务进度/i)).toBeInTheDocument();
@@ -83,7 +93,7 @@ describe("ProjectWorkbench", () => {
     render(<ProjectWorkbench projectId="proj-test" />);
 
     const file = new File(["video"], "demo.mp4", { type: "video/mp4" });
-    await user.upload(screen.getByLabelText(/选择视频文件/i), file);
+    await user.upload(screen.getByLabelText(/上传样例视频/i), file);
 
     await waitFor(() => expect(capturedOnTerminal).toBeDefined());
 

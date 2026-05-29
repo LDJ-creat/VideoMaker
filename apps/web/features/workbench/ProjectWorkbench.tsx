@@ -6,7 +6,7 @@ import type {
   TaskEvent,
   VideoStructure,
 } from "@videomaker/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,10 @@ import { Button } from "@/components/ui/button";
 import { GapReportView } from "@/features/gap-report/GapReportView";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
-import { BriefEditor } from "@/features/project-input/BriefEditor";
+import {
+  BriefEditor,
+  type BriefEditorHandle,
+} from "@/features/project-input/BriefEditor";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
@@ -27,12 +30,21 @@ import {
   fixtureVideoStructure,
 } from "@/fixtures";
 import type { DataSource } from "@/lib/api-types";
+import type {
+  ActiveSampleSummary,
+  ProjectAsset,
+  UserBriefRequest,
+} from "@/lib/apiClient";
 import {
   createGenerationPlan,
   getActiveSample,
+  getBrief,
   getGeneration,
   getSampleStructure,
+  listProjectAssets,
+  listProjectSamples,
   retryTask,
+  saveBrief,
   startSampleAnalysis,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
@@ -62,17 +74,31 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
 
 type LastPipelineAction = "analysis" | "generation" | null;
 
+function emptyBrief(): UserBriefRequest {
+  return { sellingPoints: [], mustMention: [], avoidMention: [] };
+}
+
 type ProjectWorkbenchProps = {
   projectId: string;
 };
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
+  const briefEditorRef = useRef<BriefEditorHandle>(null);
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<LastPipelineAction>(null);
   const [busy, setBusy] = useState(false);
+
+  const [savedBrief, setSavedBrief] = useState<UserBriefRequest | null | undefined>(
+    undefined,
+  );
+  const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
+  const [projectSamples, setProjectSamples] = useState<ActiveSampleSummary[]>([]);
+  const [activeSample, setActiveSample] = useState<ActiveSampleSummary | null>(
+    null,
+  );
 
   const [structure, setStructure] = useState<VideoStructure | null>(null);
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
@@ -98,15 +124,40 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, []);
 
-  const syncActiveSample = useCallback(async () => {
-    try {
-      const { data } = await getActiveSample(projectId);
-      setSampleId(data.id);
-      if (data.hasStructure) {
-        void loadAnalysisResults(data.id);
+  const loadProjectInput = useCallback(async () => {
+    const [briefResult, assetsResult, samplesResult, sampleResult] =
+      await Promise.allSettled([
+      getBrief(projectId),
+      listProjectAssets(projectId),
+      listProjectSamples(projectId),
+      getActiveSample(projectId),
+    ]);
+
+    if (briefResult.status === "fulfilled") {
+      setSavedBrief(briefResult.value.data.brief ?? null);
+    } else {
+      setSavedBrief(null);
+    }
+
+    if (assetsResult.status === "fulfilled") {
+      setProjectAssets(assetsResult.value.data.assets);
+    }
+
+    if (samplesResult.status === "fulfilled") {
+      setProjectSamples(samplesResult.value.data.samples);
+    } else {
+      setProjectSamples([]);
+    }
+
+    if (sampleResult.status === "fulfilled") {
+      const sample = sampleResult.value.data;
+      setActiveSample(sample);
+      setSampleId(sample.id);
+      if (sample.hasStructure) {
+        void loadAnalysisResults(sample.id);
       }
-    } catch {
-      /* no local sample yet */
+    } else {
+      setActiveSample(null);
     }
   }, [projectId, loadAnalysisResults]);
 
@@ -118,8 +169,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setTaskId(saved.taskId);
       setPanel("progress");
     }
-    void syncActiveSample();
-  }, [projectId, syncActiveSample]);
+    void loadProjectInput();
+  }, [projectId, loadProjectInput]);
 
   useEffect(() => {
     saveProjectSession(projectId, {
@@ -220,6 +271,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
     setLastAction("generation");
     try {
+      const brief = briefEditorRef.current?.getBrief() ?? emptyBrief();
+      await saveBrief(projectId, brief);
+      setSavedBrief(brief);
+
       const { data: active } = await getActiveSample(projectId);
       if (!active.hasStructure) {
         setDataError(
@@ -227,7 +282,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         );
         return;
       }
-      const { data } = await createGenerationPlan(projectId);
+      const { data } = await createGenerationPlan(projectId, brief);
       setGenerationId(data.generationId);
       if (data.taskId) {
         setTaskId(data.taskId);
@@ -345,26 +400,35 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             任务 {taskId}
           </Badge>
         )}
-        {dataSource && (
-          <Badge variant="outline">数据源 {dataSource}</Badge>
-        )}
       </nav>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
         {panel === "input" && (
           <>
             <SampleInputPanel
               projectId={projectId}
+              samples={projectSamples}
+              activeSample={activeSample}
               onTaskStarted={handleTaskStarted}
               onSampleReady={(id) => {
                 setSampleId(id);
                 setTaskId(null);
                 setDataError(null);
               }}
+              onSampleChanged={() => void loadProjectInput()}
             />
-            <AssetInputPanel projectId={projectId} />
+            <AssetInputPanel
+              projectId={projectId}
+              assets={projectAssets}
+              onAssetsChanged={() => void loadProjectInput()}
+            />
             <div className="lg:col-span-2">
-              <BriefEditor projectId={projectId} />
+              <BriefEditor
+                ref={briefEditorRef}
+                projectId={projectId}
+                initialBrief={savedBrief}
+                onSaved={(brief) => setSavedBrief(brief)}
+              />
             </div>
           </>
         )}

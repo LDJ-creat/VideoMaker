@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,117 +29,151 @@ function splitLines(value: string): string[] {
     .filter(Boolean);
 }
 
+function linesFromList(values: string[] | undefined): string {
+  return (values ?? []).join("\n");
+}
+
+export type BriefEditorHandle = {
+  getBrief: () => UserBriefRequest;
+};
+
 type BriefEditorProps = {
   projectId: string;
+  initialBrief?: UserBriefRequest | null;
   onSaved?: (brief: UserBriefRequest) => void;
 };
 
-export function BriefEditor({ projectId, onSaved }: BriefEditorProps) {
-  const [topic, setTopic] = useState("");
-  const [productName, setProductName] = useState("");
-  const [sellingPoints, setSellingPoints] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
-  const [tone, setTone] = useState("");
-  const [mustMention, setMustMention] = useState("");
-  const [avoidMention, setAvoidMention] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
+  function BriefEditor({ projectId, initialBrief, onSaved }, ref) {
+    const [topic, setTopic] = useState("");
+    const [productName, setProductName] = useState("");
+    const [sellingPoints, setSellingPoints] = useState("");
+    const [targetAudience, setTargetAudience] = useState("");
+    const [tone, setTone] = useState("");
+    const [mustMention, setMustMention] = useState("");
+    const [avoidMention, setAvoidMention] = useState("");
+    const [status, setStatus] = useState<string | null>(null);
 
-  const buildBrief = (): UserBriefRequest => ({
-    topic: topic || undefined,
-    productName: productName || undefined,
-    sellingPoints: splitLines(sellingPoints),
-    targetAudience: targetAudience || undefined,
-    tone: tone || undefined,
-    mustMention: splitLines(mustMention),
-    avoidMention: splitLines(avoidMention),
-  });
+    useEffect(() => {
+      if (initialBrief === undefined) return;
+      setTopic(initialBrief?.topic ?? "");
+      setProductName(initialBrief?.productName ?? "");
+      setSellingPoints(linesFromList(initialBrief?.sellingPoints));
+      setTargetAudience(initialBrief?.targetAudience ?? "");
+      setTone(initialBrief?.tone ?? "");
+      setMustMention(linesFromList(initialBrief?.mustMention));
+      setAvoidMention(linesFromList(initialBrief?.avoidMention));
+    }, [initialBrief]);
 
-  const handleSave = async () => {
-    const brief = buildBrief();
-    setStatus(null);
-    try {
-      await saveBrief(projectId, brief);
-      setStatus("Brief 已保存");
-      onSaved?.(brief);
-    } catch (err) {
-      setStatus(getErrorMessage(err));
-    }
-  };
+    const buildBrief = (): UserBriefRequest => ({
+      topic: topic || undefined,
+      productName: productName || undefined,
+      sellingPoints: splitLines(sellingPoints),
+      targetAudience: targetAudience || undefined,
+      tone: tone || undefined,
+      mustMention: splitLines(mustMention),
+      avoidMention: splitLines(avoidMention),
+    });
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>创作 Brief</CardTitle>
-        <CardDescription>结构化输入，驱动素材分析与槽位映射</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="brief-topic">主题</Label>
-          <Input
-            id="brief-topic"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="brief-product">产品名</Label>
-          <Input
-            id="brief-product"
-            value={productName}
-            onChange={(e) => setProductName(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2 md:col-span-2">
-          <Label htmlFor="brief-selling">卖点（每行一条）</Label>
-          <Textarea
-            id="brief-selling"
-            value={sellingPoints}
-            onChange={(e) => setSellingPoints(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="brief-audience">目标受众</Label>
-          <Input
-            id="brief-audience"
-            value={targetAudience}
-            onChange={(e) => setTargetAudience(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="brief-tone">语气</Label>
-          <Input
-            id="brief-tone"
-            value={tone}
-            onChange={(e) => setTone(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="brief-must">必须提及（每行一条）</Label>
-          <Textarea
-            id="brief-must"
-            value={mustMention}
-            onChange={(e) => setMustMention(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
-          <Textarea
-            id="brief-avoid"
-            value={avoidMention}
-            onChange={(e) => setAvoidMention(e.target.value)}
-          />
-        </div>
-        <div className="md:col-span-2 flex items-center gap-3">
-          <Button type="button" onClick={() => void handleSave()}>
-            保存 Brief
-          </Button>
-          {status && (
-            <p className="text-sm text-muted-foreground" role="status">
-              {status}
-            </p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+    useImperativeHandle(ref, () => ({ getBrief: buildBrief }), [
+      topic,
+      productName,
+      sellingPoints,
+      targetAudience,
+      tone,
+      mustMention,
+      avoidMention,
+    ]);
+
+    const handleSave = async () => {
+      const brief = buildBrief();
+      setStatus(null);
+      try {
+        await saveBrief(projectId, brief);
+        setStatus("Brief 已保存");
+        onSaved?.(brief);
+      } catch (err) {
+        setStatus(getErrorMessage(err));
+      }
+    };
+
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>创作 Brief</CardTitle>
+          <CardDescription>
+            结构化输入，驱动素材分析与槽位映射；生成计划前会自动保存
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="brief-topic">主题</Label>
+            <Input
+              id="brief-topic"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-product">产品名</Label>
+            <Input
+              id="brief-product"
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="brief-selling">卖点（每行一条）</Label>
+            <Textarea
+              id="brief-selling"
+              value={sellingPoints}
+              onChange={(e) => setSellingPoints(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-audience">目标受众</Label>
+            <Input
+              id="brief-audience"
+              value={targetAudience}
+              onChange={(e) => setTargetAudience(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-tone">语气</Label>
+            <Input
+              id="brief-tone"
+              value={tone}
+              onChange={(e) => setTone(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-must">必须提及（每行一条）</Label>
+            <Textarea
+              id="brief-must"
+              value={mustMention}
+              onChange={(e) => setMustMention(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
+            <Textarea
+              id="brief-avoid"
+              value={avoidMention}
+              onChange={(e) => setAvoidMention(e.target.value)}
+            />
+          </div>
+          <div className="md:col-span-2 flex items-center gap-3">
+            <Button type="button" onClick={() => void handleSave()}>
+              保存 Brief
+            </Button>
+            {status && (
+              <p className="text-sm text-muted-foreground" role="status">
+                {status}
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  },
+);
