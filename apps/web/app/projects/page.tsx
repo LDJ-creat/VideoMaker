@@ -12,41 +12,69 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createProject } from "@/lib/apiClient";
+import { createProject, listProjects, type ProjectSummary } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import { fixtureProject } from "@/fixtures";
 
-const STORAGE_KEY = "videomaker:projects";
+const DEMO_STORAGE_KEY = "videomaker:demo-project";
 
-type ProjectRow = {
-  id: string;
-  name: string;
-  createdAt: string;
-};
-
-function loadProjects(): ProjectRow[] {
-  if (typeof window === "undefined") return [];
+function loadDemoProjectFromSession(): ProjectSummary | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as ProjectRow[];
+    const raw = sessionStorage.getItem(DEMO_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as ProjectSummary;
   } catch {
-    return [];
+    return null;
   }
 }
 
-function saveProjects(projects: ProjectRow[]) {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+function saveDemoProjectToSession(project: ProjectSummary) {
+  sessionStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(project));
+}
+
+function mergeProjects(
+  apiProjects: ProjectSummary[],
+  demoProject: ProjectSummary | null,
+): ProjectSummary[] {
+  const merged = [...apiProjects];
+  if (demoProject && !merged.some((project) => project.id === demoProject.id)) {
+    merged.unshift(demoProject);
+  }
+  return merged;
 }
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setProjects(loadProjects());
+    let cancelled = false;
+
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await listProjects();
+        if (cancelled) return;
+        setProjects(mergeProjects(data.projects, loadDemoProjectFromSession()));
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleCreate = useCallback(async () => {
@@ -55,11 +83,7 @@ export default function ProjectsPage() {
     setError(null);
     try {
       const { data: project } = await createProject(name.trim());
-      setProjects((prev) => {
-        const next = [project, ...prev];
-        saveProjects(next);
-        return next;
-      });
+      setProjects((prev) => mergeProjects([project, ...prev], loadDemoProjectFromSession()));
       setName("");
     } catch (err) {
       setError(getErrorMessage(err));
@@ -69,12 +93,8 @@ export default function ProjectsPage() {
   }, [name]);
 
   const loadDemoProject = () => {
-    setProjects((prev) => {
-      if (prev.some((p) => p.id === fixtureProject.id)) return prev;
-      const next = [fixtureProject, ...prev];
-      saveProjects(next);
-      return next;
-    });
+    saveDemoProjectToSession(fixtureProject);
+    setProjects((prev) => mergeProjects(prev, fixtureProject));
   };
 
   return (
@@ -118,7 +138,9 @@ export default function ProjectsPage() {
         )}
       </Card>
 
-      {projects.length === 0 ? (
+      {loading ? (
+        <p className="text-sm text-muted-foreground">正在加载项目…</p>
+      ) : projects.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           暂无项目，请创建新项目或加载演示项目。
         </p>
