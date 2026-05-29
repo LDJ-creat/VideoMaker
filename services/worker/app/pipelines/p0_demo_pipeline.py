@@ -18,9 +18,16 @@ from app.pipelines.generation_pipeline import (
     is_material_stage_done,
     run_agent_generation,
     run_generating_material,
+    run_planning_completion,
 )
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
+from app.pipelines.intent_applier import apply_intents_to_context
+from app.pipelines.revise_pipeline import (
+    load_revise_context,
+    parse_instruction_intents,
+    seed_revise_generation,
+)
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
@@ -238,33 +245,20 @@ class P0DemoPipeline:
             storage_root=self._storage_root,
         )
         runner = self._build_runner()
+        revise_context = load_revise_context(generation_root) if resume else None
 
         inventory: dict[str, Any] | None = None
         gap_report: dict[str, Any] | None = None
         plan: dict[str, Any] | None = None
         slot_matches: list[dict[str, Any]] = []
 
-        if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
+        if should_skip_generation_stage("analyzing_assets", checkpoint, generation_root, resume=resume):
             inventory = json.loads((generation_root / "asset-inventory.json").read_text(encoding="utf-8"))
-            gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
-            plan = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
             emit(
                 status="running",
                 stage="analyzing_assets",
                 progress=10,
                 message="(resumed) asset inventory ready",
-            )
-            emit(
-                status="running",
-                stage="mapping_slots",
-                progress=35,
-                message="(resumed) slot mapping ready",
-            )
-            emit(
-                status="running",
-                stage="planning_completion",
-                progress=55,
-                message="(resumed) generation plan ready",
             )
         else:
             emit(
@@ -298,6 +292,68 @@ class P0DemoPipeline:
             checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.save(checkpoint_path)
 
+        if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
+            gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
+            plan = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
+            emit(
+                status="running",
+                stage="mapping_slots",
+                progress=35,
+                message="(resumed) slot mapping ready",
+            )
+            emit(
+                status="running",
+                stage="planning_completion",
+                progress=55,
+                message="(resumed) generation plan ready",
+            )
+        elif should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
+            gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
+            slot_matches_payload = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
+            slot_matches = list(slot_matches_payload.get("slotMatches", []))
+            emit(
+                status="running",
+                stage="mapping_slots",
+                progress=35,
+                message="(resumed) slot mapping ready",
+            )
+            emit(
+                status="running",
+                stage="planning_completion",
+                progress=55,
+                message="Revising storyboard and packaging",
+            )
+            try:
+                inventory, slot_matches, gap_report, plan = run_planning_completion(
+                    runner,
+                    structure=structure,
+                    inventory=inventory,
+                    slot_matches=slot_matches,
+                    gap_report=gap_report,
+                    context=context,
+                    generation_id=generation_id,
+                    variant=variant,
+                    revise_context=revise_context,
+                    generation_root=generation_root,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="planning_completion",
+                    progress=55,
+                    message="Planning completion failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
+            plan["id"] = generation_id
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("planning_completion")
+            checkpoint.save(checkpoint_path)
+        else:
             emit(
                 status="running",
                 stage="mapping_slots",
@@ -312,7 +368,9 @@ class P0DemoPipeline:
                     context=context,
                     generation_id=generation_id,
                     variant=variant,
+                    revise_context=revise_context,
                 )
+                slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:
                 emit(
                     status="failed",
@@ -524,3 +582,140 @@ class P0DemoPipeline:
             "plan": plan,
             "renderArtifacts": artifact_refs,
         }
+
+    def run_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        source_generation_id: str,
+        generation_id: str,
+        instruction: str,
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        emit: EmitFn,
+        intents: list[dict[str, Any]] | None = None,
+        variant: str | None = None,
+        resume: bool = False,
+    ) -> dict[str, Any]:
+        project_root = self._storage_root / "projects" / project_id
+        target_root = generation_artifact_root(project_root, generation_id)
+        generation_root = target_root
+
+        if resume:
+            revise_context = load_revise_context(generation_root)
+            if revise_context is None:
+                emit(
+                    status="failed",
+                    stage="parsing_edit_intent",
+                    progress=0,
+                    message="Revise context not found for resume",
+                    error={"code": "revise_context_missing", "message": "revise-context.json missing"},
+                )
+                return {"ok": False, "error": "revise-context.json missing"}
+            edit_intent_path = generation_root / "edit-intent.json"
+            if not edit_intent_path.is_file():
+                emit(
+                    status="failed",
+                    stage="parsing_edit_intent",
+                    progress=0,
+                    message="Edit intents not found for resume",
+                    error={"code": "edit_intent_missing", "message": "edit-intent.json missing"},
+                )
+                return {"ok": False, "error": "edit-intent.json missing"}
+            parsed_intents = json.loads(edit_intent_path.read_text(encoding="utf-8")).get("intents", [])
+            source_generation_id = str(
+                json.loads((generation_root / "revise-context.json").read_text(encoding="utf-8")).get(
+                    "sourceGenerationId",
+                    source_generation_id,
+                )
+            )
+            plan_path = generation_artifact_root(project_root, source_generation_id) / "generation-plan.json"
+            source_plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.is_file() else {}
+            resolved_variant = variant or str(source_plan.get("variant", "default"))
+        else:
+            source_root = generation_artifact_root(project_root, source_generation_id)
+            plan_path = source_root / "generation-plan.json"
+            if not plan_path.is_file():
+                emit(
+                    status="failed",
+                    stage="parsing_edit_intent",
+                    progress=0,
+                    message="Source generation plan not found",
+                    error={"code": "source_not_found", "message": "generation-plan.json missing"},
+                )
+                return {"ok": False, "error": "source generation-plan.json missing"}
+
+            source_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            resolved_variant = variant or str(source_plan.get("variant", "default"))
+
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=self._storage_root,
+            )
+            runner = self._build_runner()
+
+            emit(
+                status="running",
+                stage="parsing_edit_intent",
+                progress=5,
+                message="Parsing natural language edit instruction",
+            )
+            try:
+                parsed_intents = parse_instruction_intents(
+                    runner,
+                    instruction=instruction,
+                    source_plan=source_plan,
+                    context=context,
+                    generation_id=generation_id,
+                    pre_parsed_intents=intents,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="parsing_edit_intent",
+                    progress=5,
+                    message="Edit intent parsing failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
+            source_timeline = source_plan.get("timeline") if isinstance(source_plan.get("timeline"), dict) else {}
+            revise_context = apply_intents_to_context(
+                parsed_intents,
+                source_plan=source_plan,
+                source_timeline=source_timeline,
+            )
+
+            emit(
+                status="running",
+                stage="applying_edit_intent",
+                progress=12,
+                message="Applying edit intents and forking generation",
+            )
+            seed_revise_generation(
+                project_root=project_root,
+                source_generation_id=source_generation_id,
+                target_generation_id=generation_id,
+                intents=parsed_intents,
+                revise_context=revise_context,
+                instruction=instruction,
+            )
+
+        result = self.run_generation(
+            project_id=project_id,
+            task_id=task_id,
+            generation_id=generation_id,
+            structure=structure,
+            user_brief=user_brief,
+            assets=assets,
+            emit=emit,
+            resume=True,
+            variant=resolved_variant,
+        )
+        if result.get("ok"):
+            result["intents"] = parsed_intents
+            result["sourceGenerationId"] = source_generation_id
+        return result

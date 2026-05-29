@@ -34,8 +34,11 @@ def run_storyboard_writer(
     progress: int = 52,
     generation_id: str | None = None,
     variant: str = "default",
+    agent_overrides: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
+    if agent_overrides:
+        variant_overrides = {**variant_overrides, **agent_overrides}
     output = runner.run(
         "storyboard_writer",
         task=TASK_KEY,

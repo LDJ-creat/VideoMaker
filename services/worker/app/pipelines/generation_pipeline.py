@@ -19,6 +19,8 @@ from app.providers.completion_registry import (
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
+from app.pipelines.intent_applier import ReviseContext
+from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
 from app.agents.slot_mapper import run_slot_mapper
@@ -139,6 +141,10 @@ def run_agent_generation(
     context: TaskContext,
     generation_id: str,
     variant: str = "default",
+    revise_context: ReviseContext | None = None,
+    slot_matches: list[dict[str, Any]] | None = None,
+    gap_report: dict[str, Any] | None = None,
+    skip_slot_mapping: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     if inventory is None:
         if inventory_baseline is None:
@@ -149,50 +155,111 @@ def run_agent_generation(
             context=context,
             generation_id=generation_id,
         )
-    context.emit_event(
-        stage="mapping_slots",
-        progress=35,
-        message="Mapping structure slots to user assets",
-    )
-    slot_matches = run_slot_mapper(
+
+    if skip_slot_mapping:
+        if slot_matches is None:
+            raise ValueError("slot_matches is required when skip_slot_mapping is True")
+        if gap_report is None:
+            raise ValueError("gap_report is required when skip_slot_mapping is True")
+        resolved_slot_matches = slot_matches
+        resolved_gap_report = gap_report
+    else:
+        context.emit_event(
+            stage="mapping_slots",
+            progress=35,
+            message="Mapping structure slots to user assets",
+        )
+        resolved_slot_matches = run_slot_mapper(
+            runner,
+            structure=structure,
+            inventory=inventory,
+            context=context,
+            generation_id=generation_id,
+            variant_overrides=merge_agent_overrides(variant, "slot_mapper", revise_context),
+        )
+        context.emit_event(
+            stage="planning_completion",
+            progress=45,
+            message="Planning gap completion providers",
+        )
+        resolved_gap_report = run_gap_planner(
+            runner,
+            structure=structure,
+            inventory=inventory,
+            slot_matches=resolved_slot_matches,
+            context=context,
+            generation_id=generation_id,
+            variant=variant,
+            quota=VideoGenQuota(max_calls=1),
+        )
+
+    return run_planning_completion(
         runner,
         structure=structure,
         inventory=inventory,
-        context=context,
-        generation_id=generation_id,
-    )
-    context.emit_event(
-        stage="planning_completion",
-        progress=45,
-        message="Planning gap completion providers",
-    )
-    gap_report = run_gap_planner(
-        runner,
-        structure=structure,
-        inventory=inventory,
-        slot_matches=slot_matches,
+        slot_matches=resolved_slot_matches,
+        gap_report=resolved_gap_report,
         context=context,
         generation_id=generation_id,
         variant=variant,
-        quota=VideoGenQuota(max_calls=1),
+        revise_context=revise_context,
     )
-    storyboard = run_storyboard_writer(
-        runner,
-        structure=structure,
-        inventory=inventory,
-        gap_report=gap_report,
-        context=context,
-        generation_id=generation_id,
-        variant=variant,
-    )
-    packaging_plan = run_packaging_designer(
-        runner,
-        structure=structure,
-        storyboard=storyboard,
-        context=context,
-        generation_id=generation_id,
-        variant=variant,
-    )
+
+
+def run_planning_completion(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    slot_matches: list[dict[str, Any]],
+    gap_report: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    variant: str = "default",
+    revise_context: ReviseContext | None = None,
+    generation_root: Path | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    snapshot = load_revise_snapshot(generation_root) if generation_root is not None else None
+
+    storyboard: list[dict[str, Any]]
+    if revise_context is not None and not revise_context.rerun_storyboard and snapshot:
+        storyboard = list(snapshot.get("storyboard") or [])
+    else:
+        context.emit_event(
+            stage="planning_completion",
+            progress=48,
+            message="Writing storyboard scenes",
+        )
+        storyboard = run_storyboard_writer(
+            runner,
+            structure=structure,
+            inventory=inventory,
+            gap_report=gap_report,
+            context=context,
+            generation_id=generation_id,
+            variant=variant,
+            agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
+        )
+
+    packaging_plan: dict[str, Any]
+    if revise_context is not None and not revise_context.rerun_packaging and snapshot:
+        packaging_plan = dict(snapshot.get("packagingPlan") or {})
+    else:
+        context.emit_event(
+            stage="planning_completion",
+            progress=55,
+            message="Designing packaging plan",
+        )
+        packaging_plan = run_packaging_designer(
+            runner,
+            structure=structure,
+            storyboard=storyboard,
+            context=context,
+            generation_id=generation_id,
+            variant=variant,
+            agent_overrides=merge_agent_overrides(variant, "packaging_designer", revise_context),
+        )
+
     plan = assemble_generation_plan(
         structure=structure,
         inventory=inventory,

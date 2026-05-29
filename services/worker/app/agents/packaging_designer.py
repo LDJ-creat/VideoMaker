@@ -42,8 +42,11 @@ def run_packaging_designer(
     progress: int = 58,
     generation_id: str | None = None,
     variant: str = "default",
+    agent_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     variant_overrides = load_agent_overrides(variant, "packaging_designer")
+    if agent_overrides:
+        variant_overrides = {**variant_overrides, **agent_overrides}
     output = runner.run(
         "packaging_designer",
         task=TASK_KEY,

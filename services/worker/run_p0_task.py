@@ -82,13 +82,53 @@ def main() -> int:
                 assets=payload["assets"],
                 emit=emit,
                 resume=resume,
+                variant=str(payload.get("variant", "default")),
             )
+        elif mode == "run_revise":
+            result = pipeline.run_revise(
+                project_id=project_id,
+                task_id=task_id,
+                source_generation_id=str(payload["sourceGenerationId"]),
+                generation_id=str(payload["generationId"]),
+                instruction=str(payload["instruction"]),
+                structure=payload["structure"],
+                user_brief=payload["userBrief"],
+                assets=payload["assets"],
+                emit=emit,
+                intents=payload.get("intents"),
+                variant=payload.get("variant"),
+                resume=resume,
+            )
+        elif mode == "parse_edit_intent":
+            from app.agents.edit_intent_parser import build_source_summary, run_edit_intent_parser
+            from app.runtime.task_context import TaskContext
+
+            source_plan = payload["sourcePlan"]
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=storage_root,
+            )
+            parsed = run_edit_intent_parser(
+                pipeline._build_runner(),  # noqa: SLF001
+                instruction=str(payload["instruction"]),
+                source_summary=build_source_summary(source_plan),
+                context=context,
+            )
+            result = {"ok": True, "intents": parsed.get("intents", [])}
         else:
             print(f"Unknown mode: {mode}", file=sys.stderr)
             return 2
     except Exception as exc:
         traceback.print_exc()
-        stage = "extracting_metadata" if mode == "analyze_sample" else "analyzing_assets"
+        if mode == "analyze_sample":
+            stage = "extracting_metadata"
+        elif mode == "parse_edit_intent":
+            stage = "parsing_edit_intent"
+        elif mode == "run_revise":
+            stage = "parsing_edit_intent"
+        else:
+            stage = "analyzing_assets"
         error = {
             "code": "worker_unhandled_error",
             "message": str(exc),
