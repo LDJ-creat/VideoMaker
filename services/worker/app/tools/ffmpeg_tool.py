@@ -119,6 +119,78 @@ class FFmpegTool:
             )
         return {"path": str(resolved_output)}
 
+    def trim_clip(
+        self,
+        video_path: str | Path,
+        output_path: str | Path,
+        *,
+        start_sec: float,
+        duration_sec: float,
+    ) -> dict[str, Any]:
+        resolved_input = Path(video_path).resolve()
+        resolved_output = Path(output_path).resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        duration = max(0.1, float(duration_sec))
+        start = max(0.0, float(start_sec))
+
+        copy_command = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-i",
+            str(resolved_input),
+            "-t",
+            str(duration),
+            "-c",
+            "copy",
+            str(resolved_output),
+        ]
+        try:
+            copy_result = self._command_runner(copy_command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+
+        if copy_result.returncode == 0 and resolved_output.is_file() and resolved_output.stat().st_size > 0:
+            return {"path": str(resolved_output)}
+
+        reencode_command = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-i",
+            str(resolved_input),
+            "-t",
+            str(duration),
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            str(resolved_output),
+        ]
+        try:
+            reencode_result = self._command_runner(reencode_command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+
+        if reencode_result.returncode != 0:
+            return _retryable_tool_error(
+                "ffmpeg_trim_failed",
+                "ffmpeg trim failed",
+                {
+                    "stderr": reencode_result.stderr or copy_result.stderr,
+                },
+            )
+        if not resolved_output.is_file() or resolved_output.stat().st_size == 0:
+            return {
+                "code": "ffmpeg_trim_empty_output",
+                "message": "ffmpeg trim produced no output",
+                "retryable": True,
+                "details": {},
+            }
+        return {"path": str(resolved_output)}
+
     @staticmethod
     def _parse_fps(raw_fps: str) -> float:
         if "/" in raw_fps:
