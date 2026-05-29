@@ -134,12 +134,22 @@ def run_agent_generation(
             context=context,
             generation_id=generation_id,
         )
+    context.emit_event(
+        stage="mapping_slots",
+        progress=35,
+        message="Mapping structure slots to user assets",
+    )
     slot_matches = run_slot_mapper(
         runner,
         structure=structure,
         inventory=inventory,
         context=context,
         generation_id=generation_id,
+    )
+    context.emit_event(
+        stage="planning_completion",
+        progress=45,
+        message="Planning gap completion providers",
     )
     gap_report = run_gap_planner(
         runner,
@@ -148,6 +158,7 @@ def run_agent_generation(
         slot_matches=slot_matches,
         context=context,
         generation_id=generation_id,
+        variant=variant,
     )
     storyboard = run_storyboard_writer(
         runner,
@@ -205,13 +216,15 @@ def assemble_generation_plan(
             continue
         slot_gap = gap_by_slot[slot_id]
         fixes = list(slot_gap.get("suggestedFixes", []))
-        strategy = fixes[0] if fixes else "text_completion"
+        strategy = fixes[0] if fixes else "hyperframes_material"
         completion_actions.append(
             {
                 "id": f"action-{slot_id}",
                 "slotId": slot_id,
                 "strategy": strategy,
+                "provider": strategy,
                 "reason": slot_gap["reason"],
+                "rationale": slot_gap["reason"],
                 "outputRef": f"completion://{slot_id}/{strategy}",
             }
         )
