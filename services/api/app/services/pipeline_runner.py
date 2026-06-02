@@ -80,7 +80,7 @@ def _worker_root() -> Path:
 
 
 def _worker_python(worker_root: Path) -> str:
-    for venv_name in (".venv-dev", ".venv"):
+    for venv_name in (".venv",):
         for base in (worker_root, Path(__file__).resolve().parents[2]):
             candidate = base / venv_name / "Scripts" / "python.exe"
             if candidate.exists():
@@ -92,14 +92,32 @@ def _default_api_base_url() -> str:
     return os.environ.get("VIDEOMAKER_API_BASE_URL", "http://127.0.0.1:8000")
 
 
+def _shared_root() -> Path:
+    return Path(__file__).resolve().parents[3] / "shared"
+
+
 class SubprocessDemoPipeline:
     """Run worker pipeline in an isolated process to avoid `app` package name clash."""
 
-    def __init__(self, *, storage_root: Path, api_base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        database_path: Path,
+        storage_root: Path,
+        api_base_url: str | None = None,
+    ) -> None:
+        self._database_path = database_path
         self._storage_root = storage_root
         self._api_base_url = api_base_url or _default_api_base_url()
         self._worker_root = _worker_root()
         self._python = _worker_python(self._worker_root)
+
+    def _payload_base(self) -> dict[str, str]:
+        return {
+            "apiBaseUrl": self._api_base_url,
+            "storageRoot": str(self._storage_root),
+            "databasePath": str(self._database_path),
+        }
 
     def _log_worker_output(self, payload: dict[str, Any], completed: subprocess.CompletedProcess[str]) -> None:
         task_id = payload.get("taskId", "unknown")
@@ -125,7 +143,8 @@ class SubprocessDemoPipeline:
             raise FileNotFoundError(f"Worker runner not found: {script}")
 
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(self._worker_root)
+        shared_root = _shared_root()
+        env["PYTHONPATH"] = os.pathsep.join([str(self._worker_root), str(shared_root)])
 
         logger.info(
             "starting worker subprocess task_id=%s mode=%s python=%s",
@@ -188,9 +207,8 @@ class SubprocessDemoPipeline:
         resume: bool = False,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
+            **self._payload_base(),
             "mode": "analyze_sample",
-            "apiBaseUrl": self._api_base_url,
-            "storageRoot": str(self._storage_root),
             "taskId": task_id,
             "projectId": project_id,
             "sampleId": sample_id,
@@ -218,9 +236,8 @@ class SubprocessDemoPipeline:
         variant: str = "default",
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
+            **self._payload_base(),
             "mode": "run_generation",
-            "apiBaseUrl": self._api_base_url,
-            "storageRoot": str(self._storage_root),
             "taskId": task_id,
             "projectId": project_id,
             "generationId": generation_id,
@@ -249,9 +266,8 @@ class SubprocessDemoPipeline:
         resume: bool = False,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
+            **self._payload_base(),
             "mode": "run_revise",
-            "apiBaseUrl": self._api_base_url,
-            "storageRoot": str(self._storage_root),
             "taskId": task_id,
             "projectId": project_id,
             "sourceGenerationId": source_generation_id,
@@ -279,9 +295,8 @@ class SubprocessDemoPipeline:
     ) -> dict[str, Any]:
         return self._invoke(
             {
+                **self._payload_base(),
                 "mode": "parse_edit_intent",
-                "apiBaseUrl": self._api_base_url,
-                "storageRoot": str(self._storage_root),
                 "taskId": task_id,
                 "projectId": project_id,
                 "instruction": instruction,
@@ -312,10 +327,43 @@ class PipelineRunner:
         self.sync = sync
         self.api_base_url = api_base_url or _default_api_base_url()
         self._pipeline = pipeline
+        self._active_tasks: set[str] = set()
+        self._running_lock = threading.Lock()
+
+    def _is_task_active(self, task_id: str) -> bool:
+        with self._running_lock:
+            return task_id in self._active_tasks
+
+    def _mark_task_active(self, task_id: str) -> bool:
+        with self._running_lock:
+            if task_id in self._active_tasks:
+                return False
+            self._active_tasks.add(task_id)
+            return True
+
+    def _mark_task_inactive(self, task_id: str) -> None:
+        with self._running_lock:
+            self._active_tasks.discard(task_id)
+
+    def _run_task(self, task_id: str, job: Any) -> None:
+        def wrapped() -> None:
+            if not self._mark_task_active(task_id):
+                worker_logger.warning(
+                    "Skipping duplicate in-process job task_id=%s",
+                    task_id,
+                )
+                return
+            try:
+                job()
+            finally:
+                self._mark_task_inactive(task_id)
+
+        self._run(wrapped)
 
     def _get_pipeline(self) -> DemoPipeline:
         if self._pipeline is None:
             self._pipeline = SubprocessDemoPipeline(
+                database_path=self.database.path,
                 storage_root=self.storage_root,
                 api_base_url=self.api_base_url,
             )
@@ -431,7 +479,7 @@ class PipelineRunner:
                     )
                 self.project_store.update_sample(sample_id, status="failed")
 
-        self._run(job)
+        self._run_task(task_id, job)
 
     def start_sample_analysis(
         self,
@@ -495,7 +543,7 @@ class PipelineRunner:
                     )
                 self.project_store.update_sample(sample_id, status="failed")
 
-        self._run(job)
+        self._run_task(task_id, job)
 
     def start_generation(
         self,
@@ -567,7 +615,7 @@ class PipelineRunner:
                 )
                 self.project_store.update_generation(generation_id, status="failed")
 
-        self._run(job)
+        self._run_task(task_id, job)
 
     def parse_edit_intent(
         self,
@@ -710,14 +758,24 @@ class PipelineRunner:
                 )
                 self.project_store.update_generation(generation_id, status="failed")
 
-        self._run(job)
+        self._run_task(task_id, job)
 
     def retry_task(self, task_id: str) -> dict[str, Any]:
         current = self.task_events.get_task(task_id)
         if current is None:
             raise KeyError(task_id)
-        if current.get("status") not in {"failed", "retrying"}:
-            raise ValueError("Task is not in failed state")
+
+        status = current.get("status")
+        if status not in {"failed", "retrying", "running"}:
+            raise ValueError(
+                f"Task cannot be retried from status '{status}' "
+                "(expected failed, retrying, or stale running)"
+            )
+        if self._is_task_active(task_id):
+            raise ValueError(
+                "Task is still running in this API process; wait for it to finish before retrying"
+            )
+
         error = current.get("error")
         if isinstance(error, dict) and error.get("retryable") is False:
             raise ValueError("Task is not retryable")

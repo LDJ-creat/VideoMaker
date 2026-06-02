@@ -27,8 +27,12 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE generations ADD COLUMN variant TEXT")
 
 
-def initialize_database(database: Database) -> None:
+def initialize_database(database: Database, *, storage_root: Path | None = None) -> None:
     schema_path = Path(__file__).with_name("schema.sql")
     with database.connect() as connection:
         connection.executescript(schema_path.read_text(encoding="utf-8"))
         _migrate_schema(connection)
+    if storage_root is not None:
+        from model_gateway.store import ModelGatewayStore
+
+        ModelGatewayStore(database.path, storage_root).ensure_initialized()

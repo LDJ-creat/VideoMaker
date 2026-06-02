@@ -372,6 +372,38 @@ def test_generation_plan_accepts_brief_body(p0_client: TestClient, tmp_path: Pat
     assert brief["topic"] == "用户主题"
 
 
+def test_retry_stale_running_sample_analysis_uses_resume(
+    p0_client: TestClient, tmp_path: Path
+) -> None:
+    project = p0_client.post("/api/projects", json={"name": "Stale Running"}).json()
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+    sample_id = p0_client.post(
+        f"/api/projects/{project['id']}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    ).json()["id"]
+
+    analyze = p0_client.post(f"/api/samples/{sample_id}/analyze")
+    task_id = analyze.json()["taskId"]
+
+    p0_client.post(
+        f"/api/tasks/{task_id}/events",
+        json={
+            "status": "running",
+            "stage": "extracting_metadata",
+            "progress": 5,
+            "message": "stale running after reload",
+        },
+    )
+
+    FakeDemoPipeline.last_resume = False
+    retry = p0_client.post(f"/api/tasks/{task_id}/retry")
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "retrying"
+    assert FakeDemoPipeline.last_resume is True
+    assert FakeDemoPipeline.last_retry_task_id == task_id
+
+
 def test_retry_failed_sample_analysis_uses_resume(p0_client: TestClient, tmp_path: Path) -> None:
     project = p0_client.post("/api/projects", json={"name": "Retry"}).json()
     video = tmp_path / "sample.mp4"

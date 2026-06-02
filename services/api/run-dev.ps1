@@ -1,8 +1,16 @@
 $ErrorActionPreference = "Stop"
 
-$python = Join-Path $PSScriptRoot ".venv-dev\Scripts\python.exe"
+$python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
-  throw "未找到 .venv-dev，请先执行：uv venv .venv-dev"
+  throw "未找到 .venv，请先执行：cd services/api; uv venv .venv; uv pip install --python .venv\Scripts\python.exe -r pyproject.toml"
+}
+
+# Shared Python modules (model_gateway store, etc.)
+$sharedRoot = Join-Path $PSScriptRoot "..\shared"
+$env:PYTHONPATH = if ($env:PYTHONPATH) {
+  "$sharedRoot$([IO.Path]::PathSeparator)$env:PYTHONPATH"
+} else {
+  $sharedRoot
 }
 
 # Optional: Hugging Face mirror for faster-whisper first-time model download (China network).

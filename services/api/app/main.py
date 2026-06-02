@@ -34,7 +34,7 @@ def create_app(
     settings.log_dir = log_dir
 
     database = Database(settings.database_path)
-    initialize_database(database)
+    initialize_database(database, storage_root=settings.storage_root)
 
     task_events = TaskEventService(database)
     project_store = ProjectStore(database)

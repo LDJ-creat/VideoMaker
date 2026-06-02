@@ -21,6 +21,9 @@ def main() -> None:
         port=8000,
         reload=True,
         reload_dirs=[str(app_dir)],
+        # Dev reload waits for open connections (e.g. task SSE from the web UI).
+        # Without a cap, "Waiting for connections to close" can hang until Ctrl+C.
+        timeout_graceful_shutdown=2,
     )
 
 

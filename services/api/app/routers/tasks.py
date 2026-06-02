@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -96,7 +96,7 @@ def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/{task_id}/events")
-def stream_task_events(
+async def stream_task_events(
     task_id: str,
     request: Request,
     once: bool = Query(default=False),
@@ -105,9 +105,12 @@ def stream_task_events(
     if task_service.get_task(task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    def events() -> Iterator[str]:
+    async def events() -> AsyncIterator[str]:
         emitted_count = 0
         while True:
+            if await request.is_disconnected():
+                return
+
             current_events = task_service.list_events(task_id)
             for event in current_events[emitted_count:]:
                 emitted_count += 1
@@ -117,6 +120,6 @@ def stream_task_events(
             if once or current is None or task_service.is_terminal(current["status"]):
                 return
 
-            time.sleep(1)
+            await asyncio.sleep(1)
 
     return StreamingResponse(events(), media_type="text/event-stream")

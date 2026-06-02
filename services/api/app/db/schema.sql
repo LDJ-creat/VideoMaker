@@ -77,3 +77,12 @@ CREATE TABLE IF NOT EXISTS generations (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS model_gateway_providers (
+  provider TEXT PRIMARY KEY,
+  base_url TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  driver TEXT NOT NULL DEFAULT 'openai_compatible',
+  api_key_ciphertext BLOB,
+  updated_at TEXT NOT NULL
+);
