@@ -37,8 +37,12 @@ class ModelGateway:
     )
 
     @classmethod
-    def from_env(cls) -> ModelGateway:
-        return cls(config=GatewayConfig.from_env())
+    def from_store(cls, store: Any) -> ModelGateway:
+        from model_gateway.store import ModelGatewayStore
+
+        if not isinstance(store, ModelGatewayStore):
+            raise TypeError("store must be a ModelGatewayStore")
+        return cls(config=GatewayConfig.from_store(store))
 
     def _chat_provider(self, profile: str) -> OpenAICompatibleChatProvider:
         if profile not in self._chat_providers:

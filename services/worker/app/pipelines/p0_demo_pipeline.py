@@ -8,9 +8,13 @@ from typing import Any
 
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
-from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.structure_analyst import run_structure_analyst
+from app.agents.structure_inputs import KeyframeEncodingError
+from app.agents.failure_debug import tool_error_from_agent_failure
 from app.config.variants import load_variant_gap_planner_overrides
+from model_gateway.fixture import is_fixture_mode
+from model_gateway.store import ModelGatewayStore
+
 from app.gateway.model_gateway import ModelGateway
 from app.pipelines.generation_pipeline import (
     FixtureMaterialGateway,
@@ -80,10 +84,23 @@ class P0DemoPipeline:
         self,
         storage_root: str | Path,
         llm: LLMTool | None = None,
+        database_path: str | Path | None = None,
     ) -> None:
         self._storage_root = Path(storage_root)
+        self._database_path = Path(database_path) if database_path is not None else None
         self._sample_pipeline = SampleAnalysisPipeline(self._storage_root)
-        self._llm = llm or default_fixture_llm()
+        self._llm = llm if llm is not None else self._resolve_llm()
+
+    def _resolve_llm(self) -> LLMTool:
+        if is_fixture_mode():
+            return default_fixture_llm()
+        if self._database_path is None:
+            raise LLMToolConfigError(
+                "Live mode requires databasePath in worker payload (ModelGateway SQLite config)"
+            )
+        store = ModelGatewayStore(self._database_path, self._storage_root)
+        gateway = ModelGateway.from_store(store)
+        return LLMTool(fixture_mode=False, gateway=gateway)
 
     def _build_runner(self) -> AgentRunner:
         return AgentRunner(
@@ -98,7 +115,7 @@ class P0DemoPipeline:
             return self._llm.gateway
         if self._llm.fixture_mode:
             return FixtureMaterialGateway()
-        return ModelGateway.from_env()
+        raise LLMToolConfigError("No ModelGateway configured for live mode")
 
     def _uses_fixture_runtime(self) -> bool:
         if self._llm.gateway is not None:
@@ -183,14 +200,21 @@ class P0DemoPipeline:
                     analysis_root=analysis_root,
                 )
             except _AGENT_FAILURES as exc:
+                error = tool_error_from_agent_failure(exc)
                 emit(
                     status="failed",
                     stage="extracting_structure",
                     progress=92,
                     message="Structure agent failed",
-                    error={"code": "agent_failed", "message": str(exc)},
+                    error=error,
                 )
-                return {"ok": False, "error": str(exc)}
+                return {"ok": False, "error": str(exc), "finalEvent": {
+                    "status": "failed",
+                    "stage": "extracting_structure",
+                    "progress": 92,
+                    "message": "Structure agent failed",
+                    "error": error,
+                }}
             structure_path = analysis_root / "video-structure.json"
             structure_path.parent.mkdir(parents=True, exist_ok=True)
             structure_path.write_text(

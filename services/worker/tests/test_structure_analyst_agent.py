@@ -12,7 +12,7 @@ from app.agents.structure_analyst import run_structure_analyst
 from app.observability.sink import LocalFileSink
 from app.runtime.agent_run_store import AgentRunStore
 from app.runtime.task_context import TaskContext
-from app.tools.llm_tool import LLMTool, load_agent_fixtures
+from app.tools.llm_tool import LLMTool, LLMToolValidationError, load_agent_fixtures
 from app.validation.structure_validator import StructureValidationError
 
 
@@ -153,3 +153,47 @@ def test_run_structure_analyst_fails_on_invalid_evidence_after_repair(tmp_path: 
         )
 
     assert gateway.complete_json_messages.call_count == 2
+
+
+def test_run_structure_analyst_persists_schema_failure_debug(tmp_path: Path) -> None:
+    analysis = _fixture_analysis()
+    analysis_root = tmp_path / "projects" / "project-1" / "samples" / "sample-1" / "analysis"
+    keyframes_dir = analysis_root / "keyframes"
+    keyframes_dir.mkdir(parents=True)
+    for item in analysis["keyframes"]:
+        (analysis_root / item["path"]).write_bytes(b"frame")
+
+    gateway = MagicMock()
+    gateway.complete_json_messages.return_value = {"id": "partial-structure"}
+
+    runner = AgentRunner(
+        llm=LLMTool(fixture_mode=False, gateway=gateway),
+        prompt_loader=PromptLoader(),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
+    )
+    context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
+
+    with pytest.raises(LLMToolValidationError):
+        run_structure_analyst(
+            runner,
+            analysis=analysis,
+            context=context,
+            project_id="project-1",
+            source_video_id="sample-1",
+            analysis_root=analysis_root,
+        )
+
+    failure_path = analysis_root / "structure-agent-failure.json"
+    assert failure_path.is_file()
+    summary = json.loads(failure_path.read_text(encoding="utf-8"))
+    assert summary["errorType"] == "LLMToolValidationError"
+    assert summary["validationErrors"]
+    assert (analysis_root / "structure-llm-raw-output.json").is_file()
+
+    agent_logs = list(
+        (tmp_path / "projects" / "project-1" / "logs" / "agent-runs").glob("*.json")
+    )
+    assert agent_logs
+    agent_payload = json.loads(agent_logs[-1].read_text(encoding="utf-8"))
+    assert agent_payload["outputValid"] is False
+    assert agent_payload["validationErrors"]

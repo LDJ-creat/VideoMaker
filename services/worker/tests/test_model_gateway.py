@@ -7,6 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
+from model_gateway.store import ModelGatewayStore
+
 from app.gateway.config import GatewayConfig
 from app.gateway.model_gateway import ModelGateway
 from app.gateway.providers.base import GatewayError, ProviderConfig
@@ -20,15 +22,19 @@ def test_gateway_error_retryable() -> None:
     assert err.code == "rate_limit"
 
 
-def test_gateway_config_vision_falls_back_to_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEXT_API_BASE", "https://text.example/v1")
-    monkeypatch.setenv("TEXT_API_KEY", "text-key")
-    monkeypatch.setenv("TEXT_MODEL", "text-model")
-    monkeypatch.delenv("VISION_API_BASE", raising=False)
-    monkeypatch.delenv("VISION_API_KEY", raising=False)
-    monkeypatch.delenv("VISION_MODEL", raising=False)
-
-    config = GatewayConfig.from_env()
+def test_gateway_config_vision_falls_back_to_text(tmp_path) -> None:
+    store = ModelGatewayStore(tmp_path / "db.sqlite3", tmp_path / "storage")
+    store.ensure_initialized()
+    store.update_providers(
+        {
+            "text": {
+                "baseUrl": "https://text.example/v1",
+                "apiKey": "text-key",
+                "model": "text-model",
+            }
+        }
+    )
+    config = GatewayConfig.from_store(store)
     assert config.vision.base_url == "https://text.example/v1"
     assert config.vision.api_key == "text-key"
     assert config.vision.model == "text-model"
@@ -271,10 +277,27 @@ def test_video_poll_timeout_is_retryable(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_live_text_completion_skipped_by_default() -> None:
     if os.getenv("RUN_INTEGRATION") != "1":
         pytest.skip("Set RUN_INTEGRATION=1 to run live gateway tests")
-    if not os.getenv("TEXT_API_KEY"):
+    api_key = os.getenv("TEXT_API_KEY")
+    if not api_key:
         pytest.skip("TEXT_API_KEY is required for live gateway tests")
 
-    gateway = ModelGateway.from_env()
+    config = GatewayConfig(
+        text=ProviderConfig(
+            base_url=os.getenv("TEXT_API_BASE", "https://api.openai.com/v1"),
+            api_key=api_key,
+            model=os.getenv("TEXT_MODEL", "gpt-4o-mini"),
+        ),
+        vision=ProviderConfig(
+            base_url=os.getenv("VISION_API_BASE", "https://api.openai.com/v1"),
+            api_key=os.getenv("VISION_API_KEY", api_key),
+            model=os.getenv("VISION_MODEL", "gpt-4o-mini"),
+        ),
+        tts=ProviderConfig(base_url="https://api.openai.com/v1", api_key="", model="tts-1"),
+        image=ProviderConfig(base_url="https://api.openai.com/v1", api_key="", model="dall-e-3"),
+        video_driver="generic_job",
+        video=ProviderConfig(base_url="", api_key="", model=""),
+    )
+    gateway = ModelGateway(config=config)
     result = gateway.complete_text("Reply with the word ok", {"check": True})
     assert isinstance(result, str)
     assert result

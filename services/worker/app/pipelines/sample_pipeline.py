@@ -16,6 +16,17 @@ def _is_tool_error(payload: dict[str, Any]) -> bool:
     return "code" in payload and "retryable" in payload
 
 
+def _append_tool_warning(warnings: list[str], payload: dict[str, Any]) -> None:
+    warning = payload.get("warning")
+    if not isinstance(warning, dict):
+        return
+    code = str(warning.get("code") or "tool_warning")
+    message = str(warning.get("message") or "")
+    text = f"{code}: {message}" if message else code
+    if text not in warnings:
+        warnings.append(text)
+
+
 def _read_json(path: Path) -> Any | None:
     if not path.is_file():
         return None
@@ -86,6 +97,7 @@ class SampleAnalysisPipeline:
 
         skipped_stages: list[str] = []
         executed_stages: list[str] = []
+        pipeline_warnings: list[str] = []
 
         selected_video_path = self._resolve_sample_video(
             sample_root,
@@ -272,6 +284,7 @@ class SampleAnalysisPipeline:
                 str(selected_video_path),
                 duration_sec=float(metadata.get("durationSec", 0.0)),
             )
+            _append_tool_warning(pipeline_warnings, shots_result)
             shots = shots_result.get("shots", [])
             shots_path = context.artifacts.write_json(analysis_rel_dir / "shots.json", shots)
             context.register_artifact("json", shots_path)
@@ -291,6 +304,7 @@ class SampleAnalysisPipeline:
                 shots,
                 context.artifacts.resolve(analysis_rel_dir / "keyframes"),
             )
+            _append_tool_warning(pipeline_warnings, keyframes_result)
             keyframes = keyframes_result.get("keyframes", [])
             keyframes_path = context.artifacts.write_json(analysis_rel_dir / "keyframes.json", keyframes)
             context.register_artifact("json", keyframes_path)
@@ -316,7 +330,10 @@ class SampleAnalysisPipeline:
                 "transcript": transcript,
                 "shots": shots,
                 "keyframes": keyframes,
-                "warnings": [],
+                "warnings": [
+                    *list(transcript.get("warnings") or []),
+                    *pipeline_warnings,
+                ],
                 "sourcePath": str(selected_video_path),
             }
             sample_analysis_path = context.artifacts.write_json(

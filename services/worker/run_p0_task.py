@@ -41,6 +41,35 @@ def _emit_factory(api_base_url: str, task_id: str):
     return emit
 
 
+def _default_stage(mode: str) -> str:
+    if mode == "analyze_sample":
+        return "extracting_metadata"
+    if mode == "parse_edit_intent":
+        return "parsing_edit_intent"
+    if mode == "run_revise":
+        return "parsing_edit_intent"
+    return "analyzing_assets"
+
+
+def _failure_result(mode: str, exc: Exception) -> dict[str, Any]:
+    stage = _default_stage(mode)
+    error = {
+        "code": "worker_unhandled_error",
+        "message": str(exc),
+        "retryable": True,
+    }
+    return {
+        "ok": False,
+        "finalEvent": {
+            "status": "failed",
+            "stage": stage,
+            "progress": 0,
+            "message": f"Worker crashed: {exc}",
+            "error": error,
+        },
+    }
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Usage: run_p0_task.py '<json-payload>'", file=sys.stderr)
@@ -55,12 +84,19 @@ def main() -> int:
     mode = str(payload["mode"])
     resume = bool(payload.get("resume", False))
 
-    from app.pipelines.p0_demo_pipeline import P0DemoPipeline
-
-    pipeline = P0DemoPipeline(storage_root)
-    emit = _emit_factory(api_base_url, task_id)
+    emit = None
+    result: dict[str, Any] | None = None
 
     try:
+        from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+
+        database_path = payload.get("databasePath")
+        pipeline = P0DemoPipeline(
+            storage_root,
+            database_path=database_path,
+        )
+        emit = _emit_factory(api_base_url, task_id)
+
         if mode == "analyze_sample":
             result = pipeline.analyze_sample(
                 project_id=project_id,
@@ -121,27 +157,27 @@ def main() -> int:
             return 2
     except Exception as exc:
         traceback.print_exc()
-        if mode == "analyze_sample":
-            stage = "extracting_metadata"
-        elif mode == "parse_edit_intent":
-            stage = "parsing_edit_intent"
-        elif mode == "run_revise":
-            stage = "parsing_edit_intent"
+        failure = _failure_result(mode, exc)
+        final_event = failure["finalEvent"]
+        if emit is not None:
+            emit(
+                status="failed",
+                stage=str(final_event["stage"]),
+                progress=0,
+                message=str(final_event["message"]),
+                error=final_event["error"],
+            )
         else:
-            stage = "analyzing_assets"
-        error = {
-            "code": "worker_unhandled_error",
-            "message": str(exc),
-            "retryable": True,
-        }
-        emit(
-            status="failed",
-            stage=stage,
-            progress=0,
-            message=f"Worker crashed: {exc}",
-            error=error,
-        )
-        result = {"ok": False, "finalEvent": {"status": "failed", "stage": stage, "error": error}}
+            _post_task_event(
+                api_base_url,
+                task_id,
+                status="failed",
+                stage=str(final_event["stage"]),
+                progress=0,
+                message=str(final_event["message"]),
+                error=final_event["error"],
+            )
+        result = failure
 
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result.get("ok") else 1

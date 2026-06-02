@@ -6,7 +6,7 @@ import json
 import time
 from typing import Any
 
-from app.agents.prompt_loader import PromptLoader
+from app.agents.failure_debug import format_validation_errors
 from app.observability.sink import ObservabilitySink
 from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
@@ -62,7 +62,7 @@ class AgentRunner:
                 output = post_validate(output)
         except LLMToolValidationError as exc:
             valid = False
-            errors = [item.message for item in exc.validation_errors]
+            errors = format_validation_errors(exc.validation_errors)
             raise
         except LLMToolConfigError as exc:
             valid = False

@@ -5,13 +5,18 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.agents.runner import AgentRunner
+from app.agents.failure_debug import (
+    format_validation_errors,
+    tool_error_from_agent_failure,
+    write_structure_agent_failure_debug,
+)
 from app.agents.structure_inputs import build_structure_analyst_inputs
 from app.gateway.model_gateway import ModelGateway
 from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMToolConfigError, LLMToolValidationError
 from app.validation.schema_loader import validate_contract
+from app.validation.structure_coercer import coerce_video_structure
 from app.validation.structure_validator import StructureValidationError, validate_video_structure
 
 
@@ -20,10 +25,22 @@ SCHEMA_NAME = "video-structure"
 _MAX_REPAIR_ATTEMPTS = 1
 
 
-def _validate_schema(payload: dict[str, Any]) -> dict[str, Any]:
-    validation = validate_contract(SCHEMA_NAME, payload)
+def _validate_schema(
+    payload: dict[str, Any],
+    *,
+    project_id: str,
+    source_video_id: str,
+    analysis: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = coerce_video_structure(
+        payload,
+        project_id=project_id,
+        source_video_id=source_video_id,
+        analysis=analysis,
+    )
+    validation = validate_contract(SCHEMA_NAME, normalized)
     if validation.valid:
-        return payload
+        return normalized
     raise LLMToolValidationError(
         f"LLM output failed schema validation for '{SCHEMA_NAME}'",
         raw_output=json.dumps(payload, ensure_ascii=False),
@@ -69,11 +86,31 @@ def _run_live(
     output: dict[str, Any] | None = None
     valid = True
     errors: list[str] = []
+    raw_output: str | None = None
     try:
         payload = gateway.complete_json_messages(messages, profile=profile)
-        output = _validate_schema(payload)
+        raw_output = json.dumps(payload, ensure_ascii=False)
+        project_id = str(agent_inputs.get("projectId", ""))
+        source_video_id = str(agent_inputs.get("sourceVideoId", ""))
+        analysis = agent_inputs.get("analysis")
+        analysis_dict = analysis if isinstance(analysis, dict) else None
+        output = _validate_schema(
+            payload,
+            project_id=project_id,
+            source_video_id=source_video_id,
+            analysis=analysis_dict,
+        )
         output = _post_validate(output, reference_shots=reference_shots)
-    except (LLMToolValidationError, StructureValidationError, LLMToolConfigError) as exc:
+    except LLMToolValidationError as exc:
+        valid = False
+        errors = format_validation_errors(exc.validation_errors)
+        raw_output = exc.raw_output or raw_output
+        raise
+    except StructureValidationError as exc:
+        valid = False
+        errors = list(exc.errors)
+        raise
+    except LLMToolConfigError as exc:
         valid = False
         errors = [str(exc)]
         raise
@@ -160,8 +197,24 @@ def run_structure_analyst(
             structure.setdefault("projectId", project_id)
             structure.setdefault("sourceVideoId", source_video_id)
             return structure
+        except LLMToolValidationError as exc:
+            if attempt >= _MAX_REPAIR_ATTEMPTS:
+                if root is not None:
+                    write_structure_agent_failure_debug(
+                        analysis_root=root,
+                        task_id=context.task_id,
+                        exc=exc,
+                    )
+                raise
+            repair_errors = format_validation_errors(exc.validation_errors)
         except StructureValidationError as exc:
             if attempt >= _MAX_REPAIR_ATTEMPTS:
+                if root is not None:
+                    write_structure_agent_failure_debug(
+                        analysis_root=root,
+                        task_id=context.task_id,
+                        exc=exc,
+                    )
                 raise
             repair_errors = exc.errors
 

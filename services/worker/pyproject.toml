@@ -8,6 +8,7 @@ dependencies = [
   "referencing>=0.35",
   "faster-whisper>=1.1.0",
   "pyyaml>=6.0",
+  "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
@@ -15,7 +16,7 @@ langfuse = ["langfuse>=2.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "../shared"]
 markers = [
   "integration: live network tests (set RUN_INTEGRATION=1)",
 ]
