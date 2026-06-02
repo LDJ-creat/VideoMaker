@@ -10,6 +10,42 @@ export class ApiClientError extends Error {
   }
 }
 
+/** Turn FastAPI `detail` (string, array of validation errors, or object) into user text. */
+export function formatFastApiDetail(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (!Array.isArray(detail)) {
+    return null;
+  }
+  const parts = detail
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+      if (item && typeof item === "object") {
+        const entry = item as { loc?: unknown; msg?: unknown };
+        const msg =
+          typeof entry.msg === "string"
+            ? entry.msg
+            : entry.msg != null
+              ? String(entry.msg)
+              : String(item);
+        if (Array.isArray(entry.loc) && entry.loc.length > 0) {
+          const path = entry.loc
+            .filter((part) => part !== "body")
+            .map(String)
+            .join(".");
+          return path ? `${path}: ${msg}` : msg;
+        }
+        return msg;
+      }
+      return String(item);
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
 export function getErrorMessage(err: unknown): string {
   if (err instanceof ApiClientError) {
     return err.message;

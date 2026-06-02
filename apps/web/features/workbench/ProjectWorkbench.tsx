@@ -37,7 +37,6 @@ import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
 import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
-import { ModelGatewayStatusPanel } from "@/features/settings/ModelGatewayStatusPanel";
 import { AgentRunsDrawer } from "@/features/observability/AgentRunsDrawer";
 import {
   fixtureGapReport,
@@ -60,6 +59,7 @@ import {
   getGeneration,
   getLatestGenerations,
   getSampleStructure,
+  getTask,
   getVariantLabel,
   listProjectAssets,
   listProjectSamples,
@@ -619,6 +619,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setBusy(true);
       setDataError(null);
       try {
+        const { data: latest } = await getTask(activeTaskId);
+        if (
+          latest.status !== "failed" &&
+          latest.status !== "retrying" &&
+          latest.status !== "running"
+        ) {
+          setDataError(`当前任务状态为「${latest.status}」，无法重试`);
+          return;
+        }
         await retryTask(activeTaskId);
         if (lastAction !== "generation") {
           setTaskId(activeTaskId);
@@ -668,8 +677,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   return (
     <div className="space-y-6">
       <DataSourceBanner />
-
-      <ModelGatewayStatusPanel />
 
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>

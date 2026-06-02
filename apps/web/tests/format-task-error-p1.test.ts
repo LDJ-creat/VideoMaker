@@ -10,7 +10,7 @@ describe("formatTaskError P1 codes", () => {
       retryable: true,
     });
     expect(result?.title).toBe("模型服务未配置");
-    expect(result?.hint).toMatch(/TEXT_API_KEY/);
+    expect(result?.hint).toMatch(/模型服务/);
   });
 
   it("maps video_quota_exceeded", () => {

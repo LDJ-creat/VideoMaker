@@ -10,7 +10,6 @@ import {
   fixtureGenerationPlan,
   fixtureGenerationPlanHighClick,
   fixtureGenerationPlanRevised,
-  fixtureModelGatewayStatus,
   fixtureMultiVariantGenerations,
   fixtureTaskEvent,
   fixtureVideoStructure,
@@ -360,23 +359,7 @@ describe("ProjectWorkbench", () => {
     expect(screen.getByTestId("edit-intent-list")).toBeInTheDocument();
   });
 
-  it("shows model gateway status panel on mount", async () => {
-    vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
-      data: fixtureModelGatewayStatus,
-      meta: { dataSource: "fixture" },
-    });
-
-    render(<ProjectWorkbench projectId="proj-test" />);
-
-    expect(await screen.findByTestId("model-gateway-status-panel")).toBeInTheDocument();
-    expect(screen.getByText("Fixture 模式")).toBeInTheDocument();
-  });
-
   it("loads agent runs from result panel", async () => {
-    vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
-      data: fixtureModelGatewayStatus,
-      meta: { dataSource: "fixture" },
-    });
     const getAgentRunsSpy = vi.spyOn(apiClient, "getGenerationAgentRuns").mockResolvedValue({
       data: { runs: fixtureAgentRuns },
       meta: { dataSource: "fixture" },

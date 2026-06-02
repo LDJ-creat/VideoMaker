@@ -132,14 +132,21 @@ export function resolveFixture(
   }
 
   if (
-    method === "GET" &&
     segments[0] === "settings" &&
     segments[1] === "model-gateway"
   ) {
-    return {
-      status: 200,
-      body: fixtureModelGatewayStatus,
-    };
+    if (method === "GET") {
+      return {
+        status: 200,
+        body: fixtureModelGatewayStatus,
+      };
+    }
+    if (method === "PUT") {
+      return {
+        status: 200,
+        body: fixtureModelGatewayStatus,
+      };
+    }
   }
 
   if (

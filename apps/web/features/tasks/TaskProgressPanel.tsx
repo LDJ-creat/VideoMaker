@@ -60,6 +60,10 @@ export function TaskProgressPanel({
   }
 
   const stageLabel = getTaskStageLabel(event.stage);
+  const modeLabel =
+    mode === "completed" && event.status === "failed"
+      ? "已结束"
+      : MODE_LABEL[mode];
 
   return (
     <Card className="border-ai/20">
@@ -75,7 +79,7 @@ export function TaskProgressPanel({
             <span>{stageLabel}</span>
           </CardDescription>
         </div>
-        <Badge variant="outline">{MODE_LABEL[mode]}</Badge>
+        <Badge variant="outline">{modeLabel}</Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2" aria-live="polite" aria-atomic="true">

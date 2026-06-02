@@ -53,7 +53,7 @@ export function formatTaskError(error: ToolError | undefined): FormattedTaskErro
       return {
         title: "转写失败：未安装 faster-whisper",
         hint:
-          "在 services/api 目录执行：uv pip install --python .venv-dev faster-whisper，然后重启 API。",
+          "在 services/api 目录执行：uv pip install --python .venv\\Scripts\\python.exe faster-whisper，然后重启 API。",
         technical: stderr,
       };
     case "fast_whisper_model_unavailable":

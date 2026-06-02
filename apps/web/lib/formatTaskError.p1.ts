@@ -2,12 +2,37 @@ import type { ToolError } from "@videomaker/contracts";
 
 import type { FormattedTaskError } from "@/lib/formatTaskError";
 
+function validationDetailsText(error: ToolError): string | undefined {
+  const details = error.details;
+  if (!details || typeof details !== "object") return undefined;
+
+  const validationErrors = (details as { validationErrors?: unknown }).validationErrors;
+  if (!Array.isArray(validationErrors) || validationErrors.length === 0) {
+    return undefined;
+  }
+
+  return validationErrors
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object") {
+        const entry = item as { path?: unknown; message?: unknown; validator?: unknown };
+        const path = typeof entry.path === "string" ? entry.path : "$";
+        const message = typeof entry.message === "string" ? entry.message : String(item);
+        const validator =
+          typeof entry.validator === "string" ? ` (${entry.validator})` : "";
+        return `${path}: ${message}${validator}`;
+      }
+      return String(item);
+    })
+    .join("\n");
+}
+
 export function formatP1TaskError(error: ToolError): FormattedTaskError | null {
   switch (error.code) {
     case "gateway_not_configured":
       return {
         title: "模型服务未配置",
-        hint: "请在服务端配置模型 API 环境变量（TEXT_API_KEY、IMAGE_API_KEY 等）后重启 API。",
+        hint: "请在项目列表页「模型服务」面板填写并保存 text/image 等配置（默认 Live；冒烟可设 VIDEOMAKER_FIXTURE_MODE=true）。",
         technical: error.message,
       };
     case "video_quota_exceeded":
@@ -25,8 +50,8 @@ export function formatP1TaskError(error: ToolError): FormattedTaskError | null {
     case "LLMValidationError":
       return {
         title: "AI 输出格式异常",
-        hint: "模型返回的内容未通过结构校验，可点击重试。",
-        technical: error.message,
+        hint: "模型返回的内容未通过结构校验，可点击重试。详情见下方校验项；完整原始输出见样例 analysis 目录下的 structure-agent-failure.json。",
+        technical: validationDetailsText(error) ?? error.message,
       };
     default:
       if (

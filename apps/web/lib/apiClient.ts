@@ -12,7 +12,7 @@ import type {
 import type { ApiMeta, ApiResult } from "@/lib/api-types";
 import { metaFromResponse } from "@/lib/api-types";
 import { setLastDataSource } from "@/lib/data-source-store";
-import { ApiClientError } from "@/lib/errors";
+import { ApiClientError, formatFastApiDetail } from "@/lib/errors";
 import {
   getEnabledVariants,
   getVariantLabel,
@@ -23,8 +23,26 @@ export type { VariantDefinition };
 
 export type ProviderStatus = {
   configured: boolean;
+  hasApiKey?: boolean;
   model?: string;
   driver?: string;
+  baseUrl?: string;
+};
+
+export type ProviderSettingsUpdate = {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  driver?: string;
+};
+
+export type ModelGatewaySettingsUpdate = {
+  providers: Partial<
+    Record<
+      keyof ModelGatewayStatusResponse["providers"],
+      ProviderSettingsUpdate
+    >
+  >;
 };
 
 export type ModelGatewayStatusResponse = {
@@ -131,8 +149,12 @@ async function apiFetch<T>(
     const body = await response.text();
     let message = body || response.statusText;
     try {
-      const parsed = JSON.parse(body) as { message?: string; detail?: string };
-      if (parsed.detail) message = parsed.detail;
+      const parsed = JSON.parse(body) as {
+        message?: string;
+        detail?: unknown;
+      };
+      const fromDetail = formatFastApiDetail(parsed.detail);
+      if (fromDetail) message = fromDetail;
       else if (parsed.message) message = parsed.message;
     } catch {
       /* plain text */
@@ -317,6 +339,16 @@ export async function getModelGatewayStatus(): Promise<
   ApiResult<ModelGatewayStatusResponse>
 > {
   return apiFetch("/api/settings/model-gateway");
+}
+
+export async function updateModelGatewaySettings(
+  body: ModelGatewaySettingsUpdate,
+): Promise<ApiResult<ModelGatewayStatusResponse>> {
+  return apiFetch("/api/settings/model-gateway", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function getGenerationAgentRuns(

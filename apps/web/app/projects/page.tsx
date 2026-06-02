@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ModelGatewayStatusPanel } from "@/features/settings/ModelGatewayStatusPanel";
 import { createProject, listProjects, type ProjectSummary } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import { fixtureProject } from "@/fixtures";
@@ -105,6 +106,8 @@ export default function ProjectsPage() {
           创建项目后，上传样例视频、素材与 Brief，开始结构迁移。
         </p>
       </div>
+
+      <ModelGatewayStatusPanel />
 
       <Card>
         <CardHeader>
