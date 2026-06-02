@@ -129,9 +129,13 @@ POST /api/projects/{project_id}/generation-plan
 GET /api/projects/{project_id}/generations/latest
 GET /api/settings/cookies
 POST /api/settings/cookies/upload
+GET /api/settings/model-gateway
+PUT /api/settings/model-gateway
 ```
 
 Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; use global settings routes.
+
+Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT).
 
 **Samples and generations:**
 

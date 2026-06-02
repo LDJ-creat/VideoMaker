@@ -181,13 +181,17 @@ flowchart TD
 
 ## 5. 新会话 Agent 提示词（复制粘贴）
 
-> 将 `{PLAN_FILE}` 替换为对应计划文件名；worktree 路径按本机调整。每个会话**只执行一个**专项计划。
+> **顺序说明：** 本节编号与 **§6 快速参考表（执行日历）** 一致，而非历史线性 merge 编号。  
+> 每个会话**只执行一条**提示词。并行 Wave 可同时开多个会话，但须 **各用独立 worktree**。  
+> 标题格式：`Wave X — 专项名`。
 
 ---
 
-### 5.1 Contracts Extension
+### 5.1 · Wave 0 — Contracts Extension
 
 ```text
+【Wave 0 · 串行 · P1 必须最先完成】
+
 你是 VideoMaker 项目的 P1 contracts-extension 专项实现 Agent。
 
 请先阅读：
@@ -218,9 +222,11 @@ python -m pytest tests/test_schema_loader.py -v
 
 ---
 
-### 5.2 Model Gateway
+### 5.2 · Wave 1 — Model Gateway
 
 ```text
+【Wave 1 · 可与 5.3、5.4 并行 · 须等 Wave 0 merge】
+
 你是 VideoMaker 项目的 P1 model-gateway 专项实现 Agent。
 
 请先阅读：
@@ -242,13 +248,76 @@ python -m pytest tests/test_schema_loader.py -v
 cd D:\VideoMaker\.worktrees\p1-gateway\services\worker
 python -m pytest tests/test_model_gateway.py tests/test_openai_compatible_providers.py tests/test_llm_tool.py -v
 python -m compileall app
+
+完成后 merge 到 main，再开 Wave 2a（5.5）。
 ```
 
 ---
 
-### 5.3 Agent Orchestration
+### 5.3 · Wave 1 — HyperFrames Material（模板与 Tool）
 
 ```text
+【Wave 1 · 可与 5.2、5.4 并行 · 本阶段不做 completion_registry 注册】
+
+你是 VideoMaker 项目的 P1 hyperframes-material 专项实现 Agent（Wave 1 阶段）。
+
+请先阅读：
+- D:\VideoMaker\AGENTS.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-hyperframes-material-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
+
+前置：feature/p1-contracts-extension 已合并。可与 model-gateway 并行开发。
+
+你的任务（Wave 1 范围 only）：
+1. Worktree：D:\VideoMaker\.worktrees\p1-hf-material，分支 feature/p1-hyperframes-material。
+2. 实现 HyperFramesMaterialTool、benefit-card / title-lower-third / ken-burns 模板、MaterialAuthor Agent。
+3. 不要在本阶段注册 completion_registry（留待 Wave 3 · 5.10）。
+4. 只修改 plan 允许的文件。
+
+完成前必须运行：
+cd D:\VideoMaker\.worktrees\p1-hf-material\services\worker
+python -m pytest tests/test_hyperframes_material_tool.py -v
+python -m compileall app
+```
+
+---
+
+### 5.4 · Wave 1 — Web Workbench Phase A（启动）
+
+```text
+【Wave 1 · 可与 5.2、5.3 并行 · 仅 fixture / 契约 UI，不接 live 多 task API】
+
+你是 VideoMaker 项目的 P1 web-workbench 专项实现 Agent（Phase A · 启动）。
+
+请先阅读：
+- D:\VideoMaker\AGENTS.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-web-workbench-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
+
+前置：feature/p1-contracts-extension 已合并。
+
+你的任务（web-workbench plan Task 1–4 为主，可先不做 NL live）：
+1. Worktree：D:\VideoMaker\.worktrees\p1-web，分支 feature/p1-web-workbench。
+2. 扩展 apiClient + fixture-resolver（multi-variant / model-gateway / revise 的 fixture 形状）。
+3. VariantPicker + VariantTabs（fixture）、StructureEvidencePanel、GeneratedAssetBadge 骨架。
+4. 只修改 apps/web/**。
+
+完成前必须运行：
+cd D:\VideoMaker\.worktrees\p1-web\apps\web
+npm run typecheck
+npm run test
+npm run build
+
+说明：Phase A 收尾在 Wave 5c（5.14）；Phase B 在 Wave 5d（5.15）。
+```
+
+---
+
+### 5.5 · Wave 2a — Agent Orchestration
+
+```text
+【Wave 2a · 串行 · 须等 Wave 1 的 model-gateway merge · 不可与 5.6–5.8 同时开工】
+
 你是 VideoMaker 项目的 P1 agent-orchestration 专项实现 Agent。
 
 请先阅读：
@@ -273,13 +342,17 @@ python -m compileall app
 
 cd ..\..\services\api
 python -m pytest -v
+
+完成后 merge 到 main，再并行开 Wave 2b/c/d（5.6、5.7、5.8）。
 ```
 
 ---
 
-### 5.4 LLM Structure Analysis
+### 5.6 · Wave 2b — LLM Structure Analysis
 
 ```text
+【Wave 2b · 可与 5.7 并行 · 须等 5.5 merge · 建议先于或与 5.8 并行】
+
 你是 VideoMaker 项目的 P1 llm-structure-analysis 专项实现 Agent。
 
 请先阅读：
@@ -302,9 +375,11 @@ python -m pytest tests/test_structure_inputs.py tests/test_structure_validator.p
 
 ---
 
-### 5.5 Asset Understanding
+### 5.7 · Wave 2c — Asset Understanding
 
 ```text
+【Wave 2c · 可与 5.6 并行 · 须等 5.5 merge · 5.8 建议在本分支 merge 后或 rebase 含本分支】
+
 你是 VideoMaker 项目的 P1 asset-understanding 专项实现 Agent。
 
 请先阅读：
@@ -327,9 +402,11 @@ python -m pytest tests/test_asset_understanding.py tests/test_generation_plan.py
 
 ---
 
-### 5.6 Semantic Mapping And Gap Planning
+### 5.8 · Wave 2d — Semantic Mapping And Gap Planning
 
 ```text
+【Wave 2d · 建议 5.7 merge 后开工 · 可与 5.6 后期并行】
+
 你是 VideoMaker 项目的 P1 semantic-mapping-gap 专项实现 Agent。
 
 请先阅读：
@@ -348,13 +425,17 @@ python -m pytest tests/test_asset_understanding.py tests/test_generation_plan.py
 完成前必须运行：
 cd D:\VideoMaker\.worktrees\p1-gap\services\worker
 python -m pytest tests/test_gap_selection.py tests/test_slot_mapper_agent.py tests/test_generation_plan.py -v
+
+Wave 2 全部 merge 后进入 Wave 3（5.9、5.10）。
 ```
 
 ---
 
-### 5.7 AIGC Material Completion
+### 5.9 · Wave 3 — AIGC Material Completion
 
 ```text
+【Wave 3 · 可与 5.10 并行 · 须等 Wave 2 全部 merge】
+
 你是 VideoMaker 项目的 P1 aigc-material-completion 专项实现 Agent。
 
 请先阅读：
@@ -377,35 +458,41 @@ python -m pytest tests/test_image_gen_tool.py tests/test_video_gen_quota.py test
 
 ---
 
-### 5.8 HyperFrames Material
+### 5.10 · Wave 3 — HyperFrames Material（Provider 注册）
 
 ```text
-你是 VideoMaker 项目的 P1 hyperframes-material 专项实现 Agent。
+【Wave 3 · 可与 5.9 并行 · 在同一 feature/p1-hyperframes-material 分支上 rebase 后继续 · 后 merge 方负责 completion_registry 集成】
+
+你是 VideoMaker 项目的 P1 hyperframes-material 专项实现 Agent（Wave 3 阶段）。
 
 请先阅读：
 - D:\VideoMaker\AGENTS.md
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-hyperframes-material-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-aigc-material-completion-plan.md
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
 
-前置：contracts-extension + agent-orchestration 已合并（可与 model-gateway 早期并行做模板）。
+前置：Wave 1 的 HF 模板已 merge；aigc-material 已 merge 或与之并行（合并时集成 registry）。
 
-你的任务：
-1. Worktree：D:\VideoMaker\.worktrees\p1-hf-material，分支 feature/p1-hyperframes-material。
-2. 实现 HyperFramesMaterialTool、benefit-card/title-lower-third/ken-burns 模板、MaterialAuthor Agent。
-3. 实现 hyperframes_material_provider；在 aigc 分支 merge 后注册到 completion_registry。
-4. 只修改 plan 允许的文件。
+你的任务（Wave 3 范围 only）：
+1. 在 feature/p1-hyperframes-material 分支 rebase 最新 main（含 aigc）。
+2. 实现 hyperframes_material_provider；注册到 completion_registry（与 AIGC providers 共存）。
+3. 跑全量 worker pytest 确认 registry 无冲突。
 
 完成前必须运行：
 cd D:\VideoMaker\.worktrees\p1-hf-material\services\worker
-python -m pytest tests/test_hyperframes_material_tool.py -v
+python -m pytest -v
 python -m compileall app
+
+Wave 3 全部 merge 后进入 Wave 4（5.11）。
 ```
 
 ---
 
-### 5.9 Multi-Variant Generation
+### 5.11 · Wave 4 — Multi-Variant Generation
 
 ```text
+【Wave 4 · 串行 · 须等 Wave 3 全部 merge】
+
 你是 VideoMaker 项目的 P1 multi-variant-generation 专项实现 Agent。
 
 请先阅读：
@@ -429,13 +516,44 @@ python -m pytest tests/test_multi_variant_generation.py tests/test_p0_flow_route
 
 cd ..\worker
 python -m pytest tests/test_variant_overrides.py -v
+
+完成后 merge，进入 Wave 5（5.12–5.15）。
 ```
 
 ---
 
-### 5.10 Natural Language Revise
+### 5.12 · Wave 5a — Observability（Model Gateway Status API）
 
 ```text
+【Wave 5a · 可与 5.13、5.14 并行开发 · status API 须在 5.15 之前 merge】
+
+你是 VideoMaker 项目的 P1 observability 专项实现 Agent（Wave 5a · 仅 status API）。
+
+请先阅读：
+- D:\VideoMaker\AGENTS.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-observability-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-web-workbench-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
+
+前置：agent-orchestration + model-gateway 已合并；Wave 4 已 merge（推荐，非硬阻塞开发）。
+
+你的任务（仅 observability plan Task 4）：
+1. Worktree：D:\VideoMaker\.worktrees\p1-obs，分支 feature/p1-observability。
+2. 实现 GET /api/settings/model-gateway + model_gateway_status.py；响应不得含 API Key。
+3. 不要在本阶段实现 agent-runs / Langfuse（留待 Wave 6 · 5.16）。
+
+完成前必须运行：
+cd D:\VideoMaker\.worktrees\p1-obs\services\api
+python -m pytest tests/test_model_gateway_status_route.py -v
+```
+
+---
+
+### 5.13 · Wave 5b — Natural Language Revise
+
+```text
+【Wave 5b · 可与 5.12、5.14 并行 · 须等 Wave 4 merge】
+
 你是 VideoMaker 项目的 P1 nl-revise 专项实现 Agent。
 
 请先阅读：
@@ -461,28 +579,26 @@ python -m pytest tests/test_intent_applier.py tests/test_revise_pipeline.py -v
 
 ---
 
-### 5.11 Web Workbench P1
+### 5.14 · Wave 5c — Web Workbench Phase A（收尾）
 
 ```text
-你是 VideoMaker 项目的 P1 web-workbench 专项实现 Agent。
+【Wave 5c · 可与 5.12、5.13 并行 · 同一 feature/p1-web-workbench 分支 · 在 5.15 之前完成】
+
+你是 VideoMaker 项目的 P1 web-workbench 专项实现 Agent（Phase A · 收尾）。
 
 请先阅读：
 - D:\VideoMaker\AGENTS.md
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-web-workbench-plan.md
-- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-multi-variant-generation-plan.md  （若做 Phase B Task 10）
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-multi-variant-generation-plan.md
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
 
-说明：本计划分 Phase A（fixture UI）与 Phase B（进度/诊断/多 task）。同一会话请只做当前阶段，避免 scope 过大。
+前置：Wave 1 的 5.4 已做或跳过；contracts 已 merge。revise / multi-variant 的 fixture 形状已稳定。
 
-Phase A 前置：contracts-extension 已合并（Wave 1 可开始）。
-Phase B 前置：multi-variant + observability model-gateway status + material 阶段 artifactRefs。
-
-你的任务：
-1. Worktree：D:\VideoMaker\.worktrees\p1-web，分支 feature/p1-web-workbench。
-2. Phase A：VariantPicker/Tabs、StructureEvidence、AIGC badges、NL revise（fixture）、apiClient + fixture-resolver。
-3. Phase B：stageLabels 全覆盖、ModelGatewayStatusPanel、TaskArtifactPreview、useMultiTaskProgress、AgentRunsDrawer（可选）、P1 formatTaskError。
-4. 只修改 apps/web/**；不要改 worker/api。
-5. ProjectWorkbench 从单 taskId 迁移为 activeGenerations[]（Phase B）。
+你的任务（web-workbench plan Task 5–6）：
+1. 继续在 D:\VideoMaker\.worktrees\p1-web，分支 feature/p1-web-workbench。
+2. ReviseInputBar + EditIntentList（fixture）；补齐 VariantPicker/Tabs、StructureEvidence、AIGC badges。
+3. 接入 ProjectWorkbench 布局；保持 P0 向后兼容。
+4. 不要实现 Phase B（Task 7–13，见 5.15）。
 
 完成前必须运行：
 cd D:\VideoMaker\.worktrees\p1-web\apps\web
@@ -491,34 +607,60 @@ npm run test
 npm run build
 ```
 
-**Phase A 专用提示（Wave 1/5c）：** 只执行 web-workbench plan 的 Task 1–6，跳过 Task 7–13。
+---
 
-**Phase B 专用提示（Wave 5d）：** 在 Phase A 已 merge 的 worktree 上执行 Task 7–13；确认 GET /api/settings/model-gateway 与 generations[] API 可用。
+### 5.15 · Wave 5d — Web Workbench Phase B
+
+```text
+【Wave 5d · 串行收尾 · 须等 5.11、5.12 merge，建议 5.13 merge · 不可与 Phase A 混在同一会话】
+
+你是 VideoMaker 项目的 P1 web-workbench 专项实现 Agent（Phase B · live 集成）。
+
+请先阅读：
+- D:\VideoMaker\AGENTS.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-web-workbench-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-multi-variant-generation-plan.md
+- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
+
+Gate（全部满足后再开工）：
+- GET /api/settings/model-gateway 可用（5.12 已 merge）
+- POST generation-plan 返回 generations[]（5.11 已 merge）
+- worker material 阶段推送 artifactRefs（Wave 3 已 merge）
+- POST .../revise 可用（5.13 已 merge，若做 live NL 改片）
+
+你的任务（web-workbench plan Task 7–13）：
+1. 继续在 feature/p1-web-workbench，rebase 最新 main。
+2. stageLabels、ModelGatewayStatusPanel、TaskArtifactPreview、useMultiTaskProgress、formatTaskError P1 码。
+3. ProjectWorkbench：activeGenerations[] 多 task 进度；AgentRunsDrawer 可选。
+4. 只修改 apps/web/**。
+
+完成前必须运行：
+cd D:\VideoMaker\.worktrees\p1-web\apps\web
+npm run typecheck
+npm run test
+npm run build
+```
 
 ---
 
-### 5.12 Observability
+### 5.16 · Wave 6 — Observability（Agent Runs 补全）
 
 ```text
-你是 VideoMaker 项目的 P1 observability 专项实现 Agent。
+【Wave 6 · 可与 integration 准备并行 · 须在 5.15 之后或与之无关的后端补全】
+
+你是 VideoMaker 项目的 P1 observability 专项实现 Agent（Wave 6 · agent-runs 补全）。
 
 请先阅读：
 - D:\VideoMaker\AGENTS.md
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-observability-plan.md
-- D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-web-workbench-plan.md  （ModelGatewayStatusPanel 消费方）
 - D:\VideoMaker\docs\superpowers\plans\2026-05-29-p1-execution-order-and-prompts.md
 
-前置：agent-orchestration + model-gateway 已合并。
+前置：Wave 5a（5.12）已 merge 到同一分支；agent-orchestration 已 merge。
 
-分阶段执行（推荐）：
-- **阶段 1（Wave 5a，优先）：** 仅 Task 4 GET /api/settings/model-gateway + tests — 供 web Phase B。
-- **阶段 2（Wave 6）：** agent-runs API、ObservabilitySink、Langfuse 可选。
-
-你的任务：
-1. Worktree：D:\VideoMaker\.worktrees\p1-obs，分支 feature/p1-observability。
-2. 实现 model_gateway_status.py；响应不得含 API Key。
-3. 实现 GET /api/generations/{id}/agent-runs（阶段 2）。
-4. Langfuse 默认关闭；不影响任务恢复。
+你的任务（observability plan Task 1–3、5；Langfuse Task 4–5 可选）：
+1. 继续在 feature/p1-observability，rebase main。
+2. ObservabilitySink、GET /api/generations/{id}/agent-runs。
+3. Langfuse 默认关闭。
 
 完成前必须运行：
 cd D:\VideoMaker\.worktrees\p1-obs\services\api
@@ -530,9 +672,11 @@ python -m pytest tests/test_observability_sink.py -v
 
 ---
 
-### 5.13 Integration P1 Demo Flow
+### 5.17 · Wave 6 — Integration P1 Demo Flow
 
 ```text
+【Wave 6 · 串行收尾 · 须等 Wave 5 全部 merge（5.15 必做；5.16 可选）】
+
 你是 VideoMaker 项目的 P1 integration 专项 Agent。
 
 请先阅读：
@@ -555,32 +699,34 @@ python -m pytest tests/test_observability_sink.py -v
 
 ---
 
-## 6. 快速参考表
+## 6. 快速参考表（执行日历）
 
-| Wave | 计划文件 | 分支 | 可并行 |
-| --- | --- | --- | --- |
-| 0 | p1-contracts-extension-plan.md | feature/p1-contracts-extension | — |
-| 1 | p1-model-gateway-plan.md | feature/p1-model-gateway | HF material, web Phase A |
-| 1 | p1-hyperframes-material-plan.md | feature/p1-hyperframes-material | gateway |
-| 1 | p1-web-workbench-plan.md (Phase A) | feature/p1-web-workbench | gateway, HF |
-| 2 | p1-agent-orchestration-plan.md | feature/p1-agent-orchestration | — |
-| 2 | p1-llm-structure-analysis-plan.md | feature/p1-llm-structure-analysis | asset, gap |
-| 2 | p1-asset-understanding-plan.md | feature/p1-asset-understanding | structure, gap |
-| 2 | p1-semantic-mapping-gap-plan.md | feature/p1-semantic-mapping-gap | structure, asset |
-| 3 | p1-aigc-material-completion-plan.md | feature/p1-aigc-material | HF merge |
-| 4 | p1-multi-variant-generation-plan.md | feature/p1-multi-variant-generation | — |
-| 5a | p1-observability-plan.md (status API) | feature/p1-observability | nl-revise |
-| 5b | p1-nl-revise-plan.md | feature/p1-nl-revise | web Phase A |
-| 5c | p1-web-workbench-plan.md (Phase A 收尾) | feature/p1-web-workbench | nl-revise |
-| 5d | p1-web-workbench-plan.md (Phase B) | feature/p1-web-workbench | — |
-| 6 | p1-observability-plan.md (agent-runs 补全) | feature/p1-observability | integration prep |
-| 6 | integration/p1-demo-flow | integration/p1-demo-flow | — |
+| Wave | §5 提示词 | 计划文件 | 分支 | 可并行 |
+| --- | --- | --- | --- | --- |
+| 0 | **5.1** | p1-contracts-extension-plan.md | feature/p1-contracts-extension | — |
+| 1 | **5.2** | p1-model-gateway-plan.md | feature/p1-model-gateway | 5.3, 5.4 |
+| 1 | **5.3** | p1-hyperframes-material-plan.md（模板） | feature/p1-hyperframes-material | 5.2, 5.4 |
+| 1 | **5.4** | p1-web-workbench-plan.md（Phase A 启动） | feature/p1-web-workbench | 5.2, 5.3 |
+| 2a | **5.5** | p1-agent-orchestration-plan.md | feature/p1-agent-orchestration | — |
+| 2b | **5.6** | p1-llm-structure-analysis-plan.md | feature/p1-llm-structure-analysis | 5.7 |
+| 2c | **5.7** | p1-asset-understanding-plan.md | feature/p1-asset-understanding | 5.6 |
+| 2d | **5.8** | p1-semantic-mapping-gap-plan.md | feature/p1-semantic-mapping-gap | 5.6（5.7 后更佳） |
+| 3 | **5.9** | p1-aigc-material-completion-plan.md | feature/p1-aigc-material | 5.10 |
+| 3 | **5.10** | p1-hyperframes-material-plan.md（registry） | feature/p1-hyperframes-material | 5.9 |
+| 4 | **5.11** | p1-multi-variant-generation-plan.md | feature/p1-multi-variant-generation | — |
+| 5a | **5.12** | p1-observability-plan.md（status API） | feature/p1-observability | 5.13, 5.14 |
+| 5b | **5.13** | p1-nl-revise-plan.md | feature/p1-nl-revise | 5.12, 5.14 |
+| 5c | **5.14** | p1-web-workbench-plan.md（Phase A 收尾） | feature/p1-web-workbench | 5.12, 5.13 |
+| 5d | **5.15** | p1-web-workbench-plan.md（Phase B） | feature/p1-web-workbench | — |
+| 6 | **5.16** | p1-observability-plan.md（agent-runs） | feature/p1-observability | 5.17 准备 |
+| 6 | **5.17** | integration/p1-demo-flow | integration/p1-demo-flow | — |
 
 ---
 
 ## 7. 会话执行建议
 
-1. **一次一会话一计划** — 避免单会话 scope 膨胀。
-2. **每波 merge 后再开下一波 worktree** — 从 `main` pull 最新。
-3. **completion_registry 冲突** — aigc 与 hyperframes 分支合并时，由后合并者负责集成两个 provider 并跑全量 worker pytest。
-4. **用户未要求不要 commit** — 完成验证后可在会话内提交，便于 PR。
+1. **按 §6 表格从上到下推进**；复制提示词时用 **§5 编号**（5.1–5.17），不要跳号。
+2. **一次一会话一条提示词** — 避免 scope 膨胀。
+3. **并行 Wave**（如 5.2∥5.3∥5.4）：每个会话独立 worktree，merge 后再开下一 Wave。
+4. **completion_registry 冲突** — aigc（5.9）与 HF registry（5.10）合并时，后 merge 方负责集成两个 provider 并跑全量 worker pytest。
+5. **用户未要求不要 commit** — 完成验证后可提交，便于 PR。
