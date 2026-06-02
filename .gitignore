@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .venv/
+.venv-dev/
 __pycache__/
 .pytest_cache/
 .pytest-tmp/
