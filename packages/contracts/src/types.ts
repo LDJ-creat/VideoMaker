@@ -441,6 +441,7 @@ export type GenerationPlan = {
   inventoryId: string;
   gapReportId: string;
   variant: GenerationVariant;
+  masterNarration: string;
   storyboard: StoryboardScene[];
   timeline: RenderTimeline;
   packagingPlan: PackagingPlan;

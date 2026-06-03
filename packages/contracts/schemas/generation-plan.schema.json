@@ -3,7 +3,7 @@
   "$id": "https://videomaker.local/schemas/generation-plan.schema.json",
   "title": "GenerationPlan",
   "type": "object",
-  "required": ["id", "projectId", "structureId", "inventoryId", "gapReportId", "variant", "storyboard", "timeline", "packagingPlan", "completionActions"],
+  "required": ["id", "projectId", "structureId", "inventoryId", "gapReportId", "variant", "masterNarration", "storyboard", "timeline", "packagingPlan", "completionActions"],
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "projectId": { "type": "string", "minLength": 1 },
@@ -11,6 +11,7 @@
     "inventoryId": { "type": "string", "minLength": 1 },
     "gapReportId": { "type": "string", "minLength": 1 },
     "variant": { "type": "string", "enum": ["default", "high_click", "high_conversion", "fast_paced", "premium"] },
+    "masterNarration": { "type": "string" },
     "storyboard": {
       "type": "array",
       "items": {
