@@ -1,4 +1,5 @@
 {
+  "masterNarration": "还在担心出门效率低？便携果汁机让你随时喝鲜榨。真实场景对比，效率提升看得见。现在下单，点击购买。",
   "storyboard": [
     {
       "id": "scene-1",
@@ -6,7 +7,7 @@
       "startSec": 0.0,
       "endSec": 3.0,
       "visual": "hook 使用 效率 提升 方便",
-      "script": "hook 使用 效率 提升 方便",
+      "script": "还在担心出门效率低？",
       "source": "text_completion"
     },
     {
@@ -15,7 +16,7 @@
       "startSec": 0.0,
       "endSec": 3.0,
       "visual": "hook 使用 效率 提升 方便",
-      "script": "hook 使用 效率 提升 方便",
+      "script": "便携果汁机让你随时喝鲜榨。",
       "source": "packaging_completion"
     },
     {
@@ -24,7 +25,7 @@
       "startSec": 3.0,
       "endSec": 10.5,
       "visual": "benefit 真实 使用 效率 提升",
-      "script": "benefit 真实 使用 效率 提升",
+      "script": "真实场景对比，效率提升看得见。",
       "source": "packaging_completion"
     },
     {
@@ -33,7 +34,7 @@
       "startSec": 10.5,
       "endSec": 22.5,
       "visual": "proof 真实 使用 场景 对比",
-      "script": "proof 真实 使用 场景 对比",
+      "script": "",
       "source": "asset_reuse"
     },
     {
@@ -42,7 +43,7 @@
       "startSec": 25.5,
       "endSec": 30.0,
       "visual": "cta 购买 点击",
-      "script": "cta 购买 点击",
+      "script": "现在下单，点击购买。",
       "source": "text_completion"
     }
   ]

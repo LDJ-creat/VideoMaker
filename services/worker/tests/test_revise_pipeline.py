@@ -34,6 +34,7 @@ def _write_completed_generation(
         "inventoryId": "inventory-project-1",
         "gapReportId": "gap-project-1",
         "variant": variant,
+        "masterNarration": "s",
         "storyboard": [{"id": "scene-1", "slotId": "slot-1", "startSec": 0, "endSec": 3, "visual": "v", "script": "s", "source": "user_asset"}],
         "timeline": {"durationSec": 10.0, "tracks": [{"id": "v1", "type": "video", "clips": []}]},
         "packagingPlan": {

@@ -82,6 +82,7 @@ def _assert_packaging_plan(
         "inventoryId": "probe",
         "gapReportId": "probe",
         "variant": "default",
+        "masterNarration": "",
         "storyboard": [],
         "timeline": {"durationSec": 0.0, "tracks": []},
         "packagingPlan": normalized_plan,

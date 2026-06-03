@@ -72,6 +72,7 @@ def test_assemble_generation_plan_and_timeline_contract_valid() -> None:
     )
     validation = validate_contract("generation-plan", plan)
     assert validation.valid, validation.errors
+    assert plan["masterNarration"]
     assert [track["type"] for track in plan["timeline"]["tracks"]] == [
         "video",
         "image",
@@ -209,9 +210,10 @@ def test_assemble_generation_plan_uses_asset_real_type_for_track_selection() -> 
 def test_build_narration_actions_for_scenes_with_script() -> None:
     storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
     actions = build_narration_actions(storyboard)
-    assert len(actions) == len(storyboard)
+    scripted_scenes = [scene for scene in storyboard if str(scene.get("script", "")).strip()]
+    assert len(actions) == len(scripted_scenes)
     assert all(action["provider"] == "tts" for action in actions)
-    assert actions[0]["id"] == f"action-{storyboard[0]['slotId']}-tts"
+    assert actions[0]["id"] == f"action-{scripted_scenes[0]['slotId']}-tts"
 
 
 def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:

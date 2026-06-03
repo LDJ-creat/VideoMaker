@@ -19,7 +19,7 @@ from app.providers.completion_registry import (
 from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
-from app.pipelines.intent_applier import ReviseContext
+from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
@@ -317,15 +317,23 @@ def run_planning_completion(
     snapshot = load_revise_snapshot(generation_root) if generation_root is not None else None
 
     storyboard: list[dict[str, Any]]
+    master_narration = ""
     if revise_context is not None and not revise_context.rerun_storyboard and snapshot:
         storyboard = list(snapshot.get("storyboard") or [])
+        master_narration = str(snapshot.get("masterNarration") or "")
+        if storyboard and not master_narration.strip():
+            master_narration, storyboard = apply_master_narration_to_storyboard(
+                master_narration="",
+                storyboard=storyboard,
+                structure=structure,
+            )
     else:
         context.emit_event(
             stage="planning_completion",
             progress=48,
             message="Writing storyboard scenes",
         )
-        storyboard = run_storyboard_writer(
+        writer_output = run_storyboard_writer(
             runner,
             structure=structure,
             inventory=inventory,
@@ -335,6 +343,8 @@ def run_planning_completion(
             variant=variant,
             agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
         )
+        master_narration = str(writer_output.get("masterNarration") or "")
+        storyboard = list(writer_output.get("storyboard") or [])
 
     packaging_plan: dict[str, Any]
     if revise_context is not None and not revise_context.rerun_packaging and snapshot:
@@ -363,6 +373,7 @@ def run_planning_completion(
         storyboard=storyboard,
         packaging_plan=packaging_plan,
         variant=variant,
+        master_narration=master_narration,
     )
     return inventory, slot_matches, gap_report, plan
 
@@ -376,6 +387,7 @@ def assemble_generation_plan(
     storyboard: list[dict[str, Any]],
     packaging_plan: dict[str, Any],
     variant: str = "default",
+    master_narration: str | None = None,
 ) -> dict[str, Any]:
     slots_by_id = {slot["id"]: slot for slot in structure.get("slots", [])}
     matches_by_slot = {match["slotId"]: match for match in slot_matches}
@@ -431,6 +443,8 @@ def assemble_generation_plan(
         packaging_plan,
     )
 
+    master = str(master_narration or "").strip() or derive_master_from_storyboard(storyboard)
+
     plan = {
         "id": f"generation-plan-{structure['projectId']}",
         "projectId": structure["projectId"],
@@ -438,6 +452,7 @@ def assemble_generation_plan(
         "inventoryId": inventory["id"],
         "gapReportId": gap_report["id"],
         "variant": variant,
+        "masterNarration": master,
         "storyboard": storyboard,
         "timeline": timeline,
         "packagingPlan": packaging_plan,

@@ -75,6 +75,8 @@ def seed_revise_generation(
         snapshot: dict[str, Any] = {}
         if isinstance(plan.get("storyboard"), list):
             snapshot["storyboard"] = plan["storyboard"]
+        if isinstance(plan.get("masterNarration"), str):
+            snapshot["masterNarration"] = plan["masterNarration"]
         if isinstance(plan.get("packagingPlan"), dict):
             snapshot["packagingPlan"] = plan["packagingPlan"]
         if snapshot:

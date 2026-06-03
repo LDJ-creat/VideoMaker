@@ -4,6 +4,8 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_agent_overrides
+from app.pipelines.master_narration import apply_master_narration_to_storyboard
+from app.pipelines.narration_script import is_creative_direction_text
 from app.runtime.task_context import TaskContext
 
 
@@ -66,12 +68,16 @@ def _normalize_storyboard_scenes(
             or (slot or {}).get("visualIntent")
             or "",
         )
-        item["script"] = str(
-            item.get("script")
-            or item.get("scriptIntent")
-            or (slot or {}).get("scriptIntent")
-            or "",
-        )
+        script = str(item.get("script") or "").strip()
+        if not script:
+            script = ""
+        elif is_creative_direction_text(
+            script,
+            slot=slot,
+            visual=str(item["visual"]),
+        ):
+            script = ""
+        item["script"] = script
         source = str(item.get("source") or "generated").strip()
         if source not in VALID_SOURCES:
             source = "generated"
@@ -105,7 +111,15 @@ def _assert_storyboard(
         missing = required - set(scene.keys())
         if missing:
             raise ValueError(f"storyboard scene missing fields: {sorted(missing)}")
-    return {**payload, "storyboard": normalized}
+
+    master_narration, aligned = apply_master_narration_to_storyboard(
+        master_narration=str(payload.get("masterNarration", "")),
+        storyboard=normalized,
+        structure=structure,
+    )
+    if not master_narration.strip():
+        raise ValueError("storyboard_writer output must include non-empty masterNarration")
+    return {"masterNarration": master_narration, "storyboard": aligned}
 
 
 def run_storyboard_writer(
@@ -119,7 +133,7 @@ def run_storyboard_writer(
     generation_id: str | None = None,
     variant: str = "default",
     agent_overrides: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     if agent_overrides:
         variant_overrides = {**variant_overrides, **agent_overrides}
@@ -138,4 +152,4 @@ def run_storyboard_writer(
         generation_id=generation_id,
         post_validate=lambda payload: _assert_storyboard(payload, structure=structure),
     )
-    return output["storyboard"]
+    return output

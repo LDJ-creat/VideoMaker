@@ -17,17 +17,20 @@ def test_assert_storyboard_fills_missing_scene_id() -> None:
     }
     payload = _assert_storyboard(
         {
+            "masterNarration": "夏天出门怕晒黑？",
             "storyboard": [
                 {
                     "slotId": "slot-hook",
                     "startSec": 0.0,
                     "endSec": 3.0,
                     "visual": "hook visual",
-                    "script": "hook script",
+                    "script": "夏天出门怕晒黑？",
                     "source": "generated",
                 }
-            ]
+            ],
         },
         structure=structure,
     )
+    assert payload["masterNarration"] == "夏天出门怕晒黑？"
     assert payload["storyboard"][0]["id"] == "scene-slot-hook"
+    assert payload["storyboard"][0]["script"] == "夏天出门怕晒黑？"
