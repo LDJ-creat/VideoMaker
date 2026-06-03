@@ -82,12 +82,27 @@ def _normalize_timeline(timeline: dict[str, Any]) -> dict[str, Any]:
     return {"durationSec": timeline.get("durationSec", 0), "tracks": normalized}
 
 
+KNOWN_SUBTITLE_PRESETS = frozenset({"clean", "bold", "minimal"})
+
+
+def _subtitle_class(style_ref: str) -> str:
+    preset = "clean"
+    marker = "style://subtitle/"
+    if style_ref.startswith(marker):
+        preset = style_ref[len(marker) :] or "clean"
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in preset)
+    if safe not in KNOWN_SUBTITLE_PRESETS:
+        safe = "clean"
+    return f"subtitle-{safe}"
+
+
 def _build_gsap_visibility_script(normalized: dict[str, Any]) -> str:
     """Drive clip visibility explicitly — HF render does not always honor stacked video timing."""
     lines: list[str] = []
     for track in normalized.get("tracks", []):
         if not isinstance(track, dict):
             continue
+        track_type = str(track.get("type", ""))
         for clip in track.get("clips", []):
             if not isinstance(clip, dict):
                 continue
@@ -99,12 +114,18 @@ def _build_gsap_visibility_script(normalized: dict[str, Any]) -> str:
             selector = f"#{clip_id}"
             lines.append(f'tl.set("{selector}", {{ autoAlpha: 1 }}, {start});')
             lines.append(f'tl.set("{selector}", {{ autoAlpha: 0 }}, {end});')
-            if track.get("type") == "video":
+            if track_type in {"video", "voiceover", "bgm"}:
                 lines.append(
                     f'tl.call(function() {{'
                     f' var node = document.querySelector("{selector}");'
                     f' if (node) try {{ node.currentTime = 0; node.play(); }} catch (_e) {{}}'
                     f' }}, [], {start});'
+                )
+                lines.append(
+                    f'tl.call(function() {{'
+                    f' var node = document.querySelector("{selector}");'
+                    f' if (node) try {{ node.pause(); }} catch (_e) {{}}'
+                    f' }}, [], {end});'
                 )
     return "\n      ".join(lines)
 
@@ -165,13 +186,22 @@ def _render_clip(
                 f'muted playsinline preload="auto"></video>'
             )
         content = html.escape(str(clip.get("content", "")))
-        return f'<div class="clip text-clip" {attrs}>{content}</div>'
+        style_ref = str(clip.get("styleRef", ""))
+        subtitle_class = _subtitle_class(style_ref) if style_ref.startswith("style://subtitle/") else ""
+        class_names = "clip text-clip"
+        if subtitle_class:
+            class_names = f"{class_names} {subtitle_class}"
+        return f'<div class="{class_names}" {attrs}>{content}</div>'
     if track_type == "image":
-        source_ref = str(clip.get("sourceRef", ""))
+        source_ref = str(clip.get("sourceRef", "")).strip()
+        if not source_ref:
+            return f'<div class="clip image-clip image-placeholder" {attrs}></div>'
         src = html.escape(_safe_asset_path(render_root, composition_dir, source_ref), quote=True)
         return f'<img class="clip image-clip" {attrs} src="{src}" alt="" />'
     if track_type == "video":
-        source_ref = str(clip.get("sourceRef", ""))
+        source_ref = str(clip.get("sourceRef", "")).strip()
+        if not source_ref:
+            return f'<div class="clip video-clip video-placeholder" {attrs}></div>'
         src = html.escape(_safe_asset_path(render_root, composition_dir, source_ref), quote=True)
         return (
             f'<video class="clip video-clip" {attrs} src="{src}" '
@@ -185,6 +215,16 @@ def _render_clip(
         transition = name if name in {"fade", "wipe", "cut", "quick-cut"} else "fade"
         css_class = "transition-fade" if transition in {"fade", "quick-cut"} else f"transition-{transition}"
         return f'<div class="clip transition-clip {css_class}" {attrs}></div>'
+    if track_type == "voiceover" or track_type == "bgm":
+        source_ref = str(clip.get("sourceRef", ""))
+        if not source_ref:
+            return f'<div class="clip generic-clip" {attrs}></div>'
+        src = html.escape(_safe_asset_path(render_root, composition_dir, source_ref), quote=True)
+        audio_class = "voiceover-clip" if track_type == "voiceover" else "bgm-clip"
+        return (
+            f'<audio class="clip {audio_class}" {attrs} src="{src}" '
+            f'preload="auto"></audio>'
+        )
     return f'<div class="clip generic-clip" {attrs}></div>'
 
 
@@ -275,6 +315,70 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
       font-size: 40px;
       text-align: center;
       padding: 48px;
+    }}
+    .subtitle-clean {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 48px 120px;
+      font-size: 38px;
+      line-height: 1.35;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+    }}
+    .subtitle-clean::before {{
+      content: "";
+      position: absolute;
+      left: 10%;
+      right: 10%;
+      bottom: 96px;
+      height: 72px;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 12px;
+      z-index: -1;
+    }}
+    .subtitle-bold {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 40px 110px;
+      font-size: 42px;
+      font-weight: 700;
+      line-height: 1.3;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 3px 10px rgba(0, 0, 0, 0.9);
+    }}
+    .subtitle-bold::before {{
+      content: "";
+      position: absolute;
+      left: 8%;
+      right: 8%;
+      bottom: 88px;
+      height: 80px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 8px;
+      z-index: -1;
+    }}
+    .subtitle-minimal {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 56px 100px;
+      font-size: 34px;
+      line-height: 1.4;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+    }}
+    .video-placeholder,
+    .image-placeholder {{
+      background: #0b0d12;
+    }}
+    .voiceover-clip,
+    .bgm-clip {{
+      width: 0;
+      height: 0;
+      visibility: hidden;
+      opacity: 0;
     }}
     .video-clip {{
       z-index: 1;
