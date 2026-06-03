@@ -122,20 +122,19 @@ def select_provider(
 ) -> str:
 ```
 
-Algorithm — exact order from master plan §8.4:
+Algorithm (implemented in `gap_selection.py`):
 
-1. weak_match score ≥0.38 → `asset_reuse`
-2. role in hook_text, benefit_card, comparison OR packaging in requiredAssetType → `hyperframes_material`
-3. role in hook_visual, product_closeup, usage_scene:
-   - if quota.remaining and must_have and impact high → `video_generation`
-   - else → `image_generation`
-   - if image wrapped with motion need → secondary `hyperframes_material` ken-burns (pipeline may chain two actions)
-4. scriptIntent needs VO → `tts`
+1. Packaging roles (`hook_text`, `benefit_card`, `comparison`) → `hyperframes_material`
+2. weak_match score ≥0.38:
+   - matched asset `type=video` → `asset_reuse` (ffmpeg trim)
+   - matched asset `type=image` on visual slot (`hook_visual`, `product_closeup`, `usage_scene`) + per-slot quota → `video_generation` (i2v); else `image_generation`
+3. Visual slot without weak video match: per-slot quota → `video_generation` (t2v); else `image_generation` (may chain `hyperframes_material` for motion)
+4. `scriptIntent` needs VO → `tts`
 5. else → `hyperframes_material`
 
-**VideoGenQuota** dataclass: `remaining: int`, init from env `VIDEOMAKER_VIDEO_GEN_QUOTA=1`.
+**VideoGenQuota:** per slot up to `VIDEOMAKER_VIDEO_GEN_MAX_PER_SLOT` (default 1); generation cap `max_slots` from visual weak/missing slots (`from_structure`). Legacy checkpoint `used`/`maxCalls` migrates without blocking new slot IDs.
 
-GapPlanner prompt must be aware quota — mention "at most one video_generation per generation".
+GapPlanner inputs include `videoGenMaxSlots` / `videoGenMaxPerSlot`. `asset_reuse` must not be used for image assets.
 
 ---
 

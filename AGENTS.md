@@ -137,6 +137,19 @@ Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; us
 
 Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT).
 
+**Video generation (worker):** Configure a `video` provider in the workbench (DashScope: `baseUrl` e.g. `https://dashscope.aliyuncs.com/compatible-mode/v1`, models such as `wan2.6-i2v-flash` / `wan2.1-t2v-plus`). When `baseUrl` contains `dashscope`, the worker uses the `dashscope_wan` driver (`video-synthesis` + task poll). Otherwise set `VIDEO_DRIVER=generic_job` for a custom `POST /videos` job API.
+
+| Env (worker) | Meaning | Default |
+|--------------|---------|---------|
+| `VIDEOMAKER_VIDEO_GEN_MAX_PER_SLOT` | Max successful video jobs per structure slot | `1` |
+| `VIDEOMAKER_VIDEO_GEN_MAX_SLOTS` | Cap on slots that may consume video quota in one generation | structure visual weak/missing count (min 1) |
+| `VIDEOMAKER_VIDEO_GEN_QUOTA` | Legacy alias for generation-level cap | — |
+| `VIDEOMAKER_VIDEO_GEN_FALLBACK` | On video failure: `hyperframes_material` or `image_generation` | fail fast |
+| `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
+| `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
+
+Gap completion: image weak matches on visual slots → `video_generation` (i2v); video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
+
 **Samples and generations:**
 
 ```http
@@ -170,6 +183,21 @@ cd services/worker
 python -m pytest
 python -m compileall app
 ```
+
+### HyperFrames CLI (repo root)
+
+Full `output.mp4` render uses the HyperFrames CLI from the **repository root** (not only a global `npx` install):
+
+```powershell
+cd D:\VideoMaker
+npm install
+npm run hyperframes:version
+npm run hyperframes:doctor
+```
+
+Worker resolves `node_modules/.bin/hyperframes` when present; override with `VIDEOMAKER_HYPERFRAMES_CMD`. API worker subprocesses get `node_modules/.bin` on `PATH` automatically.
+
+Requires **Node.js >= 22** and **FFmpeg** on PATH.
 
 ### Web (`apps/web`)
 

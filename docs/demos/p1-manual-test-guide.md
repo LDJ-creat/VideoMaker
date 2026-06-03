@@ -80,7 +80,9 @@ npm run dev
 
 ```powershell
 $env:VIDEOMAKER_FIXTURE_MODE = "false"
-$env:VIDEOMAKER_VIDEO_GEN_QUOTA = "1"
+$env:VIDEOMAKER_VIDEO_GEN_MAX_PER_SLOT = "1"
+# Optional cap across all visual slots in one generation:
+# $env:VIDEOMAKER_VIDEO_GEN_MAX_SLOTS = "3"
 $env:VIDEOMAKER_DEFAULT_VARIANTS = "high_click,high_conversion"
 ```
 
@@ -246,7 +248,7 @@ API：`GET /api/projects/{id}/assets` 返回元数据；完整 inventory 在 gen
 | 步骤 | 操作 | 期望 |
 | --- | --- | --- |
 | G1 | 进度面板 **TaskArtifactPreview** | 素材阶段增量展示 artifact（image/audio/video/json） |
-| G2 | **生视频配额** | 每个 `generationId` **最多 1 次** `video_generation`；第二次应 `video_quota_exceeded` + UI「生视频配额已用完」 |
+| G2 | **生视频配额** | 每个视觉槽位默认 **最多 1 次** 成功 `video_generation`（`VIDEOMAKER_VIDEO_GEN_MAX_PER_SLOT`）；同一槽位第二次应 `video_quota_exceeded`；`generated/slot*.mp4` 应为真实动效（DashScope Wan），而非静图 `asset_reuse` |
 | G3 | 时间线 / 结果 | 至少 **1 段 AI 生成视频** clip（Live）或 fixture 占位 artifact |
 | G4 | HyperFrames 包装 | timeline 或 gap 中含 **hyperframes_material** 产物；benefit card / 包装片段 |
 | G5 | 打开 HF preview | `storage/.../generations/{id}/render/preview.html` 可访问（或 UI 外链） |
@@ -318,7 +320,7 @@ storage/projects/{projectId}/generations/{generationId}/
 | --- | --- | --- |
 | 无结构就生成 | 跳过样例分析直接 **开始生成计划** | API 400 + 明确提示先分析 |
 | 无 Key（Live） | 启动分析/生成 | failed + gateway_not_configured |
-| 视频配额 | 同一 generation 触发第 2 次生视频 | video_quota_exceeded |
+| 视频配额 | 同一 slot 触发第 2 次生视频 | video_quota_exceeded |
 | LLM schema 失败 | （难模拟） | LLMValidationError + 可重试 |
 | 仅选一个变体 | VariantPicker 只留 high_click | 只 1 个 task |
 | Fixture fallback | API 关闭 + `VIDEOMAKER_USE_FIXTURE_FALLBACK=true` | 前端演示数据 banner；**不计入 P1 Live 验收** |

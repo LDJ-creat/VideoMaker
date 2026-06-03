@@ -39,7 +39,7 @@ These decisions are fixed for P1 execution. Sub-plans must not contradict them.
 
 1. **ModelGateway** with five capability providers and unified logging/metrics.
 2. **LLM Agent pipeline** for structure analysis, asset understanding, slot mapping, gap planning, storyboard, packaging.
-3. **AIGC tools:** image generation, video generation (quota 1), TTS.
+3. **AIGC tools:** image generation, video generation (per-slot quota, DashScope Wan t2v/i2v), TTS.
 4. **HyperFrames material generation** for packaging/motion-graphic slots.
 5. **Two-variant generation** via registry-driven `agentOverrides`.
 6. **Natural-language revise** with partial pipeline re-run.
@@ -777,7 +777,10 @@ VIDEO_MODEL=
 
 # Worker behavior
 VIDEOMAKER_FIXTURE_MODE=false          # true only in tests
-VIDEOMAKER_VIDEO_GEN_QUOTA=1
+VIDEOMAKER_VIDEO_GEN_MAX_PER_SLOT=1
+VIDEOMAKER_VIDEO_GEN_MAX_SLOTS=
+VIDEO_DRIVER=
+VIDEO_MAX_POLL_SEC=600
 VIDEOMAKER_DEFAULT_VARIANTS=high_click,high_conversion
 
 # Optional
