@@ -79,6 +79,24 @@ def _worker_root() -> Path:
     return Path(__file__).resolve().parents[3] / "worker"
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _augment_worker_env(env: dict[str, str]) -> dict[str, str]:
+    """Ensure worker subprocess can find repo-local HyperFrames CLI and repo paths."""
+    repo_root = _repo_root()
+    env.setdefault("VIDEOMAKER_REPO_ROOT", str(repo_root))
+    node_bin = repo_root / "node_modules" / ".bin"
+    if node_bin.is_dir():
+        path_key = "PATH" if os.name == "nt" else "Path"
+        current = env.get(path_key) or env.get("PATH", "")
+        prefix = str(node_bin)
+        if prefix not in current.split(os.pathsep):
+            env[path_key] = os.pathsep.join([prefix, current]) if current else prefix
+    return env
+
+
 def _worker_python(worker_root: Path) -> str:
     for venv_name in (".venv",):
         for base in (worker_root, Path(__file__).resolve().parents[2]):
@@ -142,7 +160,7 @@ class SubprocessDemoPipeline:
         if not script.exists():
             raise FileNotFoundError(f"Worker runner not found: {script}")
 
-        env = os.environ.copy()
+        env = _augment_worker_env(os.environ.copy())
         shared_root = _shared_root()
         env["PYTHONPATH"] = os.pathsep.join([str(self._worker_root), str(shared_root)])
 

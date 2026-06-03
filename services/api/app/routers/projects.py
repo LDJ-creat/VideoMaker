@@ -129,6 +129,37 @@ def _media_type_for_path(path: Path) -> str:
     return guessed or "application/octet-stream"
 
 
+_INLINE_MEDIA_SUFFIXES = {
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".mjs",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".wav",
+    ".mp3",
+}
+
+
+def _should_serve_media_inline(path: Path) -> bool:
+    return path.suffix.lower() in _INLINE_MEDIA_SUFFIXES
+
+
+def _media_file_response(path: Path) -> FileResponse:
+    media_type = _media_type_for_path(path)
+    if _should_serve_media_inline(path):
+        return FileResponse(path, media_type=media_type)
+    return FileResponse(path, media_type=media_type, filename=path.name)
+
+
 def _project_store(request: Request) -> ProjectStore:
     return ProjectStore(request.app.state.db)
 
@@ -234,7 +265,7 @@ def stream_sample_media(project_id: str, sample_id: str, request: Request) -> Fi
     path = resolve_existing_file(str(video_uri))
     if path is None:
         raise HTTPException(status_code=404, detail="Sample video file missing on disk")
-    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+    return _media_file_response(path)
 
 
 @router.get("/{project_id}/media/assets/{asset_id}")
@@ -249,7 +280,7 @@ def stream_asset_media(project_id: str, asset_id: str, request: Request) -> File
     path = resolve_existing_file(str(asset["uri"]))
     if path is None:
         raise HTTPException(status_code=404, detail="Asset file missing on disk")
-    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+    return _media_file_response(path)
 
 
 def _resolve_project_media_file(
@@ -275,7 +306,7 @@ def stream_project_media_file(
     request: Request,
 ) -> FileResponse:
     path = _resolve_project_media_file(request, project_id, file_path)
-    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+    return _media_file_response(path)
 
 
 @router.get("/{project_id}/media/artifacts/{artifact_id}")
@@ -296,7 +327,7 @@ def stream_project_artifact_media(
     path = resolve_existing_file(artifact["uri"])
     if path is None:
         raise HTTPException(status_code=404, detail="Artifact file missing on disk")
-    return FileResponse(path, media_type=_media_type_for_path(path), filename=path.name)
+    return _media_file_response(path)
 
 
 @router.get("/{project_id}/samples", response_model=ProjectSamplesResponse)
@@ -443,7 +474,10 @@ def get_latest_generation(project_id: str, request: Request) -> dict[str, Any]:
     records = store.get_latest_generations_with_plan(project_id)
     if not records:
         raise HTTPException(status_code=404, detail="No completed generation for project")
-    return build_latest_generations_response(records)
+    return build_latest_generations_response(
+        records,
+        storage_root=request.app.state.storage_root,
+    )
 
 
 @router.post(

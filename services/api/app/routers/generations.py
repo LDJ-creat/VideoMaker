@@ -99,7 +99,10 @@ def get_generation(generation_id: str, request: Request) -> dict[str, Any]:
     if record is None:
         raise HTTPException(status_code=404, detail="Generation not found")
 
-    return build_generation_plan_response(record)
+    return build_generation_plan_response(
+        record,
+        storage_root=request.app.state.storage_root,
+    )
 
 
 @router.post("/{generation_id}/revise", status_code=status.HTTP_202_ACCEPTED)

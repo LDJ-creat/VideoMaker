@@ -25,6 +25,20 @@ def test_stream_project_media_file(client: TestClient, app_paths) -> None:
     assert response.content == b"fake-png"
 
 
+def test_stream_project_media_file_serves_html_inline(client: TestClient, app_paths) -> None:
+    project_id = _create_project(client)
+    relative_path = "renders/gen-1/preview.html"
+    file_path = app_paths["storage_root"] / "projects" / project_id / relative_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text("<html><body>ok</body></html>", encoding="utf-8")
+
+    response = client.get(f"/api/projects/{project_id}/media/file/{relative_path}")
+
+    assert response.status_code == 200
+    assert "attachment" not in (response.headers.get("content-disposition") or "").lower()
+    assert response.text == "<html><body>ok</body></html>"
+
+
 def test_stream_project_media_file_missing_returns_404(client: TestClient) -> None:
     project_id = _create_project(client)
 
