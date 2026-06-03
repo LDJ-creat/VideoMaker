@@ -14,6 +14,10 @@ from model_gateway.constants import (
 )
 from model_gateway.crypto import decrypt_api_key, encrypt_api_key
 from model_gateway.fixture import is_fixture_mode
+from model_gateway.video_driver import (
+    normalize_video_model,
+    resolve_effective_video_driver,
+)
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS model_gateway_providers (
@@ -77,6 +81,7 @@ class ModelGatewayStore:
                     """,
                     (provider, DEFAULT_MODELS[provider], DEFAULT_DRIVERS[provider], now),
                 )
+            _repair_video_provider_rows(connection)
             connection.commit()
 
     def get_status(self) -> ModelGatewayStatusResponse:
@@ -127,6 +132,11 @@ class ModelGatewayStore:
                 if "driver" in patch and patch["driver"] is not None:
                     driver = str(patch["driver"]).strip()
 
+                if provider == "video":
+                    base_url = str(base_url or "").strip()
+                    model = normalize_video_model(str(model or "").strip(), base_url=base_url)
+                    driver = resolve_effective_video_driver(str(driver or "").strip(), base_url)
+
                 if "apiKey" in patch:
                     api_key_value = patch["apiKey"]
                     if api_key_value is None:
@@ -172,6 +182,9 @@ class ModelGatewayStore:
             base_url = stored_base or DEFAULT_BASE_URL
             model = (row["model"] or "").strip() or DEFAULT_MODELS[provider]
             driver = (row["driver"] or "").strip() or DEFAULT_DRIVERS[provider]
+            if provider == "video":
+                model = normalize_video_model(model, base_url=base_url)
+                driver = resolve_effective_video_driver(driver, base_url)
             api_key = decrypt_api_key(self._storage_root, row["api_key_ciphertext"])
             raw[provider] = ProviderCredentials(
                 base_url=base_url,
@@ -210,6 +223,30 @@ def _row_has_ciphertext(row: sqlite3.Row) -> bool:
     return row["api_key_ciphertext"] is not None and len(row["api_key_ciphertext"]) > 0
 
 
+def _repair_video_provider_rows(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT * FROM model_gateway_providers WHERE provider = ?",
+        ("video",),
+    ).fetchone()
+    if row is None:
+        return
+    stored_base = (row["base_url"] or "").strip()
+    if not stored_base:
+        return
+    model = normalize_video_model((row["model"] or "").strip(), base_url=stored_base)
+    driver = resolve_effective_video_driver((row["driver"] or "").strip(), stored_base)
+    if model == (row["model"] or "").strip() and driver == (row["driver"] or "").strip():
+        return
+    connection.execute(
+        """
+        UPDATE model_gateway_providers
+        SET model = ?, driver = ?, updated_at = ?
+        WHERE provider = ?
+        """,
+        (model, driver, _now_iso(), "video"),
+    )
+
+
 def _status_for_provider(
     provider: str,
     row: sqlite3.Row,
@@ -223,11 +260,15 @@ def _status_for_provider(
 
     if provider == "video":
         configured = bool(stored_base)
+        effective_driver = resolve_effective_video_driver(driver, stored_base)
+        display_model = stored_model or cred.model if configured else None
+        if configured and stored_base:
+            display_model = normalize_video_model(display_model or "", base_url=stored_base)
         return {
             "configured": configured,
             "hasApiKey": _row_has_ciphertext(row),
-            "model": stored_model or cred.model if configured else None,
-            "driver": driver,
+            "model": display_model if configured else None,
+            "driver": effective_driver,
             "baseUrl": stored_base,
         }
 

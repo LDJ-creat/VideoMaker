@@ -126,3 +126,21 @@ def test_video_configured_with_base_url(store: ModelGatewayStore) -> None:
     status = store.get_status()
     assert status["providers"]["video"]["configured"] is True
     assert status["providers"]["video"]["model"] == "video-model"
+
+
+def test_video_dashscope_normalizes_driver_and_image_model(store: ModelGatewayStore) -> None:
+    store.update_providers(
+        {
+            "video": {
+                "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "model": "wan2.7-image-pro",
+                "driver": "generic_job",
+            }
+        }
+    )
+    status = store.get_status()
+    assert status["providers"]["video"]["driver"] == "dashscope_wan"
+    assert status["providers"]["video"]["model"] == "wan2.6-t2v"
+    creds = store.get_credentials()
+    assert creds["video"].driver == "dashscope_wan"
+    assert creds["video"].model == "wan2.6-t2v"

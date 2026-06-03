@@ -8,7 +8,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "vision": "gpt-4o-mini",
     "tts": "tts-1",
     "image": "dall-e-3",
-    "video": "",
+    "video": "wan2.6-t2v",
 }
 DEFAULT_DRIVERS: dict[str, str] = {
     "text": "openai_compatible",
