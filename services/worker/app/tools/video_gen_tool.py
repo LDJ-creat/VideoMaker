@@ -28,10 +28,12 @@ class VideoGenTool:
         quota: VideoGenQuota,
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if not quota.has_video_quota():
+        opts = dict(options or {})
+        slot_id = str(opts.get("slotId") or "__legacy__")
+        if not quota.can_generate_for_slot(slot_id):
             raise ToolError(
                 code="video_quota_exceeded",
-                message="Video generation quota exceeded for this generation",
+                message=f"Video generation quota exceeded for slot {slot_id}",
                 retryable=False,
             )
         if self._emit_progress is not None:
@@ -39,7 +41,7 @@ class VideoGenTool:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            job_id = self._gateway.submit_video_job(prompt, options=options)
+            job_id = self._gateway.submit_video_job(prompt, options=opts)
             result = self._gateway.poll_video_job(job_id)
         except ToolError:
             raise
@@ -56,7 +58,7 @@ class VideoGenTool:
                 retryable=True,
             )
         output_path.write_bytes(result.video_bytes)
-        if not quota.consume():
+        if not quota.consume(slot_id):
             output_path.unlink(missing_ok=True)
             raise ToolError(
                 code="video_quota_exceeded",

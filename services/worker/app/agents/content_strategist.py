@@ -11,6 +11,29 @@ TASK_KEY = "content_strategist"
 VALID_FACT_KINDS = {"selling_point", "audience", "scene", "constraint", "other"}
 
 
+def _coerce_fact_id(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_extracted_facts(facts: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, fact in enumerate(facts):
+        if not isinstance(fact, dict):
+            raise ValueError("extractedFacts items must be objects")
+        item = dict(fact)
+        item["id"] = _coerce_fact_id(item.get("id")) or f"fact-{index + 1}"
+        if "text" in item and item["text"] is not None:
+            item["text"] = str(item["text"])
+        if "source" in item and item["source"] is not None:
+            item["source"] = str(item["source"])
+        if "kind" in item and item["kind"] is not None:
+            item["kind"] = str(item["kind"])
+        normalized.append(item)
+    return normalized
+
+
 def _validate_content_fact(fact: dict[str, Any]) -> None:
     kind = fact.get("kind")
     if kind not in VALID_FACT_KINDS:
@@ -37,14 +60,15 @@ def _validate_content_strategist_output(payload: dict[str, Any]) -> dict[str, An
     facts = payload.get("extractedFacts")
     if not isinstance(facts, list):
         raise ValueError("content_strategist output must include extractedFacts array")
-    for fact in facts:
-        if not isinstance(fact, dict):
-            raise ValueError("extractedFacts items must be objects")
+    normalized_facts = _normalize_extracted_facts(facts)
+    for fact in normalized_facts:
         for key in ("id", "kind", "text", "source"):
-            if key not in fact:
+            if key not in fact or not str(fact.get(key, "")).strip():
                 raise ValueError(f"extractedFacts item missing '{key}'")
         _validate_content_fact(fact)
-    return payload
+    normalized = dict(payload)
+    normalized["extractedFacts"] = normalized_facts
+    return normalized
 
 
 def _filter_avoid_mention(

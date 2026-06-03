@@ -8,20 +8,104 @@ from app.runtime.task_context import TaskContext
 
 
 TASK_KEY = "storyboard_writer"
+VALID_SOURCES = {
+    "user_asset",
+    "text_completion",
+    "packaging_completion",
+    "asset_reuse",
+    "generated",
+}
 
 
-def _assert_storyboard(payload: dict[str, Any]) -> dict[str, Any]:
+def _slot_lookup(structure: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    slots = structure.get("slots", [])
+    if not isinstance(slots, list):
+        return {}
+    lookup: dict[str, dict[str, Any]] = {}
+    for slot in slots:
+        if isinstance(slot, dict) and slot.get("id"):
+            lookup[str(slot["id"])] = slot
+    return lookup
+
+
+def _normalize_storyboard_scenes(
+    storyboard: list[Any],
+    *,
+    structure: dict[str, Any],
+) -> list[dict[str, Any]]:
+    slots_by_id = _slot_lookup(structure)
+    normalized: list[dict[str, Any]] = []
+    for index, scene in enumerate(storyboard):
+        if not isinstance(scene, dict):
+            raise ValueError("storyboard items must be objects")
+        item = dict(scene)
+        slot_id = str(item.get("slotId") or item.get("slot_id") or "").strip()
+        slot = slots_by_id.get(slot_id) if slot_id else None
+        if not slot_id and slot is None and len(slots_by_id) == 1:
+            slot_id, slot = next(iter(slots_by_id.items()))
+        if not slot_id and slot is None and index < len(slots_by_id):
+            slot_id = str(list(slots_by_id.keys())[index])
+            slot = slots_by_id.get(slot_id)
+
+        scene_id = str(item.get("id") or item.get("sceneId") or "").strip()
+        if not scene_id:
+            scene_id = f"scene-{slot_id}" if slot_id else f"scene-{index + 1}"
+        item["id"] = scene_id
+        item["slotId"] = slot_id or f"slot-{index + 1}"
+
+        if item.get("startSec") is None and slot is not None:
+            item["startSec"] = slot.get("startSec", 0.0)
+        if item.get("endSec") is None and slot is not None:
+            item["endSec"] = slot.get("endSec", item.get("startSec", 0.0))
+        item["startSec"] = float(item.get("startSec", 0.0))
+        item["endSec"] = float(item.get("endSec", item["startSec"]))
+
+        item["visual"] = str(
+            item.get("visual")
+            or item.get("visualIntent")
+            or (slot or {}).get("visualIntent")
+            or "",
+        )
+        item["script"] = str(
+            item.get("script")
+            or item.get("scriptIntent")
+            or (slot or {}).get("scriptIntent")
+            or "",
+        )
+        source = str(item.get("source") or "generated").strip()
+        if source not in VALID_SOURCES:
+            source = "generated"
+        item["source"] = source
+
+        normalized.append(
+            {
+                "id": item["id"],
+                "slotId": item["slotId"],
+                "startSec": item["startSec"],
+                "endSec": item["endSec"],
+                "visual": item["visual"],
+                "script": item["script"],
+                "source": item["source"],
+            }
+        )
+    return normalized
+
+
+def _assert_storyboard(
+    payload: dict[str, Any],
+    *,
+    structure: dict[str, Any],
+) -> dict[str, Any]:
     storyboard = payload.get("storyboard")
     if not isinstance(storyboard, list):
         raise ValueError("storyboard_writer output must include storyboard array")
     required = {"id", "slotId", "startSec", "endSec", "visual", "script", "source"}
-    for scene in storyboard:
-        if not isinstance(scene, dict):
-            raise ValueError("storyboard items must be objects")
+    normalized = _normalize_storyboard_scenes(storyboard, structure=structure)
+    for scene in normalized:
         missing = required - set(scene.keys())
         if missing:
             raise ValueError(f"storyboard scene missing fields: {sorted(missing)}")
-    return payload
+    return {**payload, "storyboard": normalized}
 
 
 def run_storyboard_writer(
@@ -52,6 +136,6 @@ def run_storyboard_writer(
         context=context,
         progress=progress,
         generation_id=generation_id,
-        post_validate=_assert_storyboard,
+        post_validate=lambda payload: _assert_storyboard(payload, structure=structure),
     )
     return output["storyboard"]

@@ -191,6 +191,57 @@ class FFmpegTool:
             }
         return {"path": str(resolved_output)}
 
+    def still_image_to_video(
+        self,
+        image_path: str | Path,
+        output_path: str | Path,
+        *,
+        duration_sec: float,
+        fps: int = 30,
+    ) -> dict[str, Any]:
+        """Turn a still image into an H.264 clip of the requested duration."""
+        resolved_input = Path(image_path).resolve()
+        resolved_output = Path(output_path).resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        duration = max(0.1, float(duration_sec))
+        command = [
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(resolved_input),
+            "-t",
+            str(duration),
+            "-vf",
+            f"fps={max(1, int(fps))},scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-an",
+            str(resolved_output),
+        ]
+        try:
+            result = self._command_runner(command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+
+        if result.returncode != 0:
+            return _retryable_tool_error(
+                "ffmpeg_image_to_video_failed",
+                "ffmpeg could not build video from still image",
+                {"stderr": result.stderr},
+            )
+        if not resolved_output.is_file() or resolved_output.stat().st_size == 0:
+            return {
+                "code": "ffmpeg_image_to_video_empty_output",
+                "message": "ffmpeg produced no output for still image",
+                "retryable": True,
+                "details": {},
+            }
+        return {"path": str(resolved_output)}
+
     @staticmethod
     def _parse_fps(raw_fps: str) -> float:
         if "/" in raw_fps:

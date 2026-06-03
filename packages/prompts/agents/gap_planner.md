@@ -8,7 +8,9 @@ Generate `GapReport`-compatible weak/missing items with human-readable reasons a
 - `structure`, `inventory`, `slotMatches` from SlotMapper.
 - `weakSlotIds`, `missingSlotIds`: Python-classified slot ids.
 - `variantOverrides.gap_planner`: e.g. `preferProviders`, `videoGenPriority`.
-- `videoGenQuotaRemaining`: **at most one `video_generation` per generation** (usually 1).
+- `videoGenQuotaRemaining`: how many visual slots may still use `video_generation` in this generation.
+- `videoGenMaxSlots`: cap on distinct visual slots that can consume video quota.
+- `videoGenMaxPerSlot`: max successful `video_generation` jobs per slot (usually 1).
 
 # Output
 Full `gap-report` JSON (id, projectId, structureId, inventoryId, slotMatches, missingSlots, weakSlots, summary).
@@ -20,22 +22,25 @@ Each weak/missing item:
   "slotId": "slot-product-closeup",
   "reason": "无商品特写素材",
   "impact": "high",
-  "suggestedFixes": ["image_generation"]
+  "suggestedFixes": ["video_generation"]
 }
 ```
 
 # P1 completion providers
 `hyperframes_material`, `image_generation`, `video_generation`, `tts`, `asset_reuse`.
 
-Provider selection rules (Python will enforce after your output):
-1. Weak match score ≥0.38 → `asset_reuse`
-2. Roles `hook_text`, `benefit_card`, `comparison` or requiredAssetType includes `packaging` → `hyperframes_material`
-3. Roles `hook_visual`, `product_closeup`, `usage_scene` → `video_generation` (only if quota remaining + must_have + high impact) else `image_generation`; motion slots may chain ken-burns `hyperframes_material`
-4. scriptIntent needs spoken VO → `tts`
+Provider selection rules (Python enforces after your output):
+1. Packaging roles (`hook_text`, `benefit_card`, `comparison`) or requiredAssetType includes `packaging` → `hyperframes_material`
+2. Weak match score ≥0.38:
+   - matched asset `type=video` → `asset_reuse` (trim existing video only)
+   - matched asset `type=image` on visual slots (`hook_visual`, `product_closeup`, `usage_scene`) with per-slot quota → `video_generation` (image-to-video / i2v); else `image_generation`
+3. Visual slots without a video weak match: per-slot quota → `video_generation` (text-to-video / t2v); else `image_generation` (may chain `hyperframes_material` for motion)
+4. `scriptIntent` needs spoken VO → `tts`
 5. Else → `hyperframes_material`
+
+Do **not** suggest `asset_reuse` for image assets. Respect per-slot video quota (`videoGenMaxSlots`, `videoGenMaxPerSlot`).
 
 # Constraints
 - Include human-readable Chinese `reason` and `impact` (`low` | `medium` | `high`).
-- Respect video quota: do not suggest more than one `video_generation`.
 - Do not copy sample video wording verbatim.
 - Output JSON only and keep schema-valid fields.

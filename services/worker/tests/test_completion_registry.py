@@ -268,3 +268,135 @@ def test_resume_skips_when_artifact_file_exists(tmp_path: Path) -> None:
     results = execute_completion_plan([action], ctx)
     assert results == []
     gateway.generate_image.assert_not_called()
+
+
+def test_apply_material_moves_video_clip_to_video_track(tmp_path: Path) -> None:
+    from app.providers.completion_registry import apply_material_results_to_plan
+
+    video_uri = str((tmp_path / "generated" / "slot-hook.mp4").resolve())
+    (tmp_path / "generated").mkdir(parents=True, exist_ok=True)
+    Path(video_uri).write_bytes(b"mp4")
+
+    plan = {
+        "storyboard": [],
+        "completionActions": [],
+        "timeline": {
+            "durationSec": 5.0,
+            "tracks": [
+                {
+                    "id": "track-text",
+                    "type": "text",
+                    "clips": [
+                        {
+                            "id": "clip-slot-hook",
+                            "startSec": 0.0,
+                            "endSec": 5.0,
+                            "content": "placeholder",
+                            "styleRef": "style://packaging/default",
+                        }
+                    ],
+                },
+                {"id": "track-video", "type": "video", "clips": []},
+            ],
+        },
+    }
+    results = [
+        {
+            "ok": True,
+            "actionId": "action-v",
+            "slotId": "slot-hook",
+            "provider": "video_generation",
+            "artifactRef": {"id": "a1", "type": "video", "uri": video_uri},
+        }
+    ]
+    updated = apply_material_results_to_plan(plan, results=results)
+    video_clips = updated["timeline"]["tracks"][1]["clips"]
+    text_clips = updated["timeline"]["tracks"][0]["clips"]
+    assert len(video_clips) == 1
+    assert video_clips[0]["id"] == "clip-slot-hook"
+    assert video_clips[0]["sourceRef"].endswith("slot-hook.mp4")
+    assert len(text_clips) == 0
+
+
+def test_video_generation_fallback_runs_image_generation(tmp_path: Path) -> None:
+    png = b"\x89PNG\r\n\x1a\n"
+    gateway = MagicMock()
+    gateway.submit_video_job.side_effect = ToolError(
+        code="video_failed",
+        message="upstream error",
+        retryable=False,
+    )
+    gateway.generate_image.return_value = png
+
+    ctx = _make_ctx(
+        tmp_path,
+        gateway=gateway,
+        quota=VideoGenQuota(max_slots=2, max_per_slot=1),
+        storyboard=[
+            {
+                "id": "scene-1",
+                "slotId": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 3.0,
+                "visual": "hook",
+                "script": "hello",
+            }
+        ],
+    )
+    register_default_providers(ctx)
+
+    import os
+
+    os.environ["VIDEOMAKER_VIDEO_GEN_FALLBACK"] = "image_generation"
+    try:
+        results = execute_completion_plan(
+            [_action("action-v", "slot-hook", "video_generation")],
+            ctx,
+        )
+    finally:
+        os.environ.pop("VIDEOMAKER_VIDEO_GEN_FALLBACK", None)
+
+    assert len(results) == 1
+    assert results[0]["ok"] is True
+    assert results[0]["provider"] == "image_generation"
+    assert (tmp_path / "generated" / "slot-hook.png").is_file()
+
+
+def test_run_generating_material_seeds_quota_from_gap_report(tmp_path: Path) -> None:
+    from app.pipelines.generation_pipeline import run_generating_material
+
+    structure = {
+        "slots": [
+            {"id": "slot1", "role": "hook_visual", "requiredAssetType": ["video"]},
+            {"id": "slot2", "role": "usage_scene", "requiredAssetType": ["image"]},
+            {"id": "slot3", "role": "hook_text", "requiredAssetType": ["text"]},
+        ]
+    }
+    gap_report = {
+        "weakSlots": [{"slotId": "slot2"}],
+        "missingSlots": [{"slotId": "slot1"}],
+    }
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    plan = {"id": "gen-1", "projectId": "p1", "completionActions": [], "storyboard": []}
+
+    gateway = MagicMock()
+    gateway.generate_image.return_value = b"\x89PNG\r\n\x1a\n"
+
+    run_generating_material(
+        plan=plan,
+        inventory={"assets": []},
+        slot_matches=[],
+        structure=structure,
+        generation_root=generation_root,
+        render_root=tmp_path / "render",
+        gateway=gateway,
+        emit_progress=lambda *_args: None,
+        register_artifact=lambda t, p: {"type": t, "uri": str(p)},
+        gap_report=gap_report,
+    )
+
+    state_path = generation_root / "material-state.json"
+    assert state_path.is_file()
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["videoGenQuota"]["maxSlots"] == 2

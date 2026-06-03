@@ -69,6 +69,37 @@ def test_write_composition_escapes_script_breakout_in_timeline_json(tmp_path: Pa
     assert "\\u003c/script\\u003e" in html
 
 
+def test_write_composition_renders_text_track_image_source_ref(tmp_path: Path) -> None:
+    render_root = tmp_path / "render"
+    composition_dir = render_root / "composition"
+    materials_dir = render_root / "materials"
+    materials_dir.mkdir(parents=True, exist_ok=True)
+    (materials_dir / "slot1.png").write_bytes(b"png")
+
+    timeline = {
+        "durationSec": 5,
+        "tracks": [
+            {
+                "id": "track-text",
+                "type": "text",
+                "clips": [
+                    {
+                        "id": "clip-slot1",
+                        "startSec": 0.0,
+                        "endSec": 5.0,
+                        "sourceRef": "materials/slot1.png",
+                    }
+                ],
+            }
+        ],
+    }
+
+    write_composition(timeline=timeline, composition_dir=composition_dir, render_root=render_root)
+    html = (composition_dir / "index.html").read_text(encoding="utf-8")
+    assert 'class="clip image-clip"' in html
+    assert 'src="../materials/slot1.png"' in html
+
+
 def test_write_composition_rejects_unsafe_source_ref(tmp_path: Path) -> None:
     render_root = tmp_path / "render"
     composition_dir = render_root / "composition"

@@ -252,6 +252,24 @@ def test_run_asset_understanding_adds_image_moment(tmp_path: Path) -> None:
     assert inventory["assets"][0]["tags"] == ["packshot"]
 
 
+def test_content_strategist_coerces_numeric_fact_ids(tmp_path: Path) -> None:
+    from app.agents.content_strategist import _validate_content_strategist_output
+
+    payload = _validate_content_strategist_output(
+        {
+            "extractedFacts": [
+                {
+                    "id": 1,
+                    "kind": "selling_point",
+                    "text": "清爽不油腻",
+                    "source": "agent",
+                }
+            ]
+        }
+    )
+    assert payload["extractedFacts"][0]["id"] == "1"
+
+
 def test_run_asset_understanding_respects_avoid_mention_in_facts(tmp_path: Path) -> None:
     fixtures = load_agent_fixtures(_fixtures_dir())
     fixtures["content_strategist"] = {

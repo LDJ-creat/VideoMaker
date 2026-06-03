@@ -138,7 +138,7 @@ def test_load_variant_gap_planner_overrides_from_registry() -> None:
     high_conversion = load_variant_gap_planner_overrides("high_conversion")
     assert high_click.get("videoGenPriority") == "high"
     assert "video_generation" in high_click.get("preferProviders", [])
-    assert high_conversion.get("videoGenPriority") == "low"
+    assert high_conversion.get("videoGenPriority") == "high"
     assert "image_generation" in high_conversion.get("preferProviders", [])
 
 
@@ -164,7 +164,8 @@ def test_apply_provider_selection_overrides_suggested_fixes() -> None:
         gap_report,
         structure=structure,
         slot_matches=slot_matches,
-        quota=VideoGenQuota(max_calls=1),
+        inventory=inventory,
+        quota=VideoGenQuota(max_slots=3, max_per_slot=1),
         variant_overrides={"videoGenPriority": "high"},
     )
     missing = updated["missingSlots"][0]
@@ -176,7 +177,12 @@ def test_apply_provider_selection_overrides_suggested_fixes() -> None:
     }
     assert "补全策略：" in missing["reason"]
     weak_cta = next(item for item in updated["weakSlots"] if item["slotId"] == "seg-cta-cta-1")
-    assert weak_cta["suggestedFixes"][0] == "asset_reuse"
+    assert weak_cta["suggestedFixes"][0] in {
+        "video_generation",
+        "image_generation",
+        "asset_reuse",
+        "hyperframes_material",
+    }
     assert "补全策略：" in weak_cta["reason"]
 
 

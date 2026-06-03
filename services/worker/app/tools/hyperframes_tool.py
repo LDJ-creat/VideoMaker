@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from app.tools.hyperframes_cli import resolve_hyperframes_argv
+
 MISSING_CLI_ERROR: dict[str, Any] = {
     "code": "hyperframes_missing",
     "message": "HyperFrames CLI is unavailable",
@@ -65,8 +67,17 @@ def build_fixture_hyperframes_tool() -> HyperFramesTool:
 
 
 class HyperFramesTool:
-    def __init__(self, command_runner: CommandRunner | None = None) -> None:
+    def __init__(
+        self,
+        command_runner: CommandRunner | None = None,
+        *,
+        repo_root: Path | None = None,
+    ) -> None:
         self._command_runner = command_runner or _default_command_runner
+        self._hyperframes_argv = resolve_hyperframes_argv(repo_root=repo_root)
+
+    def _cli_command(self, *args: str) -> list[str]:
+        return [*self._hyperframes_argv, *args]
 
     def _persist_log(self, log_path: Path, log: dict[str, Any]) -> None:
         log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -92,19 +103,18 @@ class HyperFramesTool:
 
     def render(self, composition_dir: Path, output_path: Path, log_path: Path) -> dict:
         started = time.perf_counter()
-        command = [
-            "npx",
-            "hyperframes",
+        command = self._cli_command(
             "render",
             str(composition_dir),
             "--output",
             str(output_path),
-        ]
+        )
         log: dict[str, Any] = {"command": command}
 
         try:
             version_result = self._command_runner(
-                ["npx", "hyperframes", "--version"], composition_dir
+                self._cli_command("--version"),
+                composition_dir,
             )
         except FileNotFoundError:
             return self._finish(

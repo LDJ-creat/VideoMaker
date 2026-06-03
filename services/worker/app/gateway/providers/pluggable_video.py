@@ -1,42 +1,25 @@
 """Pluggable video job adapter.
 
-P1 ships one concrete driver: ``generic_job``.
+Drivers:
+- ``dashscope_wan``: DashScope Wan video-synthesis + task poll (auto when base URL contains ``dashscope``)
+- ``generic_job``: ``POST /videos`` job API for custom gateways
 
 Environment:
-- ``VIDEO_DRIVER=generic_job`` (default)
-- ``VIDEO_API_BASE``, ``VIDEO_API_KEY``, ``VIDEO_MODEL``
+- ``VIDEO_DRIVER=dashscope_wan|generic_job`` (optional override)
+- ``VIDEO_MAX_POLL_SEC`` async poll timeout
 
-API contract for ``generic_job``:
-- ``POST /videos`` → ``{ "jobId": "..." }``
-- ``GET /videos/{jobId}`` → ``{ "status": "pending|succeeded|failed", "downloadUrl": "..."? }``
-
-To support a different vendor, implement ``VideoProvider`` in this module and
-register it in ``create_video_provider``.
+``generic_job`` body includes ``prompt`` plus options such as ``mode``, ``referenceImagePath``, ``durationSec``.
 """
 
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
 
 from app.gateway.providers.base import GatewayError, ProviderConfig
-
-
-@dataclass(frozen=True)
-class VideoJobResult:
-    status: str
-    job_id: str
-    video_bytes: bytes | None = None
-    latency_ms: int | None = None
-
-
-class VideoProvider(Protocol):
-    def submit(self, prompt: str, options: dict[str, Any]) -> str: ...
-
-    def poll(self, job_id: str) -> VideoJobResult: ...
+from app.gateway.providers.video_types import VideoJobResult, VideoProvider
 
 
 class GenericJobVideoProvider:
@@ -210,7 +193,20 @@ def create_video_provider(
     poll_interval_sec: float = 3.0,
     max_poll_sec: int = 300,
 ) -> VideoProvider:
-    if driver == "generic_job":
+    from app.gateway.providers.dashscope_video import (
+        DashScopeWanVideoProvider,
+        resolve_video_driver,
+    )
+
+    resolved = resolve_video_driver(driver, config.base_url or "")
+    if resolved == "dashscope_wan":
+        return DashScopeWanVideoProvider(
+            config,
+            client=client,
+            poll_interval_sec=max(poll_interval_sec, 15.0),
+            max_poll_sec=max_poll_sec,
+        )
+    if resolved == "generic_job":
         return GenericJobVideoProvider(
             config,
             client=client,

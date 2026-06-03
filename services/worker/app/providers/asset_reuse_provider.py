@@ -5,6 +5,8 @@ from typing import Any
 
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.tools.ffmpeg_tool import FFmpegTool
+
+
 class AssetReuseProvider:
     name = "asset_reuse"
 
@@ -22,6 +24,14 @@ class AssetReuseProvider:
         asset = _asset_by_id(str(match.get("assetId", "")), ctx.inventory)
         if asset is None:
             return _error(action, slot_id, "asset_reuse_missing_asset", "Matched asset not found in inventory")
+
+        if str(asset.get("type", "")).lower() == "image":
+            return _error(
+                action,
+                slot_id,
+                "asset_reuse_image_not_supported",
+                "Image assets must use video_generation (i2v), not asset_reuse",
+            )
 
         scene = _scene_for_slot(slot_id, ctx.storyboard)
         duration = max(0.1, float(scene["endSec"]) - float(scene["startSec"])) if scene else 3.0

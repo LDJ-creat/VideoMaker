@@ -16,7 +16,7 @@ from app.providers.completion_registry import (
     register_default_providers,
     save_material_state,
 )
-from app.runtime.video_gen_quota import VideoGenQuota
+from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.intent_applier import ReviseContext
@@ -182,6 +182,11 @@ def run_agent_generation(
             progress=45,
             message="Planning gap completion providers",
         )
+        planning_gap_report = provisional_gap_report(structure, resolved_slot_matches)
+        video_quota = VideoGenQuota.from_structure(
+            structure,
+            gap_report=planning_gap_report,
+        )
         resolved_gap_report = run_gap_planner(
             runner,
             structure=structure,
@@ -190,7 +195,7 @@ def run_agent_generation(
             context=context,
             generation_id=generation_id,
             variant=variant,
-            quota=VideoGenQuota(max_calls=1),
+            quota=video_quota,
         )
 
     return run_planning_completion(
@@ -401,6 +406,7 @@ def run_generating_material(
     emit_progress: ProgressEmitter,
     register_artifact: ArtifactRegistrar,
     material_state_path: Path | None = None,
+    gap_report: dict[str, Any] | None = None,
     runner: AgentRunner | None = None,
     task_context: TaskContext | None = None,
     variant_overrides: dict[str, Any] | None = None,
@@ -410,7 +416,17 @@ def run_generating_material(
     generated_root = generation_root / "generated"
     generated_root.mkdir(parents=True, exist_ok=True)
     state_path = material_state_path or (generation_root / "material-state.json")
-    quota, completed_ids = load_material_state(state_path)
+    if state_path.is_file():
+        quota, completed_ids = load_material_state(state_path)
+    else:
+        report = gap_report or provisional_gap_report(structure, slot_matches)
+        quota = VideoGenQuota.from_structure(structure, gap_report=report)
+        completed_ids = set()
+        save_material_state(
+            state_path,
+            quota=quota,
+            completed_action_ids=completed_ids,
+        )
 
     ctx = MaterialContext(
         project_id=str(plan.get("projectId", "")),
@@ -507,6 +523,19 @@ def _build_timeline(
                     tracks["image"]["clips"].append(clip)
                 else:
                     tracks["video"]["clips"].append(clip)
+        elif scene.get("source") == "generated":
+            visual = str(scene.get("visual", "")).strip()
+            lowered = visual.lower()
+            if lowered.endswith((".mp4", ".webm", ".mov", ".mkv")):
+                clip["sourceRef"] = visual
+                tracks["video"]["clips"].append(clip)
+            elif lowered.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+                clip["sourceRef"] = visual
+                tracks["image"]["clips"].append(clip)
+            else:
+                clip["content"] = scene["script"]
+                clip["styleRef"] = "style://packaging/default"
+                tracks["text"]["clips"].append(clip)
         else:
             clip["content"] = scene["script"]
             clip["styleRef"] = "style://packaging/default"

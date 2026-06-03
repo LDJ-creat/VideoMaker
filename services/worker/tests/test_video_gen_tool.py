@@ -16,11 +16,16 @@ def test_generate_consumes_quota_only_after_success(tmp_path: Path) -> None:
     poll_result.video_bytes = video_bytes
     gateway.poll_video_job.return_value = poll_result
 
-    quota = VideoGenQuota(max_calls=1)
+    quota = VideoGenQuota(max_slots=1, max_per_slot=1)
     tool = VideoGenTool(gateway=gateway)
     output_path = tmp_path / "clip.mp4"
 
-    ref = tool.generate(prompt="ad clip", output_path=output_path, quota=quota)
+    ref = tool.generate(
+        prompt="ad clip",
+        output_path=output_path,
+        quota=quota,
+        options={"slotId": "slot-a"},
+    )
 
     assert output_path.read_bytes() == video_bytes
     assert quota.used == 1
@@ -30,11 +35,16 @@ def test_generate_consumes_quota_only_after_success(tmp_path: Path) -> None:
 def test_generate_failure_does_not_consume_quota(tmp_path: Path) -> None:
     gateway = MagicMock()
     gateway.submit_video_job.side_effect = RuntimeError("upstream down")
-    quota = VideoGenQuota(max_calls=1)
+    quota = VideoGenQuota(max_slots=1, max_per_slot=1)
     tool = VideoGenTool(gateway=gateway)
 
     with pytest.raises(ToolError) as exc_info:
-        tool.generate(prompt="x", output_path=tmp_path / "out.mp4", quota=quota)
+        tool.generate(
+            prompt="x",
+            output_path=tmp_path / "out.mp4",
+            quota=quota,
+            options={"slotId": "slot-a"},
+        )
 
     assert exc_info.value.code == "video_generation_failed"
     assert quota.used == 0
@@ -42,11 +52,16 @@ def test_generate_failure_does_not_consume_quota(tmp_path: Path) -> None:
 
 def test_generate_rejects_when_quota_exhausted(tmp_path: Path) -> None:
     gateway = MagicMock()
-    quota = VideoGenQuota(max_calls=1, used=1)
+    quota = VideoGenQuota(max_slots=1, max_per_slot=1, consumed_slots={"slot-a": 1})
     tool = VideoGenTool(gateway=gateway)
 
     with pytest.raises(ToolError) as exc_info:
-        tool.generate(prompt="x", output_path=tmp_path / "out.mp4", quota=quota)
+        tool.generate(
+            prompt="x",
+            output_path=tmp_path / "out.mp4",
+            quota=quota,
+            options={"slotId": "slot-a"},
+        )
 
     assert exc_info.value.code == "video_quota_exceeded"
     gateway.submit_video_job.assert_not_called()

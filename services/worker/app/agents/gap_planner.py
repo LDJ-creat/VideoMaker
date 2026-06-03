@@ -4,7 +4,8 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_variant_gap_planner_overrides
-from app.pipelines.gap_selection import VideoGenQuota, provider_rationale, select_provider_chain
+from app.pipelines.gap_selection import provider_rationale, select_provider_chain
+from app.runtime.video_gen_quota import VideoGenQuota
 from app.agents.slot_mapper import classify_slot_matches
 from app.runtime.task_context import TaskContext
 
@@ -108,6 +109,7 @@ def apply_provider_selection(
     *,
     structure: dict[str, Any],
     slot_matches: list[dict[str, Any]],
+    inventory: dict[str, Any] | None = None,
     quota: VideoGenQuota | None = None,
     variant_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -131,6 +133,7 @@ def apply_provider_selection(
                 slot,
                 weak_match=weak_match,
                 quota=quota,
+                inventory=inventory,
                 variant_overrides=overrides,
                 impact=impact,
             )
@@ -180,7 +183,9 @@ def run_gap_planner(
             "weakSlotIds": weak_ids,
             "missingSlotIds": missing_ids,
             "variantOverrides": variant_overrides,
-            "videoGenQuotaRemaining": quota_state.remaining,
+            "videoGenQuotaRemaining": quota_state.remaining_slots,
+            "videoGenMaxSlots": quota_state.max_slots,
+            "videoGenMaxPerSlot": quota_state.max_per_slot,
         },
         context=context,
         progress=progress,
@@ -196,6 +201,7 @@ def run_gap_planner(
         gap_report,
         structure=structure,
         slot_matches=slot_matches,
+        inventory=inventory,
         quota=quota_state,
         variant_overrides=variant_overrides,
     )

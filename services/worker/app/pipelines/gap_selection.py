@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.runtime.asset_paths import resolve_match_asset_type
 from app.runtime.video_gen_quota import VideoGenQuota
 
 __all__ = [
@@ -11,11 +12,18 @@ __all__ = [
     "provider_rationale",
     "slot_needs_spoken_narration",
     "slot_needs_motion",
+    "is_visual_slot",
+    "WEAK_MATCH_THRESHOLD",
 ]
 
 PACKAGING_ROLES = frozenset({"hook_text", "benefit_card", "comparison"})
 VISUAL_ROLES = frozenset({"hook_visual", "product_closeup", "usage_scene"})
 VO_KEYWORDS = ("voiceover", "narration", "narrated", "口播", "旁白", "解说", "配音", "spoken")
+WEAK_MATCH_THRESHOLD = 0.38
+
+
+def is_visual_slot(slot: dict[str, Any]) -> bool:
+    return str(slot.get("role", "")) in VISUAL_ROLES
 
 
 def slot_needs_spoken_narration(slot: dict[str, Any]) -> bool:
@@ -29,42 +37,62 @@ def slot_needs_motion(slot: dict[str, Any]) -> bool:
     return role in VISUAL_ROLES and "video" in required
 
 
+def _slot_id(slot: dict[str, Any]) -> str:
+    return str(slot.get("id", ""))
+
+
+def _weak_match_score(weak_match: dict[str, Any] | None) -> float:
+    if weak_match is None:
+        return 0.0
+    return float(weak_match.get("matchScore", 0))
+
+
+def _prefer_image_over_video(variant_overrides: dict[str, Any] | None) -> bool:
+    overrides = variant_overrides or {}
+    video_priority = str(overrides.get("videoGenPriority", "medium")).lower()
+    prefer = list(overrides.get("preferProviders") or [])
+    return video_priority == "low" and "image_generation" in prefer
+
+
 def select_provider(
     slot: dict[str, Any],
     *,
     weak_match: dict[str, Any] | None,
     quota: VideoGenQuota,
+    inventory: dict[str, Any] | None = None,
     variant_overrides: dict[str, Any] | None = None,
     impact: str = "medium",
 ) -> str:
-    """Deterministic provider picker — master plan section 8.4."""
-    if weak_match is not None and float(weak_match.get("matchScore", 0)) >= 0.38:
-        return "asset_reuse"
-
+    """Deterministic provider picker for gap completion actions."""
+    inv = inventory or {}
+    slot_id = _slot_id(slot)
     role = str(slot.get("role", ""))
     required = list(slot.get("requiredAssetType") or [])
 
     if role in PACKAGING_ROLES or "packaging" in required:
         return "hyperframes_material"
 
-    if role in VISUAL_ROLES:
-        overrides = variant_overrides or {}
-        video_priority = str(overrides.get("videoGenPriority", "medium")).lower()
-        prefer = list(overrides.get("preferProviders") or [])
-
-        can_video = (
-            quota.has_video_quota()
-            and slot.get("importance") == "must_have"
-            and impact == "high"
-        )
-        if can_video:
-            if video_priority == "low" and "image_generation" in prefer:
-                return "image_generation"
-            return "video_generation"
-        return "image_generation"
+    score = _weak_match_score(weak_match)
+    if score >= WEAK_MATCH_THRESHOLD and weak_match is not None:
+        asset_type = resolve_match_asset_type(weak_match, inv)
+        if asset_type == "video":
+            return "asset_reuse"
+        if asset_type == "image" and is_visual_slot(slot):
+            if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(
+                variant_overrides
+            ):
+                return "video_generation"
+            return "image_generation"
 
     if slot_needs_spoken_narration(slot):
         return "tts"
+
+    if is_visual_slot(slot):
+        if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(
+            variant_overrides
+        ):
+            return "video_generation"
+        return "image_generation"
 
     return "hyperframes_material"
 
@@ -74,6 +102,7 @@ def select_provider_chain(
     *,
     weak_match: dict[str, Any] | None,
     quota: VideoGenQuota,
+    inventory: dict[str, Any] | None = None,
     variant_overrides: dict[str, Any] | None = None,
     impact: str = "medium",
 ) -> list[str]:
@@ -81,6 +110,7 @@ def select_provider_chain(
         slot,
         weak_match=weak_match,
         quota=quota,
+        inventory=inventory,
         variant_overrides=variant_overrides,
         impact=impact,
     )
@@ -94,11 +124,13 @@ def provider_rationale(provider: str, slot: dict[str, Any], *, weak_match: dict[
     role = str(slot.get("role", ""))
     if provider == "asset_reuse" and weak_match is not None:
         score = float(weak_match.get("matchScore", 0))
-        return f"弱匹配分数 {score:.2f}，可通过裁剪/重排复用现有素材"
+        return f"弱匹配分数 {score:.2f}，裁剪复用已有视频素材"
     if provider == "video_generation":
-        return f"must_have 的 {role} 槽位影响高，使用一次 video_generation 配额"
+        if weak_match is not None and _weak_match_score(weak_match) >= WEAK_MATCH_THRESHOLD:
+            return f"{role} 槽位对图片弱匹配，使用图生视频（i2v）补全分镜"
+        return f"{role} 槽位使用文生视频（t2v）生成分镜片段"
     if provider == "image_generation":
-        return f"{role} 槽位缺少写实画面，优先生成静态图像"
+        return f"{role} 槽位缺少可用视频配额或需静态画面，优先生成图像"
     if provider == "hyperframes_material":
         return f"{role} 槽位适合 HyperFrames 包装/动效卡片"
     if provider == "tts":

@@ -45,9 +45,9 @@ def test_variant_registry_gap_planner_overrides_differ() -> None:
     high_click = load_variant_gap_planner_overrides("high_click")
     high_conversion = load_variant_gap_planner_overrides("high_conversion")
     assert high_click["videoGenPriority"] == "high"
-    assert high_conversion["videoGenPriority"] == "low"
+    assert high_conversion["videoGenPriority"] == "high"
     assert high_click["preferProviders"][0] == "hyperframes_material"
-    assert high_conversion["preferProviders"][-1] == "image_generation"
+    assert "video_generation" in high_conversion["preferProviders"]
 
 
 def test_high_click_prefers_video_generation_when_quota_available() -> None:
@@ -63,17 +63,18 @@ def test_high_click_prefers_video_generation_when_quota_available() -> None:
     assert provider == "video_generation"
 
 
-def test_high_conversion_prefers_image_generation_over_video() -> None:
+def test_high_conversion_prefers_video_generation_when_quota_available() -> None:
     slot = _missing_visual_slot()
     overrides = load_variant_gap_planner_overrides("high_conversion")
     provider = select_provider(
         slot,
         weak_match=None,
-        quota=VideoGenQuota(max_calls=1),
+        quota=VideoGenQuota(max_slots=3, max_per_slot=1),
+        inventory={},
         variant_overrides=overrides,
         impact="high",
     )
-    assert provider == "image_generation"
+    assert provider == "video_generation"
 
 
 def test_apply_provider_selection_uses_variant_specific_chain() -> None:
@@ -96,14 +97,16 @@ def test_apply_provider_selection_uses_variant_specific_chain() -> None:
         dict(gap_report),
         structure=structure,
         slot_matches=slot_matches,
-        quota=VideoGenQuota(max_calls=1),
+        inventory=inventory,
+        quota=VideoGenQuota(max_slots=3, max_per_slot=1),
         variant_overrides=load_variant_gap_planner_overrides("high_click"),
     )
     high_conversion = apply_provider_selection(
         dict(gap_report),
         structure=structure,
         slot_matches=slot_matches,
-        quota=VideoGenQuota(max_calls=1),
+        inventory=inventory,
+        quota=VideoGenQuota(max_slots=3, max_per_slot=1),
         variant_overrides=load_variant_gap_planner_overrides("high_conversion"),
     )
 
@@ -116,15 +119,15 @@ def test_apply_provider_selection_uses_variant_specific_chain() -> None:
         if item["slotId"] == "seg-hook-hook_visual-1"
     )
     assert click_missing["suggestedFixes"][0] == "video_generation"
-    assert conversion_missing["suggestedFixes"][0] == "image_generation"
+    assert conversion_missing["suggestedFixes"][0] == "video_generation"
 
 
 def test_each_generation_gets_fresh_video_gen_quota() -> None:
-    first = VideoGenQuota(max_calls=1)
-    second = VideoGenQuota(max_calls=1)
-    assert first.consume()
-    assert not first.has_video_quota()
-    assert second.has_video_quota()
+    first = VideoGenQuota(max_slots=1, max_per_slot=1)
+    second = VideoGenQuota(max_slots=1, max_per_slot=1)
+    assert first.consume("slot-a")
+    assert not first.can_generate_for_slot("slot-b")
+    assert second.can_generate_for_slot("slot-a")
 
 
 def test_run_agent_generation_sets_variant_on_plan(tmp_path: Path) -> None:
@@ -179,4 +182,4 @@ def test_run_agent_generation_sets_variant_on_plan(tmp_path: Path) -> None:
     click_missing = gap_click["missingSlots"][0]["suggestedFixes"][0]
     conv_missing = gap_conv["missingSlots"][0]["suggestedFixes"][0]
     assert click_missing == "video_generation"
-    assert conv_missing == "image_generation"
+    assert conv_missing == "video_generation"

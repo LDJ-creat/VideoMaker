@@ -155,6 +155,17 @@ def execute_completion_plan(
             )
         ctx.emit_progress("generating_material", f"Completing slot {action.get('slotId')}")
         result = provider.execute(action, ctx)
+        if not result.get("ok"):
+            fallback = str((result.get("error") or {}).get("fallbackProvider", "")).strip()
+            if fallback in MATERIAL_PROVIDERS and fallback != provider_name:
+                fallback_impl = ctx.providers.get(fallback)
+                if fallback_impl is not None:
+                    fallback_action = {**action, "provider": fallback, "strategy": fallback}
+                    ctx.emit_progress(
+                        "generating_material",
+                        f"Fallback {fallback} for slot {action.get('slotId')}",
+                    )
+                    result = fallback_impl.execute(fallback_action, ctx)
         results.append(result)
         if not result.get("ok"):
             if fail_fast:
@@ -252,6 +263,35 @@ def _material_source_ref(uri: str, *, render_root: Path | None) -> str:
     return f"materials/{path.name}"
 
 
+def _is_video_artifact(artifact: dict[str, Any], uri: str) -> bool:
+    if str(artifact.get("type", "")).lower() == "video":
+        return True
+    return uri.lower().endswith((".mp4", ".webm", ".mov", ".mkv"))
+
+
+def _video_track(tracks: list[dict[str, Any]]) -> dict[str, Any]:
+    for track in tracks:
+        if isinstance(track, dict) and track.get("type") == "video":
+            return track
+    video_track = {"id": "track-video", "type": "video", "clips": []}
+    tracks.append(video_track)
+    return video_track
+
+
+def _find_clip_for_slot(tracks: list[Any], slot_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    clip_id = f"clip-{slot_id}"
+    for track in tracks:
+        if not isinstance(track, dict):
+            continue
+        clips = track.get("clips")
+        if not isinstance(clips, list):
+            continue
+        for index, clip in enumerate(clips):
+            if isinstance(clip, dict) and str(clip.get("id", "")) == clip_id:
+                return track, clips.pop(index)
+    return None
+
+
 def _apply_generated_sources_to_timeline(
     timeline: dict[str, Any],
     *,
@@ -267,26 +307,51 @@ def _apply_generated_sources_to_timeline(
     if not isinstance(tracks, list):
         return timeline
 
-    for track in tracks:
-        if not isinstance(track, dict):
+    video_track = _video_track(tracks)
+
+    for slot_id, result in by_slot.items():
+        artifact = result.get("artifactRef") or {}
+        uri = str(artifact.get("uri", "")).strip()
+        if not uri:
             continue
-        for clip in track.get("clips", []):
-            if not isinstance(clip, dict):
+        source_ref = _material_source_ref(uri, render_root=render_root)
+        is_video = _is_video_artifact(artifact, source_ref)
+
+        located = _find_clip_for_slot(tracks, slot_id)
+        if located is not None:
+            track, clip = located
+            clip["sourceRef"] = source_ref
+            clip["generatedBy"] = {"provider": str(result.get("provider", ""))}
+            clip.pop("content", None)
+            clip.pop("styleRef", None)
+            if is_video and track.get("type") != "video":
+                video_track["clips"].append(clip)
+            elif track.get("type") == "video" or not is_video:
+                track.setdefault("clips", []).append(clip)
+            continue
+
+        for track in tracks:
+            if not isinstance(track, dict):
                 continue
-            clip_id = str(clip.get("id", ""))
-            slot_id = clip_id.removeprefix("clip-") if clip_id.startswith("clip-") else ""
-            result = by_slot.get(slot_id)
-            if not result:
-                continue
-            artifact = result.get("artifactRef") or {}
-            uri = artifact.get("uri")
-            if not uri:
-                continue
-            clip["sourceRef"] = _material_source_ref(str(uri), render_root=render_root)
-            clip["generatedBy"] = {
-                "provider": str(result.get("provider", "")),
-            }
-            if track.get("type") == "text" and artifact.get("type") in {"image", "video"}:
-                clip.pop("content", None)
-                clip.pop("styleRef", None)
+            for clip in track.get("clips", []):
+                if not isinstance(clip, dict):
+                    continue
+                clip_id = str(clip.get("id", ""))
+                derived_slot = clip_id.removeprefix("clip-") if clip_id.startswith("clip-") else ""
+                if derived_slot != slot_id:
+                    continue
+                clip["sourceRef"] = source_ref
+                clip["generatedBy"] = {"provider": str(result.get("provider", ""))}
+                if track.get("type") == "text" and artifact.get("type") in {"image", "video"}:
+                    clip.pop("content", None)
+                    clip.pop("styleRef", None)
+                if is_video and track.get("type") != "video":
+                    track["clips"] = [
+                        item
+                        for item in track.get("clips", [])
+                        if not (isinstance(item, dict) and item is clip)
+                    ]
+                    video_track["clips"].append(clip)
+                break
+
     return timeline

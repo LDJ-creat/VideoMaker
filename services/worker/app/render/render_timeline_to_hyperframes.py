@@ -21,6 +21,16 @@ def _to_ms(seconds: float) -> int:
     return round(float(seconds) * 1000)
 
 
+def _is_image_source_ref(source_ref: str) -> bool:
+    lowered = source_ref.lower()
+    return lowered.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"))
+
+
+def _is_video_source_ref(source_ref: str) -> bool:
+    lowered = source_ref.lower()
+    return lowered.endswith((".mp4", ".webm", ".mov", ".mkv"))
+
+
 def _safe_asset_path(render_root: Path, composition_dir: Path, source_ref: str) -> str:
     candidate = (render_root / source_ref).resolve()
     root = render_root.resolve()
@@ -71,6 +81,13 @@ def _render_clip(track_type: str, clip: dict[str, Any], render_root: Path, compo
     )
 
     if track_type == "text":
+        source_ref = str(clip.get("sourceRef", ""))
+        if source_ref and _is_image_source_ref(source_ref):
+            src = html.escape(_safe_asset_path(render_root, composition_dir, source_ref), quote=True)
+            return f'<img class="clip image-clip" {attrs} src="{src}" alt="" />'
+        if source_ref and _is_video_source_ref(source_ref):
+            src = html.escape(_safe_asset_path(render_root, composition_dir, source_ref), quote=True)
+            return f'<video class="clip video-clip" {attrs} src="{src}" muted preload="auto"></video>'
         content = html.escape(str(clip.get("content", "")))
         return f'<div class="clip text-clip" {attrs}>{content}</div>'
     if track_type == "image":

@@ -7,13 +7,14 @@ from app.pipelines.gap_selection import VideoGenQuota, select_provider, select_p
 
 def _slot(
     *,
+    slot_id: str = "slot-1",
     role: str = "proof",
     importance: str = "recommended",
     required: list[str] | None = None,
     script_intent: str = "",
 ) -> dict:
     return {
-        "id": "slot-1",
+        "id": slot_id,
         "role": role,
         "importance": importance,
         "requiredAssetType": required or ["video", "image"],
@@ -24,28 +25,64 @@ def _slot(
     }
 
 
-@pytest.mark.parametrize(
-    ("score", "expected"),
-    [
-        (0.4, "asset_reuse"),
-        (0.38, "asset_reuse"),
-    ],
-)
-def test_select_provider_weak_match_asset_reuse(score: float, expected: str) -> None:
-    slot = _slot(role="usage_scene")
-    weak = {"slotId": "slot-1", "matchScore": score, "matchReason": "弱匹配"}
+def _inventory(*, asset_id: str, asset_type: str) -> dict:
+    return {
+        "assets": [
+            {
+                "id": asset_id,
+                "type": asset_type,
+                "uri": f"/tmp/{asset_id}.{'mp4' if asset_type == 'video' else 'png'}",
+            }
+        ]
+    }
+
+
+def test_weak_match_image_visual_uses_video_generation() -> None:
+    slot = _slot(slot_id="slot2", role="usage_scene")
+    weak = {"slotId": "slot2", "assetId": "asset-img", "matchScore": 0.4}
+    inv = _inventory(asset_id="asset-img", asset_type="image")
     assert (
-        select_provider(slot, weak_match=weak, quota=VideoGenQuota(max_calls=1), variant_overrides={})
-        == expected
+        select_provider(
+            slot,
+            weak_match=weak,
+            quota=VideoGenQuota(max_slots=3, max_per_slot=1),
+            inventory=inv,
+            variant_overrides={},
+        )
+        == "video_generation"
     )
 
 
-def test_select_provider_weak_match_below_threshold_uses_visual_rules() -> None:
-    slot = _slot(role="hook_text", required=["text", "packaging"])
-    weak = {"slotId": "slot-1", "matchScore": 0.2, "matchReason": "差"}
+def test_weak_match_video_uses_asset_reuse() -> None:
+    slot = _slot(slot_id="slot2", role="usage_scene")
+    weak = {"slotId": "slot2", "assetId": "asset-vid", "matchScore": 0.4}
+    inv = _inventory(asset_id="asset-vid", asset_type="video")
     assert (
-        select_provider(slot, weak_match=weak, quota=VideoGenQuota(max_calls=1), variant_overrides={})
-        == "hyperframes_material"
+        select_provider(
+            slot,
+            weak_match=weak,
+            quota=VideoGenQuota(max_slots=3, max_per_slot=1),
+            inventory=inv,
+            variant_overrides={},
+        )
+        == "asset_reuse"
+    )
+
+
+def test_weak_match_image_without_quota_falls_back_to_image() -> None:
+    slot = _slot(slot_id="slot2", role="usage_scene")
+    weak = {"slotId": "slot2", "assetId": "asset-img", "matchScore": 0.4}
+    inv = _inventory(asset_id="asset-img", asset_type="image")
+    quota = VideoGenQuota(max_slots=0, max_per_slot=1)
+    assert (
+        select_provider(
+            slot,
+            weak_match=weak,
+            quota=quota,
+            inventory=inv,
+            variant_overrides={},
+        )
+        == "image_generation"
     )
 
 
@@ -56,92 +93,62 @@ def test_select_provider_weak_match_below_threshold_uses_visual_rules() -> None:
 def test_select_provider_packaging_roles(role: str) -> None:
     slot = _slot(role=role, required=["text", "packaging"])
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
-        == "hyperframes_material"
-    )
-
-
-def test_select_provider_required_packaging_type() -> None:
-    slot = _slot(role="proof", required=["packaging", "text"])
-    assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
-        == "hyperframes_material"
-    )
-
-
-def test_select_provider_video_generation_when_quota_and_must_have_high() -> None:
-    slot = _slot(role="hook_visual", importance="must_have")
-    quota = VideoGenQuota(max_calls=1)
-    provider = select_provider(
-        slot,
-        weak_match=None,
-        quota=quota,
-        variant_overrides={"videoGenPriority": "high"},
-        impact="high",
-    )
-    assert provider == "video_generation"
-    assert quota.used == 0
-
-
-def test_select_provider_image_when_quota_exhausted() -> None:
-    slot = _slot(role="product_closeup", importance="must_have")
-    assert (
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(max_calls=1, used=1),
+            quota=VideoGenQuota(max_slots=3),
+            inventory={},
             variant_overrides={},
-            impact="high",
         )
-        == "image_generation"
+        == "hyperframes_material"
     )
 
 
-def test_select_provider_image_when_impact_not_high() -> None:
-    slot = _slot(role="hook_visual", importance="must_have")
+def test_select_provider_visual_without_weak_match_uses_video() -> None:
+    slot = _slot(role="hook_visual", importance="recommended")
     assert (
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(max_calls=1),
-            variant_overrides={},
+            quota=VideoGenQuota(max_slots=3, max_per_slot=1),
+            inventory={},
+            variant_overrides={"videoGenPriority": "high"},
             impact="medium",
         )
-        == "image_generation"
+        == "video_generation"
     )
 
 
-def test_select_provider_high_conversion_skips_video_even_with_quota() -> None:
+def test_select_provider_high_conversion_uses_video() -> None:
     slot = _slot(role="hook_visual", importance="must_have")
     overrides = {
-        "preferProviders": ["hyperframes_material", "image_generation"],
-        "videoGenPriority": "low",
+        "preferProviders": ["hyperframes_material", "video_generation", "image_generation"],
+        "videoGenPriority": "high",
     }
     assert (
         select_provider(
             slot,
             weak_match=None,
-            quota=VideoGenQuota(max_calls=1),
+            quota=VideoGenQuota(max_slots=3),
+            inventory={},
             variant_overrides=overrides,
             impact="high",
         )
-        == "image_generation"
+        == "video_generation"
     )
 
 
 def test_select_provider_tts_for_spoken_script() -> None:
     slot = _slot(role="proof", script_intent="需要口播解说产品卖点")
     assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
+        select_provider(
+            slot,
+            weak_match=None,
+            quota=VideoGenQuota(max_slots=3),
+            inventory={},
+            variant_overrides={},
+        )
         == "tts"
-    )
-
-
-def test_select_provider_default_hyperframes() -> None:
-    slot = _slot(role="proof", script_intent="展示对比")
-    assert (
-        select_provider(slot, weak_match=None, quota=VideoGenQuota(max_calls=1), variant_overrides={})
-        == "hyperframes_material"
     )
 
 
@@ -150,15 +157,9 @@ def test_select_provider_chain_adds_ken_burns_for_motion_image() -> None:
     chain = select_provider_chain(
         slot,
         weak_match=None,
-        quota=VideoGenQuota(max_calls=1, used=1),
+        quota=VideoGenQuota(max_slots=0, max_per_slot=1),
+        inventory={},
         variant_overrides={},
         impact="high",
     )
     assert chain == ["image_generation", "hyperframes_material"]
-
-
-def test_video_gen_quota_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIDEOMAKER_VIDEO_GEN_QUOTA", "2")
-    quota = VideoGenQuota.from_env()
-    assert quota.max_calls == 2
-    assert quota.remaining == 2

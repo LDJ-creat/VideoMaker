@@ -473,6 +473,12 @@ class P0DemoPipeline:
                 )
 
             try:
+                gap_report_path = generation_root / "gap-report.json"
+                material_gap_report = None
+                if gap_report_path.is_file():
+                    material_gap_report = json.loads(
+                        gap_report_path.read_text(encoding="utf-8"),
+                    )
                 plan, _material_results = run_generating_material(
                     plan=plan,
                     inventory=inventory,
@@ -484,6 +490,7 @@ class P0DemoPipeline:
                     emit_progress=material_progress,
                     register_artifact=context.register_artifact,
                     material_state_path=material_state_path,
+                    gap_report=material_gap_report,
                     runner=runner,
                     task_context=context,
                     variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", variant))),
