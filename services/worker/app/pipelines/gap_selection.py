@@ -84,15 +84,15 @@ def select_provider(
                 return "video_generation"
             return "image_generation"
 
-    if slot_needs_spoken_narration(slot):
-        return "tts"
-
     if is_visual_slot(slot):
         if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(
             variant_overrides
         ):
             return "video_generation"
         return "image_generation"
+
+    if slot_needs_spoken_narration(slot):
+        return "tts"
 
     return "hyperframes_material"
 

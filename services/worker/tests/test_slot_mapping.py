@@ -125,4 +125,8 @@ def test_assemble_generation_plan_skips_completion_for_fully_matched_optional_sl
         storyboard=storyboard,
         packaging_plan=packaging_plan,
     )
-    assert plan["completionActions"] == []
+    visual_actions = [a for a in plan["completionActions"] if a.get("provider") != "tts"]
+    tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
+    assert visual_actions == []
+    assert len(tts_actions) == 1
+    assert tts_actions[0]["slotId"] == "slot-optional"

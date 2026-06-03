@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.pipelines.generation_pipeline import assemble_generation_plan, build_asset_inventory
+from app.pipelines.generation_pipeline import (
+    assemble_generation_plan,
+    build_asset_inventory,
+    build_narration_actions,
+    merge_script_subtitles_into_timeline,
+)
 from app.validation.schema_loader import validate_contract
 
 
@@ -199,3 +204,138 @@ def test_assemble_generation_plan_uses_asset_real_type_for_track_selection() -> 
     image_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "image")
     assert any(clip.get("sourceRef") == "asset-video" for clip in video_track["clips"])
     assert any(clip.get("sourceRef") == "asset-image" for clip in image_track["clips"])
+
+
+def test_build_narration_actions_for_scenes_with_script() -> None:
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    actions = build_narration_actions(storyboard)
+    assert len(actions) == len(storyboard)
+    assert all(action["provider"] == "tts" for action in actions)
+    assert actions[0]["id"] == f"action-{storyboard[0]['slotId']}-tts"
+
+
+def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:
+    structure, inventory = _build_inputs()
+    gap_report = _load_agent_fixture("gap_planner")
+    slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    packaging_plan = _load_agent_fixture("packaging_designer")["packagingPlan"]
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant="default",
+    )
+
+    tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
+    visual_actions = [a for a in plan["completionActions"] if a.get("provider") != "tts"]
+    assert tts_actions
+    assert visual_actions
+
+    text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
+    scenes_with_script = [s for s in storyboard if str(s.get("script", "")).strip()]
+    subtitle_clips = [c for c in text_track["clips"] if str(c.get("id", "")).startswith("subtitle-")]
+    assert len(subtitle_clips) == len(scenes_with_script)
+    assert subtitle_clips[0]["styleRef"] == "style://subtitle/clean"
+
+
+def test_merge_script_subtitles_respects_packaging_preset() -> None:
+    timeline = {"durationSec": 5.0, "tracks": [{"id": "track-text", "type": "text", "clips": []}]}
+    storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": "slot-1",
+            "startSec": 0.0,
+            "endSec": 5.0,
+            "script": "你好世界",
+        }
+    ]
+    updated = merge_script_subtitles_into_timeline(
+        timeline,
+        storyboard,
+        {"subtitle": {"preset": "bold"}},
+    )
+    clip = updated["tracks"][0]["clips"][0]
+    assert clip["id"] == "subtitle-slot-1"
+    assert clip["content"] == "你好世界"
+    assert clip["styleRef"] == "style://subtitle/bold"
+
+
+def test_assemble_generation_plan_skips_duplicate_tts_when_gap_already_tts() -> None:
+    structure = {
+        "id": "structure-1",
+        "projectId": "project-1",
+        "slots": [
+            {
+                "id": "slot-proof",
+                "segmentId": "seg-1",
+                "role": "proof",
+                "startSec": 0.0,
+                "endSec": 5.0,
+                "requiredAssetType": ["text"],
+                "visualIntent": "proof",
+                "scriptIntent": "需要口播解说",
+                "importance": "must_have",
+                "constraints": [],
+            }
+        ],
+        "packaging": {"visualDensity": "medium"},
+    }
+    inventory = {
+        "id": "inventory-1",
+        "projectId": "project-1",
+        "assets": [],
+        "extractedFacts": [{"id": "fact-1", "kind": "selling_point", "text": "x", "source": "brief"}],
+    }
+    slot_matches = [{"slotId": "slot-proof", "matchScore": 0.1, "matchReason": "weak"}]
+    gap_report = {
+        "id": "gap-1",
+        "projectId": "project-1",
+        "structureId": "structure-1",
+        "inventoryId": "inventory-1",
+        "slotMatches": slot_matches,
+        "missingSlots": [
+            {
+                "slotId": "slot-proof",
+                "reason": "缺少口播",
+                "impact": "high",
+                "suggestedFixes": ["tts"],
+            }
+        ],
+        "weakSlots": [],
+        "summary": "gap",
+    }
+    storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": "slot-proof",
+            "startSec": 0.0,
+            "endSec": 5.0,
+            "visual": "proof",
+            "script": "这是口播稿",
+            "source": "text_completion",
+        }
+    ]
+    packaging_plan = {
+        "styleSummary": "test",
+        "subtitle": {"preset": "clean"},
+        "titleCards": [],
+        "transitions": [],
+    }
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+    )
+
+    tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
+    assert len(tts_actions) == 1
+    assert tts_actions[0]["id"] == "action-slot-proof"

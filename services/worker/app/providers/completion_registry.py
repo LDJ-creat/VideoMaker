@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -198,6 +199,58 @@ def save_material_state(
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+VISUAL_MATERIAL_PROVIDERS = frozenset(
+    {"asset_reuse", "image_generation", "video_generation", "hyperframes_material"}
+)
+
+
+def _voiceover_track(tracks: list[dict[str, Any]]) -> dict[str, Any]:
+    for track in tracks:
+        if isinstance(track, dict) and track.get("type") == "voiceover":
+            return track
+    voiceover_track = {"id": "track-voiceover", "type": "voiceover", "clips": []}
+    tracks.append(voiceover_track)
+    return voiceover_track
+
+
+def _scene_timing_by_slot(storyboard: list[Any]) -> dict[str, tuple[float, float]]:
+    timing: dict[str, tuple[float, float]] = {}
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            continue
+        slot_id = str(scene.get("slotId", ""))
+        if not slot_id:
+            continue
+        timing[slot_id] = (float(scene["startSec"]), float(scene["endSec"]))
+    return timing
+
+
+def _wav_duration_sec(path: Path) -> float | None:
+    try:
+        with wave.open(str(path), "rb") as handle:
+            rate = handle.getframerate()
+            if rate <= 0:
+                return None
+            return handle.getnframes() / float(rate)
+    except (OSError, wave.Error):
+        return None
+
+
+def _voiceover_end_sec(
+    *,
+    start_sec: float,
+    storyboard_end_sec: float,
+    wav_path: Path | None,
+) -> float:
+    """Clamp voiceover clip end to storyboard window and actual wav length when shorter."""
+    end_sec = storyboard_end_sec
+    if wav_path is not None and wav_path.is_file():
+        duration = _wav_duration_sec(wav_path)
+        if duration is not None and duration > 0:
+            end_sec = min(end_sec, start_sec + duration)
+    return max(start_sec, end_sec)
+
+
 def apply_material_results_to_plan(
     plan: dict[str, Any],
     *,
@@ -205,10 +258,17 @@ def apply_material_results_to_plan(
     render_root: Path | None = None,
 ) -> dict[str, Any]:
     results_by_action = {str(item.get("actionId")): item for item in results if item.get("actionId")}
-    by_slot: dict[str, MaterialResult] = {}
+    visual_by_slot: dict[str, MaterialResult] = {}
+    tts_by_slot: dict[str, MaterialResult] = {}
     for result in results:
-        if result.get("ok") and result.get("slotId"):
-            by_slot[str(result["slotId"])] = result
+        if not result.get("ok") or not result.get("slotId"):
+            continue
+        slot_id = str(result["slotId"])
+        provider = str(result.get("provider", ""))
+        if provider == "tts":
+            tts_by_slot[slot_id] = result
+        elif provider in VISUAL_MATERIAL_PROVIDERS:
+            visual_by_slot[slot_id] = result
 
     updated_actions: list[dict[str, Any]] = []
     for action in plan.get("completionActions", []):
@@ -229,7 +289,7 @@ def apply_material_results_to_plan(
                 continue
             merged_scene = dict(scene)
             slot_id = str(scene.get("slotId", ""))
-            result = by_slot.get(slot_id)
+            result = visual_by_slot.get(slot_id)
             if result and result.get("ok"):
                 merged_scene["source"] = "generated"
                 artifact = result.get("artifactRef") or {}
@@ -245,6 +305,7 @@ def apply_material_results_to_plan(
         plan.get("timeline", {}),
         results=results,
         render_root=render_root,
+        storyboard=plan.get("storyboard", []),
     )
     return plan
 
@@ -297,19 +358,28 @@ def _apply_generated_sources_to_timeline(
     *,
     results: list[MaterialResult],
     render_root: Path | None = None,
+    storyboard: list[Any] | None = None,
 ) -> dict[str, Any]:
-    by_slot: dict[str, MaterialResult] = {}
+    visual_by_slot: dict[str, MaterialResult] = {}
+    tts_by_slot: dict[str, MaterialResult] = {}
     for result in results:
-        if result.get("ok") and result.get("slotId"):
-            by_slot[str(result["slotId"])] = result
+        if not result.get("ok") or not result.get("slotId"):
+            continue
+        slot_id = str(result["slotId"])
+        provider = str(result.get("provider", ""))
+        if provider == "tts":
+            tts_by_slot[slot_id] = result
+        elif provider in VISUAL_MATERIAL_PROVIDERS:
+            visual_by_slot[slot_id] = result
 
     tracks = timeline.get("tracks", [])
     if not isinstance(tracks, list):
         return timeline
 
     video_track = _video_track(tracks)
+    scene_timing = _scene_timing_by_slot(storyboard or [])
 
-    for slot_id, result in by_slot.items():
+    for slot_id, result in visual_by_slot.items():
         artifact = result.get("artifactRef") or {}
         uri = str(artifact.get("uri", "")).strip()
         if not uri:
@@ -353,5 +423,48 @@ def _apply_generated_sources_to_timeline(
                     ]
                     video_track["clips"].append(clip)
                 break
+
+    voiceover_track = _voiceover_track(tracks)
+    vo_clips = voiceover_track.setdefault("clips", [])
+    vo_by_id = {
+        str(clip.get("id", "")): clip
+        for clip in vo_clips
+        if isinstance(clip, dict)
+    }
+
+    for slot_id, result in tts_by_slot.items():
+        artifact = result.get("artifactRef") or {}
+        uri = str(artifact.get("uri", "")).strip()
+        if not uri:
+            continue
+        source_ref = _material_source_ref(uri, render_root=render_root)
+        start_sec, storyboard_end_sec = scene_timing.get(slot_id, (0.0, 0.0))
+        wav_path: Path | None = None
+        if render_root is not None:
+            material_candidate = render_root / source_ref
+            if material_candidate.is_file():
+                wav_path = material_candidate
+        if wav_path is None:
+            uri_path = Path(uri)
+            if uri_path.is_file():
+                wav_path = uri_path
+        end_sec = _voiceover_end_sec(
+            start_sec=start_sec,
+            storyboard_end_sec=storyboard_end_sec,
+            wav_path=wav_path,
+        )
+        vo_id = f"vo-{slot_id}"
+        vo_clip = vo_by_id.get(vo_id) or {
+            "id": vo_id,
+            "startSec": start_sec,
+            "endSec": end_sec,
+        }
+        vo_clip["startSec"] = start_sec
+        vo_clip["endSec"] = end_sec
+        vo_clip["sourceRef"] = source_ref
+        vo_clip["generatedBy"] = {"provider": "tts"}
+        if vo_id not in vo_by_id:
+            vo_clips.append(vo_clip)
+            vo_by_id[vo_id] = vo_clip
 
     return timeline

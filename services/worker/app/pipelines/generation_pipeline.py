@@ -31,6 +31,96 @@ from app.validation.schema_loader import validate_contract
 TRACK_ORDER = ["video", "image", "text", "effect", "transition", "voiceover", "bgm"]
 
 
+def build_narration_actions(
+    storyboard: list[dict[str, Any]],
+    *,
+    skip_slot_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Add TTS completion actions for scenes with non-empty script (independent of visual gap)."""
+    skipped = skip_slot_ids or set()
+    actions: list[dict[str, Any]] = []
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            continue
+        slot_id = str(scene.get("slotId", ""))
+        if not slot_id or slot_id in skipped:
+            continue
+        script = str(scene.get("script", "")).strip()
+        if not script:
+            continue
+        actions.append(
+            {
+                "id": f"action-{slot_id}-tts",
+                "slotId": slot_id,
+                "strategy": "tts",
+                "provider": "tts",
+                "reason": "分镜口播合成",
+                "rationale": "分镜口播合成",
+                "outputRef": f"completion://{slot_id}/tts",
+            }
+        )
+    return actions
+
+
+def merge_script_subtitles_into_timeline(
+    timeline: dict[str, Any],
+    storyboard: list[dict[str, Any]],
+    packaging_plan: dict[str, Any],
+) -> dict[str, Any]:
+    """Append subtitle clips from storyboard.script; voiceover clips are filled after TTS."""
+    preset = "clean"
+    subtitle = packaging_plan.get("subtitle")
+    if isinstance(subtitle, dict) and subtitle.get("preset"):
+        preset = str(subtitle["preset"])
+    style_ref = f"style://subtitle/{preset}"
+
+    tracks = timeline.get("tracks", [])
+    if not isinstance(tracks, list):
+        return timeline
+
+    text_track: dict[str, Any] | None = None
+    for track in tracks:
+        if isinstance(track, dict) and track.get("type") == "text":
+            text_track = track
+            break
+    if text_track is None:
+        text_track = {"id": "track-text", "type": "text", "clips": []}
+        tracks.append(text_track)
+
+    clips = text_track.setdefault("clips", [])
+    existing_ids = {
+        str(clip.get("id", ""))
+        for clip in clips
+        if isinstance(clip, dict)
+    }
+
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            continue
+        slot_id = str(scene.get("slotId", ""))
+        script = str(scene.get("script", "")).strip()
+        if not slot_id or not script:
+            continue
+        subtitle_id = f"subtitle-{slot_id}"
+        if subtitle_id in existing_ids:
+            continue
+        clips.append(
+            {
+                "id": subtitle_id,
+                "startSec": float(scene["startSec"]),
+                "endSec": float(scene["endSec"]),
+                "content": script,
+                "styleRef": style_ref,
+            }
+        )
+        existing_ids.add(subtitle_id)
+
+    validation = validate_contract("render-timeline", timeline)
+    if not validation.valid:
+        raise ValueError(f"Invalid RenderTimeline payload: {validation.errors}")
+    return timeline
+
+
 def build_asset_inventory(
     *,
     project_id: str,
@@ -299,7 +389,7 @@ def assemble_generation_plan(
         for item in [*gap_report.get("weakSlots", []), *gap_report.get("missingSlots", [])]
     }
 
-    completion_actions = []
+    visual_actions: list[dict[str, Any]] = []
     for scene in storyboard:
         slot_id = scene["slotId"]
         if slot_id not in gap_by_slot:
@@ -307,7 +397,7 @@ def assemble_generation_plan(
         slot_gap = gap_by_slot[slot_id]
         fixes = list(slot_gap.get("suggestedFixes", []))
         strategy = fixes[0] if fixes else "hyperframes_material"
-        completion_actions.append(
+        visual_actions.append(
             {
                 "id": f"action-{slot_id}",
                 "slotId": slot_id,
@@ -319,6 +409,14 @@ def assemble_generation_plan(
             }
         )
 
+    tts_from_gap = {
+        str(action["slotId"])
+        for action in visual_actions
+        if str(action.get("provider") or action.get("strategy", "")) == "tts"
+    }
+    narration_actions = build_narration_actions(storyboard, skip_slot_ids=tts_from_gap)
+    completion_actions = visual_actions + narration_actions
+
     timeline = _build_timeline(
         storyboard=storyboard,
         slot_matches=matches_by_slot,
@@ -327,6 +425,11 @@ def assemble_generation_plan(
     )
     duration = max((scene["endSec"] for scene in storyboard), default=0.0)
     timeline["durationSec"] = duration
+    timeline = merge_script_subtitles_into_timeline(
+        timeline,
+        storyboard,
+        packaging_plan,
+    )
 
     plan = {
         "id": f"generation-plan-{structure['projectId']}",
@@ -532,14 +635,19 @@ def _build_timeline(
             elif lowered.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
                 clip["sourceRef"] = visual
                 tracks["image"]["clips"].append(clip)
+            elif "image" in slot.get("requiredAssetType", []) and "video" not in slot.get(
+                "requiredAssetType", []
+            ):
+                tracks["image"]["clips"].append(clip)
             else:
-                clip["content"] = scene["script"]
-                clip["styleRef"] = "style://packaging/default"
-                tracks["text"]["clips"].append(clip)
+                tracks["video"]["clips"].append(clip)
         else:
-            clip["content"] = scene["script"]
-            clip["styleRef"] = "style://packaging/default"
-            tracks["text"]["clips"].append(clip)
+            if "image" in slot.get("requiredAssetType", []) and "video" not in slot.get(
+                "requiredAssetType", []
+            ):
+                tracks["image"]["clips"].append(clip)
+            else:
+                tracks["video"]["clips"].append(clip)
 
     for current, nxt in zip(storyboard, storyboard[1:]):
         start = current["endSec"]

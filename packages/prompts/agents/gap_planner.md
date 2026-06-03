@@ -35,8 +35,10 @@ Provider selection rules (Python enforces after your output):
    - matched asset `type=video` → `asset_reuse` (trim existing video only)
    - matched asset `type=image` on visual slots (`hook_visual`, `product_closeup`, `usage_scene`) with per-slot quota → `video_generation` (image-to-video / i2v); else `image_generation`
 3. Visual slots without a video weak match: per-slot quota → `video_generation` (text-to-video / t2v); else `image_generation` (may chain `hyperframes_material` for motion)
-4. `scriptIntent` needs spoken VO → `tts`
+4. Non-visual slots whose `scriptIntent` needs spoken VO → `tts` (narration only; **not** a substitute for hook/product visual slots)
 5. Else → `hyperframes_material`
+
+**Narration vs visual:** Per-slot TTS/narration is planned separately from visual gap fixes. Your `suggestedFixes` should focus on **visual** completion (`video_generation`, `image_generation`, `hyperframes_material`, `asset_reuse`). Do not pick `tts` for visual roles (`hook_visual`, `product_closeup`, `usage_scene`) when the slot still needs a picture or video clip — narration can run alongside `video_generation` on the same slot.
 
 Do **not** suggest `asset_reuse` for image assets. Respect per-slot video quota (`videoGenMaxSlots`, `videoGenMaxPerSlot`).
 

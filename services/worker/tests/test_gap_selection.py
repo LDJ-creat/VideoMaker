@@ -152,6 +152,20 @@ def test_select_provider_tts_for_spoken_script() -> None:
     )
 
 
+def test_select_provider_visual_with_spoken_script_prefers_video() -> None:
+    slot = _slot(role="hook_visual", script_intent="需要口播解说开场")
+    assert (
+        select_provider(
+            slot,
+            weak_match=None,
+            quota=VideoGenQuota(max_slots=3, max_per_slot=1),
+            inventory={},
+            variant_overrides={},
+        )
+        == "video_generation"
+    )
+
+
 def test_select_provider_chain_adds_ken_burns_for_motion_image() -> None:
     slot = _slot(role="usage_scene", importance="must_have", required=["video", "image"])
     chain = select_provider_chain(

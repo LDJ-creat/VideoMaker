@@ -400,3 +400,130 @@ def test_run_generating_material_seeds_quota_from_gap_report(tmp_path: Path) -> 
     assert state_path.is_file()
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert payload["videoGenQuota"]["maxSlots"] == 2
+
+
+def test_apply_material_results_adds_voiceover_clip(tmp_path: Path) -> None:
+    from app.providers.completion_registry import apply_material_results_to_plan
+
+    wav_uri = str((tmp_path / "generated" / "slot-hook.wav").resolve())
+    (tmp_path / "generated").mkdir(parents=True, exist_ok=True)
+    Path(wav_uri).write_bytes(b"RIFF----WAVE")
+
+    render_root = tmp_path / "renders" / "gen-1"
+    plan = {
+        "storyboard": [
+            {
+                "id": "scene-1",
+                "slotId": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 5.0,
+                "visual": "hook",
+                "script": "hello narration",
+                "source": "text_completion",
+            }
+        ],
+        "completionActions": [
+            _action("action-hook-tts", "slot-hook", "tts"),
+        ],
+        "timeline": {
+            "durationSec": 5.0,
+            "tracks": [
+                {"id": "track-video", "type": "video", "clips": []},
+                {"id": "track-text", "type": "text", "clips": []},
+                {"id": "track-voiceover", "type": "voiceover", "clips": []},
+            ],
+        },
+    }
+    results = [
+        {
+            "ok": True,
+            "actionId": "action-hook-tts",
+            "slotId": "slot-hook",
+            "provider": "tts",
+            "artifactRef": {"id": "a1", "type": "audio", "uri": wav_uri},
+        }
+    ]
+    updated = apply_material_results_to_plan(plan, results=results, render_root=render_root)
+    vo_track = next(t for t in updated["timeline"]["tracks"] if t["type"] == "voiceover")
+    assert len(vo_track["clips"]) == 1
+    assert vo_track["clips"][0]["sourceRef"] == "materials/slot-hook.wav"
+    assert vo_track["clips"][0]["startSec"] == 0.0
+    assert (render_root / "materials" / "slot-hook.wav").is_file()
+    assert updated["storyboard"][0]["source"] == "text_completion"
+
+
+def test_apply_material_clamps_voiceover_end_to_wav_duration(tmp_path: Path) -> None:
+    from app.providers.completion_registry import apply_material_results_to_plan
+    import struct
+    import wave
+
+    wav_path = tmp_path / "generated" / "slot-hook.wav"
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(24000)
+        handle.writeframes(struct.pack("<h", 0) * 24000)
+
+    render_root = tmp_path / "renders" / "gen-1"
+    plan = {
+        "storyboard": [
+            {
+                "id": "scene-1",
+                "slotId": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 10.0,
+                "script": "hello",
+            }
+        ],
+        "completionActions": [],
+        "timeline": {
+            "durationSec": 10.0,
+            "tracks": [{"id": "track-voiceover", "type": "voiceover", "clips": []}],
+        },
+    }
+    results = [
+        {
+            "ok": True,
+            "actionId": "action-hook-tts",
+            "slotId": "slot-hook",
+            "provider": "tts",
+            "artifactRef": {"id": "a1", "type": "audio", "uri": str(wav_path.resolve())},
+        }
+    ]
+    updated = apply_material_results_to_plan(plan, results=results, render_root=render_root)
+    vo_clip = updated["timeline"]["tracks"][0]["clips"][0]
+    assert vo_clip["startSec"] == 0.0
+    assert vo_clip["endSec"] == 1.0
+
+
+def test_execute_tts_action(tmp_path: Path) -> None:
+    wav = b"RIFF----WAVEfmt "
+    gateway = MagicMock()
+    gateway.synthesize_speech.return_value = wav
+    ctx = _make_ctx(
+        tmp_path,
+        gateway=gateway,
+        storyboard=[
+            {
+                "id": "scene-1",
+                "slotId": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 3.0,
+                "visual": "hook",
+                "script": "你好，这是口播",
+                "source": "text_completion",
+            }
+        ],
+    )
+    register_default_providers(ctx)
+
+    results = execute_completion_plan(
+        [_action("action-hook-tts", "slot-hook", "tts")],
+        ctx,
+    )
+
+    assert len(results) == 1
+    assert results[0]["ok"] is True
+    assert results[0]["artifactRef"]["type"] == "audio"
+    assert Path(results[0]["artifactRef"]["uri"]).exists()
