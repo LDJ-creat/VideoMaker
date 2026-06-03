@@ -21,8 +21,8 @@ variants:
         ctaWeight: high
         subtitleDensity: high
       gap_planner:
-        preferProviders: [hyperframes_material, image_generation]
-        videoGenPriority: low
+        preferProviders: [hyperframes_material, video_generation, image_generation]
+        videoGenPriority: high
   fast_paced:
     label: 高节奏版
     enabled: false
