@@ -33,8 +33,10 @@ def test_write_composition_generates_deterministic_outputs(tmp_path: Path) -> No
     assert "window.__videomakerTimeline" in html
     assert "Hello &amp; Intro" in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
-    assert 'data-track="video"' in html
-    assert 'data-start-ms="2500"' in html
+    assert 'data-composition-id="videomaker-main"' in html
+    assert 'data-start="2.5"' in html
+    assert 'data-duration="0.5"' in html
+    assert "window.__timelines" in html
     assert "transition-fade" in html
     assert timeline_json["tracks"][0]["type"] == "video"
     assert 'src="../assets/video.mp4"' in html
