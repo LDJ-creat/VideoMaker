@@ -125,12 +125,15 @@ export type UploadResponse = {
 
 export type GenerationResponse = GenerationPlan & {
   gapReport?: GapReport;
+  renderVideoUrl?: string;
 };
 
 export type LatestGenerationEntry = {
   generationId: string;
   variant: string;
   plan: GenerationResponse;
+  /** Present when renders/{generationId}/output.mp4 exists on the API storage volume. */
+  renderVideoUrl?: string;
 };
 
 export type LatestGenerationsResponse = {

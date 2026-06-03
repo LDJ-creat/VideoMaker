@@ -38,9 +38,27 @@ export function formatP1TaskError(error: ToolError): FormattedTaskError | null {
     case "video_quota_exceeded":
       return {
         title: "生视频配额已用完",
-        hint: "本条生成已用完 1 次生视频配额，可改用图片素材或重试其他变体。",
+        hint: "该结构槽位已用完视频生成配额（默认每槽 1 次），可改用图片素材或 HyperFrames 动效。",
         technical: error.message,
       };
+    case "video_generation_failed":
+      return {
+        title: "AI 视频生成失败",
+        hint:
+          error.message?.includes("404")
+            ? "视频 API 返回 404：请确认模型服务中「视频」Provider 的 Base URL 为 DashScope，且模型为 Wan 视频模型（如 wan2.6-t2v / wan2.6-i2v-flash），不要使用生图模型。"
+            : "请检查视频 Provider 配置、API Key 与模型名称，或在环境变量中设置 VIDEOMAKER_VIDEO_GEN_FALLBACK=image_generation 启用降级。",
+        technical: error.message,
+      };
+    case "generation_failed":
+      if (error.message && error.message !== "Worker task failed") {
+        return {
+          title: "生成任务失败",
+          hint: "请查看下方技术详情，修正配置后点击重试。",
+          technical: error.message,
+        };
+      }
+      return null;
     case "hyperframes_missing":
       return {
         title: "HyperFrames 未安装",

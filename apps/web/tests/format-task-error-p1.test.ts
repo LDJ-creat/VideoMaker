@@ -19,7 +19,17 @@ describe("formatTaskError P1 codes", () => {
       message: "quota used",
       retryable: false,
     });
-    expect(result?.hint).toMatch(/1 次生视频配额/);
+    expect(result?.hint).toMatch(/每槽 1 次/);
+  });
+
+  it("maps video_generation_failed with dashscope hint", () => {
+    const result = formatTaskError({
+      code: "video_generation_failed",
+      message: "HTTP 404: ",
+      retryable: true,
+    });
+    expect(result?.title).toBe("AI 视频生成失败");
+    expect(result?.hint).toMatch(/404/);
   });
 
   it("maps hyperframes_missing", () => {

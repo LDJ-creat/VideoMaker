@@ -16,6 +16,7 @@ export type VariantGenerationTab = {
   variant: string;
   label?: string;
   plan?: GenerationPlan | null;
+  renderVideoUrl?: string;
 };
 
 type VariantTabsProps = {
@@ -62,7 +63,11 @@ export function VariantTabs({
           {loading && !tab.plan ? (
             <p className="text-sm text-muted-foreground">正在加载变体结果…</p>
           ) : tab.plan ? (
-            <GenerationResultView plan={tab.plan} showTimeline />
+            <GenerationResultView
+              plan={tab.plan}
+              showTimeline
+              videoHref={tab.renderVideoUrl}
+            />
           ) : (
             <p className="text-sm text-muted-foreground">
               变体 {tab.label ?? tab.variant} 暂无计划数据

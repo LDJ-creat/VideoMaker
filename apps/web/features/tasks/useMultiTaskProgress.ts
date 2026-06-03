@@ -4,6 +4,7 @@ import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
+import { preferTaskError } from "@/lib/taskEventMerge";
 
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 
@@ -86,7 +87,9 @@ export function useMultiTaskProgress({
   const allTerminalNotifiedRef = useRef(false);
 
   const applyEvent = useCallback((next: TaskEvent) => {
-    const merged = { ...eventsRef.current, [next.taskId]: next };
+    const previous = eventsRef.current[next.taskId] ?? null;
+    const mergedEvent = preferTaskError(previous, next);
+    const merged = { ...eventsRef.current, [next.taskId]: mergedEvent };
     eventsRef.current = merged;
     setEvents(merged);
     setError(null);

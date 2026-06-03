@@ -4,6 +4,7 @@ import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
+import { preferTaskError } from "@/lib/taskEventMerge";
 
 const SSE_FAILURE_THRESHOLD = 3;
 const POLL_INTERVAL_MS = 3000;
@@ -77,7 +78,7 @@ export function useTaskProgress({
 
   const applyEvent = useCallback(
     (next: TaskEvent) => {
-      setEvent(next);
+      setEvent((previous) => preferTaskError(previous, next));
       setError(null);
       handleTerminal(next);
     },

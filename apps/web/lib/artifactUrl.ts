@@ -30,3 +30,36 @@ export function artifactDisplayUrl(
 
   return null;
 }
+
+/** Browser URL for HyperFrames composition player (preferred for inline preview). */
+export function generationCompositionPreviewUrl(
+  projectId: string,
+  generationId: string,
+): string {
+  const segments = ["renders", generationId, "composition", "index.html"]
+    .map(encodeURIComponent)
+    .join("/");
+  return `/api/projects/${projectId}/media/file/${segments}`;
+}
+
+/** Browser URL for HyperFrames preview.html wrapper (iframe shell). */
+export function generationRenderPreviewUrl(
+  projectId: string,
+  generationId: string,
+): string {
+  const segments = ["renders", generationId, "preview.html"]
+    .map(encodeURIComponent)
+    .join("/");
+  return `/api/projects/${projectId}/media/file/${segments}`;
+}
+
+/** Browser URL for rendered demo MP4 when the HyperFrames CLI produced output.mp4 */
+export function generationRenderVideoUrl(
+  projectId: string,
+  generationId: string,
+): string {
+  const segments = ["renders", generationId, "output.mp4"]
+    .map(encodeURIComponent)
+    .join("/");
+  return `/api/projects/${projectId}/media/file/${segments}`;
+}
