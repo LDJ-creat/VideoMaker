@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.gateway.providers.base import GatewayError, ProviderConfig
+from app.gateway.providers.dashscope_tts import _is_dashscope_host, synthesize_dashscope
 
 
 class OpenAICompatibleTTSProvider:
@@ -39,17 +40,27 @@ class OpenAICompatibleTTSProvider:
         model = str(opts.get("model", self.config.model))
 
         base = self.config.base_url.rstrip("/")
-        url = f"{base}/audio/speech"
-        body = {"model": model, "input": text, "voice": voice}
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        started = time.perf_counter()
         owns_client = self._client is None
         client = self._get_client()
+        started = time.perf_counter()
         try:
+            if _is_dashscope_host(base):
+                result = synthesize_dashscope(
+                    self.config,
+                    text,
+                    options=opts,
+                    client=client,
+                )
+                self.last_latency_ms = int((time.perf_counter() - started) * 1000)
+                return result
+
+            url = f"{base}/audio/speech"
+            body = {"model": model, "input": text, "voice": voice}
+            headers = {
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json",
+            }
+
             try:
                 response = client.post(url, headers=headers, json=body)
             except httpx.HTTPError as exc:
