@@ -252,7 +252,7 @@ API：`GET /api/projects/{id}/assets` 返回元数据；完整 inventory 在 gen
 | G3 | 时间线 / 结果 | 至少 **1 段 AI 生成视频** clip（Live）或 fixture 占位 artifact |
 | G4 | HyperFrames 包装 | timeline 或 gap 中含 **hyperframes_material** 产物；benefit card / 包装片段 |
 | G5 | 打开 HF preview | `storage/.../generations/{id}/render/preview.html` 可访问（或 UI 外链） |
-| G6 | TTS | 最终 preview **可听到配音**（Live）；或 fixture `.wav` artifact |
+| G6 | TTS / 字幕 | `generated/slot*.wav` 非空；`composition/timeline.json` 含 voiceover + text 字幕轨；最终 `output.mp4` **可听到旁白、可见底部分镜字幕**（Live）；fixture 模式至少存在 `.wav` artifact |
 | G7 | HF CLI 缺失（可选） | 任务可失败或跳过并显示 **HyperFrames 未安装**（`hyperframes_missing`） |
 
 磁盘关键路径：
@@ -263,8 +263,10 @@ storage/projects/{projectId}/generations/{generationId}/
   gap-report.json
   generation-plan.json
   render-timeline.json
-  materials/          # AIGC / HF 片段
+  materials/          # AIGC / HF 片段 + slot*.wav 旁白
+  generated/slot*.wav # TTS 按槽产物
   render/preview.html
+  render/output.mp4   # 含 voiceover + 字幕混流
   agent-runs/         # 可选
   checkpoint.json
 ```
