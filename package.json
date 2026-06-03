@@ -1,0 +1,16 @@
+{
+  "name": "videomaker",
+  "private": true,
+  "description": "VideoMaker monorepo tooling (HyperFrames CLI for worker render)",
+  "scripts": {
+    "hyperframes": "hyperframes",
+    "hyperframes:doctor": "hyperframes doctor",
+    "hyperframes:version": "hyperframes --version"
+  },
+  "devDependencies": {
+    "hyperframes": "^0.6.64"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
