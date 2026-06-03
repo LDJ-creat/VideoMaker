@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { slotHighlightClass } from "@/features/structure-evidence/StructureEvidencePanel";
+import { isDuplicateText } from "@/lib/keyframePreview";
 import { cn } from "@/lib/utils";
 
 type StructureSlotBoardProps = {
@@ -31,7 +32,12 @@ export function StructureSlotBoard({
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
-        {structure.slots.map((slot) => (
+        {structure.slots.map((slot) => {
+          const showScriptIntent = !isDuplicateText(
+            slot.visualIntent,
+            slot.scriptIntent,
+          );
+          return (
           <div
             key={slot.id}
             data-testid={`structure-slot-${slot.id}`}
@@ -47,9 +53,11 @@ export function StructureSlotBoard({
               </span>
             </div>
             <p className="text-sm font-medium">{slot.visualIntent}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {slot.scriptIntent}
-            </p>
+            {showScriptIntent ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                口播意图：{slot.scriptIntent}
+              </p>
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-1">
               {slot.requiredAssetType.map((type) => (
                 <Badge key={type} variant="secondary" className="text-[10px]">
@@ -58,7 +66,8 @@ export function StructureSlotBoard({
               ))}
             </div>
           </div>
-        ))}
+        );
+        })}
       </CardContent>
     </Card>
   );

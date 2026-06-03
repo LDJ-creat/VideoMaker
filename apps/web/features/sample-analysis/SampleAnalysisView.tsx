@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { isDuplicateText } from "@/lib/keyframePreview";
 
 type SampleAnalysisViewProps = {
   structure: VideoStructure;
@@ -31,23 +32,31 @@ export function SampleAnalysisView({ structure }: SampleAnalysisViewProps) {
           </Badge>
         </div>
         <div className="grid gap-3">
-          {structure.narrative.segments.map((segment) => (
-            <div
-              key={segment.id}
-              className="rounded-lg border border-border p-3"
-            >
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <Badge variant="secondary">{segment.role}</Badge>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {segment.startSec}s – {segment.endSec}s
-                </span>
+          {structure.narrative.segments.map((segment) => {
+            const showScriptSummary = !isDuplicateText(
+              segment.visualSummary,
+              segment.scriptSummary,
+            );
+            return (
+              <div
+                key={segment.id}
+                className="rounded-lg border border-border p-3"
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <Badge variant="secondary">{segment.role}</Badge>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {segment.startSec}s – {segment.endSec}s
+                  </span>
+                </div>
+                <p className="text-sm font-medium">{segment.visualSummary}</p>
+                {showScriptSummary ? (
+                  <p className="text-sm text-muted-foreground">
+                    {segment.scriptSummary}
+                  </p>
+                ) : null}
               </div>
-              <p className="text-sm font-medium">{segment.visualSummary}</p>
-              <p className="text-sm text-muted-foreground">
-                {segment.scriptSummary}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>

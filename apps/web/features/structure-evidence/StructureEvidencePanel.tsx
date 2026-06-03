@@ -11,6 +11,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  type SampleKeyframe,
+  isDuplicateText,
+  resolveSegmentKeyframePreview,
+} from "@/lib/keyframePreview";
 import { cn } from "@/lib/utils";
 
 import { EvidenceCard } from "./EvidenceCard";
@@ -19,6 +24,7 @@ export type SegmentEvidenceView = {
   segment: NarrativeSegment;
   transcriptExcerpt?: string;
   keyframeLabel?: string;
+  keyframePreviewUrl?: string | null;
   shotRanges: Array<{ startSec: number; endSec: number }>;
   relatedSlotIds: string[];
 };
@@ -27,6 +33,9 @@ const ANALYSIS_STAGES: TaskStage[] = ["extracting_structure", "running_agent"];
 
 type StructureEvidencePanelProps = {
   structure: VideoStructure;
+  projectId?: string;
+  sampleId?: string | null;
+  keyframes?: SampleKeyframe[];
   highlightedSlotIds?: string[];
   onHighlightSlot?: (slotId: string) => void;
   analysisStage?: TaskStage | null;
@@ -34,7 +43,14 @@ type StructureEvidencePanelProps = {
 
 export function buildSegmentEvidenceViews(
   structure: VideoStructure,
+  options?: {
+    projectId?: string;
+    sampleId?: string | null;
+    keyframes?: SampleKeyframe[];
+  },
 ): SegmentEvidenceView[] {
+  const { projectId, sampleId, keyframes = [] } = options ?? {};
+
   return structure.narrative.segments.map((segment) => {
     const relatedSlotIds = structure.slots
       .filter((slot) => slot.segmentId === segment.id)
@@ -49,9 +65,20 @@ export function buildSegmentEvidenceViews(
       (item) => item.source === "asr",
     )?.summary;
 
-    const keyframeLabel = segmentEvidence.find(
+    const keyframeEvidence = segmentEvidence.find(
       (item) => item.source === "keyframe",
-    )?.summary;
+    );
+    const keyframeLabel = keyframeEvidence?.summary;
+    const keyframePreviewUrl =
+      projectId && sampleId
+        ? resolveSegmentKeyframePreview(
+            projectId,
+            sampleId,
+            keyframes,
+            segment,
+            keyframeEvidence?.summary,
+          )
+        : null;
 
     const shotRanges = structure.rhythm.shotBoundaries.filter(
       (shot) => shot.startSec < segment.endSec && shot.endSec > segment.startSec,
@@ -61,6 +88,7 @@ export function buildSegmentEvidenceViews(
       segment,
       transcriptExcerpt,
       keyframeLabel,
+      keyframePreviewUrl,
       shotRanges,
       relatedSlotIds,
     };
@@ -69,13 +97,20 @@ export function buildSegmentEvidenceViews(
 
 export function StructureEvidencePanel({
   structure,
+  projectId,
+  sampleId,
+  keyframes = [],
   highlightedSlotIds = [],
   onHighlightSlot,
   analysisStage,
 }: StructureEvidencePanelProps) {
   const isAnalyzing =
     analysisStage != null && ANALYSIS_STAGES.includes(analysisStage);
-  const views = buildSegmentEvidenceViews(structure);
+  const views = buildSegmentEvidenceViews(structure, {
+    projectId,
+    sampleId,
+    keyframes,
+  });
 
   return (
     <Card data-testid="structure-evidence-panel">

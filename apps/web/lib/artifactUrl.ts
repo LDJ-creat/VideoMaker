@@ -53,6 +53,20 @@ export function generationRenderPreviewUrl(
   return `/api/projects/${projectId}/media/file/${segments}`;
 }
 
+/** Browser URL for a project storage file under `projects/{projectId}/`. */
+export function projectFileMediaUrl(
+  projectId: string,
+  relativePath: string,
+): string {
+  const segments = relativePath
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+  return `/api/projects/${projectId}/media/file/${segments}`;
+}
+
 /** Browser URL for rendered demo MP4 when the HyperFrames CLI produced output.mp4 */
 export function generationRenderVideoUrl(
   projectId: string,

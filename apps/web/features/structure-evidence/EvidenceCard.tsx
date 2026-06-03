@@ -1,8 +1,10 @@
 "use client";
 
 import { ImageIcon } from "lucide-react";
+import Image from "next/image";
 
 import { Badge } from "@/components/ui/badge";
+import { isDuplicateText } from "@/lib/keyframePreview";
 import { cn } from "@/lib/utils";
 
 import type { SegmentEvidenceView } from "./StructureEvidencePanel";
@@ -14,7 +16,11 @@ type EvidenceCardProps = {
 };
 
 export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps) {
-  const { segment, transcriptExcerpt, keyframeLabel, shotRanges } = view;
+  const { segment, transcriptExcerpt, keyframeLabel, keyframePreviewUrl, shotRanges } =
+    view;
+  const showIntent =
+    segment.intent.trim().length > 0 &&
+    !isDuplicateText(segment.role, segment.intent);
 
   return (
     <button
@@ -33,16 +39,29 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
             {segment.startSec}–{segment.endSec}s
           </span>
         </div>
-        <span className="text-xs text-muted-foreground">{segment.intent}</span>
+        {showIntent ? (
+          <span className="text-xs text-muted-foreground">{segment.intent}</span>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-[96px_1fr]">
         <div
-          className="flex h-16 w-full items-center justify-center rounded-md border border-dashed border-border bg-background/60 text-muted-foreground"
+          className="relative flex h-16 w-full items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-background/60 text-muted-foreground"
           aria-label={keyframeLabel ?? "关键帧占位"}
           title={keyframeLabel}
         >
-          <ImageIcon className="h-5 w-5" aria-hidden />
+          {keyframePreviewUrl ? (
+            <Image
+              src={keyframePreviewUrl}
+              alt={keyframeLabel ?? `${segment.role} 关键帧`}
+              fill
+              className="object-cover"
+              sizes="96px"
+              unoptimized
+            />
+          ) : (
+            <ImageIcon className="h-5 w-5" aria-hidden />
+          )}
         </div>
 
         <div className="space-y-2 text-sm">
@@ -55,9 +74,9 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
           ) : (
             <p className="text-xs text-muted-foreground">暂无转写摘录</p>
           )}
-          {keyframeLabel && (
+          {keyframeLabel && !keyframePreviewUrl ? (
             <p className="text-xs text-muted-foreground">关键帧：{keyframeLabel}</p>
-          )}
+          ) : null}
           {shotRanges.length > 0 && (
             <p className="font-mono text-xs text-muted-foreground">
               镜头：{" "}

@@ -404,6 +404,19 @@ export async function getSampleAnalysis(
   return apiFetch(`/api/samples/${sampleId}/analysis`);
 }
 
+export type SampleKeyframeRecord = {
+  timeSec: number;
+  score: number;
+  relativePath: string;
+  previewUrl: string;
+};
+
+export async function getSampleKeyframes(
+  sampleId: string,
+): Promise<ApiResult<{ sampleId: string; keyframes: SampleKeyframeRecord[] }>> {
+  return apiFetch(`/api/samples/${sampleId}/keyframes`);
+}
+
 export function getTaskEventsUrl(taskId: string): string {
   return `/api/tasks/${taskId}/events`;
 }
