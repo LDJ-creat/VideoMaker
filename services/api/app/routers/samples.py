@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
+from app.services.sample_keyframes import load_sample_keyframes
 from app.services.task_events import TaskEventService
 
 router = APIRouter(prefix="/api/samples", tags=["samples"])
@@ -82,3 +83,17 @@ def get_sample_structure(sample_id: str, request: Request) -> dict[str, Any]:
 @router.get("/{sample_id}/analysis")
 def get_sample_analysis(sample_id: str, request: Request) -> dict[str, Any]:
     return get_sample_structure(sample_id, request)
+
+
+@router.get("/{sample_id}/keyframes")
+def get_sample_keyframes(sample_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    sample = store.get_sample(sample_id)
+    if sample is None:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    keyframes = load_sample_keyframes(
+        request.app.state.storage_root,
+        project_id=str(sample["projectId"]),
+        sample_id=sample_id,
+    )
+    return {"sampleId": sample_id, "keyframes": keyframes}

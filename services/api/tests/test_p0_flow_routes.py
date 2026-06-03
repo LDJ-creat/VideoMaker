@@ -105,6 +105,7 @@ class FakeDemoPipeline:
             "inventoryId": inventory["id"],
             "gapReportId": gap_report["id"],
             "variant": variant,
+            "masterNarration": "",
             "storyboard": [],
             "timeline": {"durationSec": 10.0, "tracks": []},
             "packagingPlan": {
