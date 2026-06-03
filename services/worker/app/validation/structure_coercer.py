@@ -126,6 +126,105 @@ def _ensure_segment_evidence(
     return normalized
 
 
+def _analysis_root_from_keyframes(analysis: dict[str, Any]) -> Path | None:
+    keyframes = analysis.get("keyframes")
+    if not isinstance(keyframes, list) or not keyframes:
+        return None
+    first = keyframes[0]
+    if not isinstance(first, dict):
+        return None
+    raw_path = str(first.get("path", "")).strip()
+    if not raw_path:
+        return None
+    path = Path(raw_path.replace("\\", "/"))
+    parts = path.parts
+    if "analysis" in parts:
+        index = parts.index("analysis")
+        return Path(*parts[: index + 1])
+    return None
+
+
+def _keyframe_relative_path(path_value: str, *, analysis_root: Path | None) -> str | None:
+    raw = str(path_value).strip().replace("\\", "/")
+    if not raw:
+        return None
+    if raw.startswith("keyframes/"):
+        return raw
+    candidate = Path(path_value)
+    if candidate.is_file() and analysis_root is not None:
+        try:
+            return candidate.resolve().relative_to(analysis_root.resolve()).as_posix()
+        except ValueError:
+            pass
+    marker = "/analysis/"
+    if marker in raw:
+        suffix = raw.split(marker, 1)[1]
+        if suffix.startswith("keyframes/"):
+            return suffix
+    name = Path(raw).name
+    return f"keyframes/{name}" if name else None
+
+
+def _attach_keyframe_evidence(
+    evidence: list[dict[str, Any]],
+    *,
+    segments: list[dict[str, Any]],
+    keyframes: list[dict[str, Any]],
+    analysis_root: Path | None,
+) -> list[dict[str, Any]]:
+    if not keyframes:
+        return evidence
+
+    has_keyframe = any(item.get("source") == "keyframe" for item in evidence)
+    if has_keyframe:
+        return evidence
+
+    normalized = list(evidence)
+    for segment in segments:
+        segment_id = str(segment.get("id", ""))
+        if not segment_id:
+            continue
+        start = float(segment.get("startSec", 0.0))
+        end = float(segment.get("endSec", start))
+        best: dict[str, Any] | None = None
+        for frame in keyframes:
+            if not isinstance(frame, dict):
+                continue
+            time_sec = float(frame.get("timeSec", -1.0))
+            if time_sec < start or time_sec > end:
+                continue
+            score = float(frame.get("score", 0.0))
+            if best is None or score > float(best.get("score", 0.0)):
+                best = frame
+        if best is None:
+            midpoint = (start + end) / 2.0
+            for frame in keyframes:
+                if not isinstance(frame, dict):
+                    continue
+                distance = abs(float(frame.get("timeSec", 0.0)) - midpoint)
+                score = float(frame.get("score", 0.0))
+                if best is None:
+                    best = {**frame, "_distance": distance}
+                    continue
+                best_distance = float(best.get("_distance", 1e9))
+                if distance < best_distance or (distance == best_distance and score > float(best.get("score", 0.0))):
+                    best = {**frame, "_distance": distance}
+        if best is None:
+            continue
+        rel = _keyframe_relative_path(str(best.get("path", "")), analysis_root=analysis_root)
+        if rel is None:
+            continue
+        normalized.append(
+            {
+                "targetId": segment_id,
+                "source": "keyframe",
+                "summary": rel,
+                "confidence": min(0.99, max(0.5, float(best.get("score", 0.75)))),
+            }
+        )
+    return normalized
+
+
 def _normalize_slot_role(role: str) -> str:
     normalized = _SLOT_ROLE_ALIASES.get(role, role)
     allowed = {
@@ -330,9 +429,14 @@ def coerce_video_structure(
 
     coerced["slots"] = _normalize_slots(list(payload.get("slots") or []), segments_by_id=segments_by_id)
 
-    coerced["evidence"] = _ensure_segment_evidence(
-        list(payload.get("evidence") or []),
+    coerced["evidence"] = _attach_keyframe_evidence(
+        _ensure_segment_evidence(
+            list(payload.get("evidence") or []),
+            segments=segments,
+        ),
         segments=segments,
+        keyframes=list(analysis.get("keyframes") or []),
+        analysis_root=_analysis_root_from_keyframes(analysis),
     )
     coerced["confidence"] = float(payload.get("confidence", 0.75))
     return coerced
