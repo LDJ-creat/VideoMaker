@@ -108,6 +108,12 @@ describe("ProjectWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "时间线" }));
     expect(screen.getByText(/时间线预览/i)).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "全片口播" }));
+    expect(
+      screen.getByRole("heading", { name: "全片口播" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("master-narration-text")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "结果" }));
     expect(screen.getByText(/生成结果/i)).toBeInTheDocument();
 

@@ -38,6 +38,8 @@ export const fixtureReviseTaskEvent: TaskEvent = {
 export const fixtureGenerationPlanRevised: GenerationPlan = {
   ...fixtureGenerationPlan,
   id: "gen-demo-revise-001",
+  masterNarration:
+    "3 秒 hook：还在被晒黑？轻薄 SPF50+，一喷成膜不黏腻。限时第二件半价，评论区领券。",
   storyboard: fixtureGenerationPlan.storyboard.map((scene, index) =>
     index === 0
       ? {

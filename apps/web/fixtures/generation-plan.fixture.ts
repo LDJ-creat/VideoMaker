@@ -7,6 +7,8 @@ export const fixtureGenerationPlan: GenerationPlan = {
   inventoryId: "inv-demo-001",
   gapReportId: "gap-demo-001",
   variant: "high_conversion",
+  masterNarration:
+    "夏天出门还在被晒黑？轻薄 SPF50+，一喷成膜不黏腻。限时第二件半价，评论区领券。",
   storyboard: [
     {
       id: "scene-1",
@@ -44,8 +46,14 @@ export const fixtureGenerationPlan: GenerationPlan = {
         type: "video",
         clips: [
           {
-            id: "clip-v1",
+            id: "clip-slot-hook-visual",
             startSec: 0,
+            endSec: 3,
+            sourceRef: "asset-user-02",
+          },
+          {
+            id: "clip-slot-product",
+            startSec: 3,
             endSec: 12,
             sourceRef: "asset-user-02",
           },
@@ -121,6 +129,16 @@ export const fixtureGenerationPlan: GenerationPlan = {
               model: "dall-e-3",
             },
           },
+          {
+            id: "clip-slot-cta",
+            startSec: 18,
+            endSec: 28,
+            sourceRef: "cta-card.png",
+            generatedBy: {
+              provider: "hyperframes_material",
+              template: "benefit-card",
+            },
+          },
         ],
       },
       {
@@ -157,13 +175,19 @@ export const fixtureGenerationPlan: GenerationPlan = {
   },
   completionActions: [
     {
-      id: "action-1",
+      id: "action-cta",
       slotId: "slot-cta",
       strategy: "packaging_completion",
       reason: "缺少 CTA 包装素材",
       outputRef: "pack-cta-001",
       provider: "hyperframes_material",
       rationale: "HyperFrames benefit-card 模板补全 CTA 贴纸",
+      artifactRef: {
+        id: "art-cta-card",
+        type: "image",
+        uri: "storage/projects/proj-demo-001/renders/gen-demo-001/materials/cta-card.png",
+        createdAt: "2026-05-29T12:00:00.000Z",
+      },
     },
     {
       id: "action-2",

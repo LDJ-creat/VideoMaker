@@ -1,6 +1,7 @@
 "use client";
 
 import type { GenerationPlan } from "@videomaker/contracts";
+import type { ReactNode } from "react";
 
 import {
   Tabs,
@@ -24,6 +25,7 @@ type VariantTabsProps = {
   activeGenerationId: string;
   onActiveChange: (generationId: string) => void;
   loading?: boolean;
+  renderPlan?: (plan: GenerationPlan, tab: VariantGenerationTab) => ReactNode;
 };
 
 export function VariantTabs({
@@ -31,6 +33,7 @@ export function VariantTabs({
   activeGenerationId,
   onActiveChange,
   loading,
+  renderPlan,
 }: VariantTabsProps) {
   if (tabs.length === 0) {
     return (
@@ -63,11 +66,15 @@ export function VariantTabs({
           {loading && !tab.plan ? (
             <p className="text-sm text-muted-foreground">正在加载变体结果…</p>
           ) : tab.plan ? (
-            <GenerationResultView
-              plan={tab.plan}
-              showTimeline
-              videoHref={tab.renderVideoUrl}
-            />
+            renderPlan ? (
+              renderPlan(tab.plan, tab)
+            ) : (
+              <GenerationResultView
+                plan={tab.plan}
+                showTimeline
+                videoHref={tab.renderVideoUrl}
+              />
+            )
           ) : (
             <p className="text-sm text-muted-foreground">
               变体 {tab.label ?? tab.variant} 暂无计划数据

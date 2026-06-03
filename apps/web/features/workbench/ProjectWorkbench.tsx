@@ -20,6 +20,7 @@ import {
 import { VariantCompareView } from "@/features/generation-variants/VariantCompareView";
 import { VariantTabs } from "@/features/generation-variants/VariantTabs";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
+import { MasterNarrationPanel } from "@/features/master-narration/MasterNarrationPanel";
 import { EditIntentList } from "@/features/nl-revise/EditIntentList";
 import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
 import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
@@ -59,6 +60,7 @@ import {
   getBrief,
   getGeneration,
   getLatestGenerations,
+  getSampleKeyframes,
   getSampleStructure,
   getTask,
   getVariantLabel,
@@ -68,6 +70,7 @@ import {
   reviseGeneration,
   saveBrief,
   startSampleAnalysis,
+  type SampleKeyframeRecord,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -82,6 +85,7 @@ export type WorkbenchPanel =
   | "structure"
   | "gap"
   | "timeline"
+  | "narration"
   | "result";
 
 const PANEL_LABELS: Record<WorkbenchPanel, string> = {
@@ -91,6 +95,7 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   structure: "结构槽",
   gap: "缺口",
   timeline: "时间线",
+  narration: "全片口播",
   result: "结果",
 };
 
@@ -175,6 +180,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const [structure, setStructure] = useState<VideoStructure | null>(null);
+  const [sampleKeyframes, setSampleKeyframes] = useState<SampleKeyframeRecord[]>(
+    [],
+  );
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [renderVideoByGenerationId, setRenderVideoByGenerationId] = useState<
     Record<string, string>
@@ -210,9 +218,13 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataLoading(true);
     setDataError(null);
     try {
-      const { data, meta } = await getSampleStructure(currentSampleId);
-      setStructure(data);
-      setDataSource(meta.dataSource);
+      const [structureResult, keyframesResult] = await Promise.all([
+        getSampleStructure(currentSampleId),
+        getSampleKeyframes(currentSampleId),
+      ]);
+      setStructure(structureResult.data);
+      setSampleKeyframes(keyframesResult.data.keyframes ?? []);
+      setDataSource(structureResult.meta.dataSource);
     } catch (err) {
       setDataError(getErrorMessage(err));
     } finally {
@@ -706,6 +718,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     "structure",
     "gap",
     "timeline",
+    "narration",
     "result",
   ];
 
@@ -871,6 +884,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               <>
                 <StructureEvidencePanel
                   structure={structure}
+                  projectId={projectId}
+                  sampleId={sampleId}
+                  keyframes={sampleKeyframes}
                   highlightedSlotIds={highlightedSlotIds}
                   onHighlightSlot={(slotId) => setHighlightedSlotIds([slotId])}
                   analysisStage={
@@ -924,6 +940,37 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               <TimelinePreview timeline={generationPlan.timeline} />
             ) : (
               <EmptyPanel message="暂无时间线数据。" />
+            )}
+          </div>
+        )}
+
+        {panel === "narration" && (
+          <div className="lg:col-span-2 space-y-4">
+            {variantResultTabs.length > 1 ? (
+              <VariantTabs
+                tabs={variantResultTabs}
+                activeGenerationId={
+                  activeVariantGenerationId ??
+                  variantResultTabs[0]?.generationId ??
+                  null
+                }
+                onActiveChange={(nextId) => {
+                  setActiveVariantGenerationId(nextId);
+                  const plan = variantPlans[nextId];
+                  if (plan) {
+                    setGenerationPlan(plan);
+                    const response = plan as GenerationResponse;
+                    if (response.gapReport) {
+                      setGapReport(response.gapReport);
+                    }
+                  }
+                }}
+                renderPlan={(plan) => <MasterNarrationPanel plan={plan} />}
+              />
+            ) : generationPlan ? (
+              <MasterNarrationPanel plan={generationPlan} />
+            ) : (
+              <EmptyPanel message="暂无生成计划，请先运行生成或加载演示数据。" />
             )}
           </div>
         )}
