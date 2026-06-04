@@ -5,7 +5,6 @@ import { useState } from "react";
 
 import { FileDropzone } from "@/components/file-dropzone";
 import { PaginatedGrid } from "@/components/paginated-grid";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CookieUploadPanel } from "@/features/project-input/CookieUploadPanel";
+import { SampleVideoCard } from "@/features/project-input/SampleVideoCard";
 import type { ActiveSampleSummary } from "@/lib/apiClient";
 import {
   analyzeSampleBatch,
@@ -44,56 +44,6 @@ type SampleInputPanelProps = {
   onSampleChanged?: () => void;
   onSelectSample?: (sampleId: string) => void;
 };
-
-function SamplePreviewCard({
-  sample,
-  selected,
-  onSelect,
-}: {
-  sample: ActiveSampleSummary;
-  selected?: boolean;
-  onSelect?: (sampleId: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "w-full space-y-2 rounded-lg border p-3 text-left transition-colors",
-        selected ? "border-primary ring-1 ring-primary/40" : "border-border",
-      )}
-      onClick={() => onSelect?.(sample.id)}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">{sample.sourceKind}</Badge>
-        <Badge variant="outline">{sample.status}</Badge>
-        {sample.hasStructure && <Badge variant="ai">已分析</Badge>}
-        {sample.uploadBatchId && (
-          <Badge variant="outline">批次 {sample.uploadBatchId.slice(0, 6)}</Badge>
-        )}
-      </div>
-      {sample.previewUrl ? (
-        <video
-          src={sample.previewUrl}
-          controls
-          className="max-h-36 w-full rounded-md bg-black"
-          onClick={(event) => event.stopPropagation()}
-        />
-      ) : (
-        <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-xs text-muted-foreground">
-          {sample.status === "importing" ? "视频导入中…" : "暂无可预览视频"}
-        </div>
-      )}
-      <p className="font-mono text-xs text-muted-foreground truncate">
-        {sample.fileName ?? sample.id}
-      </p>
-      {sample.sourceUrl && (
-        <p className="text-xs text-muted-foreground truncate">
-          来源：{sample.sourceUrl}
-        </p>
-      )}
-    </button>
-  );
-}
 
 export function SampleInputPanel({
   projectId,
@@ -258,7 +208,7 @@ export function SampleInputPanel({
             resetKey={previewSamples.map((sample) => sample.id).join(",")}
             getKey={(sample) => sample.id}
             renderItem={(sample) => (
-              <SamplePreviewCard
+              <SampleVideoCard
                 sample={sample}
                 selected={sample.id === effectiveSelectedId}
                 onSelect={onSelectSample}
