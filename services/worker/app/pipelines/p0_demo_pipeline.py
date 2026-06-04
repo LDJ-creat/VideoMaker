@@ -33,6 +33,8 @@ from app.pipelines.revise_pipeline import (
     parse_instruction_intents,
     seed_revise_generation,
 )
+from app.knowledge.context_resolver import resolve_knowledge_context
+from app.knowledge.deposit import deposit_knowledge_draft
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
@@ -225,6 +227,42 @@ class P0DemoPipeline:
             checkpoint.save(checkpoint_path)
 
         sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
+
+        knowledge_draft: dict[str, Any] | None = None
+        if should_skip_analysis_stage("rendering_knowledge_draft", checkpoint, analysis_root, resume=resume):
+            emit(
+                status="running",
+                stage="rendering_knowledge_draft",
+                progress=96,
+                message="(resumed) knowledge draft already rendered",
+            )
+        elif structure is not None:
+            emit(
+                status="running",
+                stage="rendering_knowledge_draft",
+                progress=96,
+                message="Rendering knowledge skill draft",
+            )
+            try:
+                knowledge_draft = deposit_knowledge_draft(
+                    runner,
+                    storage_root=self._storage_root,
+                    project_id=project_id,
+                    sample_id=sample_id,
+                    structure=structure,
+                    sample_analysis=sample_analysis,
+                    context=context,
+                )
+                checkpoint.mark_stage_complete("rendering_knowledge_draft")
+                checkpoint.save(checkpoint_path)
+            except Exception as exc:
+                emit(
+                    status="running",
+                    stage="rendering_knowledge_draft",
+                    progress=96,
+                    message=f"Knowledge draft skipped: {exc}",
+                )
+
         emit(
             status="succeeded",
             stage="completed",
@@ -236,6 +274,7 @@ class P0DemoPipeline:
             "ok": True,
             "structure": structure,
             "sampleAnalysis": sample_analysis,
+            "knowledgeDraft": knowledge_draft,
             "resumeSummary": result.get("resumeSummary"),
         }
 
@@ -277,6 +316,13 @@ class P0DemoPipeline:
         )
         runner = self._build_runner()
         revise_context = load_revise_context(generation_root) if resume else None
+
+        knowledge_context = resolve_knowledge_context(
+            storage_root=self._storage_root,
+            database_path=self._database_path,
+            project_id=project_id,
+            level=1,
+        )
 
         inventory: dict[str, Any] | None = None
         gap_report: dict[str, Any] | None = None
@@ -366,6 +412,7 @@ class P0DemoPipeline:
                     variant=variant,
                     revise_context=revise_context,
                     generation_root=generation_root,
+                    knowledge_context=knowledge_context,
                 )
             except _AGENT_FAILURES as exc:
                 emit(
@@ -400,6 +447,8 @@ class P0DemoPipeline:
                     generation_id=generation_id,
                     variant=variant,
                     revise_context=revise_context,
+                    knowledge_context=knowledge_context,
+                    database_path=self._database_path,
                 )
                 slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:

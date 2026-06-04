@@ -23,7 +23,7 @@ from app.pipelines.master_narration import apply_master_narration_to_storyboard,
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
-from app.agents.slot_mapper import run_slot_mapper
+from app.agents.slot_mapper import classify_slot_matches, run_slot_mapper
 from app.agents.storyboard_writer import run_storyboard_writer
 from app.runtime.task_context import TaskContext
 from app.validation.schema_loader import validate_contract
@@ -235,6 +235,8 @@ def run_agent_generation(
     slot_matches: list[dict[str, Any]] | None = None,
     gap_report: dict[str, Any] | None = None,
     skip_slot_mapping: bool = False,
+    knowledge_context: dict[str, Any] | None = None,
+    database_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     if inventory is None:
         if inventory_baseline is None:
@@ -266,7 +268,19 @@ def run_agent_generation(
             context=context,
             generation_id=generation_id,
             variant_overrides=merge_agent_overrides(variant, "slot_mapper", revise_context),
+            knowledge_context=knowledge_context,
         )
+        _, weak_ids, _missing_ids = classify_slot_matches(structure, resolved_slot_matches)
+        if database_path is not None and len(weak_ids) >= 2 and knowledge_context is not None:
+            from app.knowledge.context_resolver import resolve_knowledge_context
+
+            knowledge_context = resolve_knowledge_context(
+                storage_root=context.storage_root,
+                database_path=database_path,
+                project_id=context.project_id,
+                level=1,
+                weak_slot_count=len(weak_ids),
+            )
         context.emit_event(
             stage="planning_completion",
             progress=45,
@@ -286,6 +300,7 @@ def run_agent_generation(
             generation_id=generation_id,
             variant=variant,
             quota=video_quota,
+            knowledge_context=knowledge_context,
         )
 
     return run_planning_completion(
@@ -298,6 +313,7 @@ def run_agent_generation(
         generation_id=generation_id,
         variant=variant,
         revise_context=revise_context,
+        knowledge_context=knowledge_context,
     )
 
 
@@ -313,6 +329,7 @@ def run_planning_completion(
     variant: str = "default",
     revise_context: ReviseContext | None = None,
     generation_root: Path | None = None,
+    knowledge_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     snapshot = load_revise_snapshot(generation_root) if generation_root is not None else None
 
@@ -342,6 +359,7 @@ def run_planning_completion(
             generation_id=generation_id,
             variant=variant,
             agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
+            knowledge_context=knowledge_context,
         )
         master_narration = str(writer_output.get("masterNarration") or "")
         storyboard = list(writer_output.get("storyboard") or [])

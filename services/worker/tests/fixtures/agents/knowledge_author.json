@@ -1,0 +1,13 @@
+{
+  "frontmatter": {
+    "title": "快节奏促销带货结构",
+    "category": "电商带货",
+    "style": "快节奏促销",
+    "hookType": "pain_point",
+    "tempo": "mixed",
+    "durationBucket": "30s",
+    "slotPattern": "hook→benefit→proof→cta",
+    "summary": "痛点开场、卖点推进、证据展示与强 CTA 的 30 秒带货结构。"
+  },
+  "markdown": "## 适用场景\n\n- 限时促销、价格锚点明确的短视频\n- 需要 3 秒内抛出痛点或损失感\n\n## 结构要点\n\n- Hook 使用反问/痛点，时长约 10%\n- 中段 benefit + proof 交替推进\n- 结尾 CTA 落在最后 15% 时长\n\n## 槽位模板\n\n| role | 时长占比 | 视觉意图 | 常见缺口 |\n|------|---------|---------|----------|\n| hook | 10% | 产品特写+数字 | 缺强对比 |\n| benefit | 25% | 使用场景 | 素材偏静态 |\n| proof | 35% | 对比/实测 | 缺数据证据 |\n| cta | 15% | 购买引导 | 文案弱 |\n\n## 迁移注意\n\n- 新主题若无价格证据，proof 槽位可改为用户证言\n- 保持节奏紧凑，避免中段镜头过长\n"
+}

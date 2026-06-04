@@ -167,26 +167,31 @@ def run_gap_planner(
     generation_id: str | None = None,
     variant: str = "default",
     quota: VideoGenQuota | None = None,
+    knowledge_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     variant_overrides = load_variant_gap_planner_overrides(variant)
     _, weak_ids, missing_ids = classify_slot_matches(structure, slot_matches)
     quota_state = quota or VideoGenQuota.from_env()
 
+    inputs: dict[str, Any] = {
+        "structure": structure,
+        "inventory": inventory,
+        "slotMatches": slot_matches,
+        "weakSlotIds": weak_ids,
+        "missingSlotIds": missing_ids,
+        "variantOverrides": variant_overrides,
+        "videoGenQuotaRemaining": quota_state.remaining_slots,
+        "videoGenMaxSlots": quota_state.max_slots,
+        "videoGenMaxPerSlot": quota_state.max_per_slot,
+    }
+    if knowledge_context:
+        inputs["knowledgeContext"] = knowledge_context
+
     gap_report = runner.run(
         "gap_planner",
         task=TASK_KEY,
         schema_name=SCHEMA_NAME,
-        inputs={
-            "structure": structure,
-            "inventory": inventory,
-            "slotMatches": slot_matches,
-            "weakSlotIds": weak_ids,
-            "missingSlotIds": missing_ids,
-            "variantOverrides": variant_overrides,
-            "videoGenQuotaRemaining": quota_state.remaining_slots,
-            "videoGenMaxSlots": quota_state.max_slots,
-            "videoGenMaxPerSlot": quota_state.max_per_slot,
-        },
+        inputs=inputs,
         context=context,
         progress=progress,
         generation_id=generation_id,

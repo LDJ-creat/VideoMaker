@@ -17,6 +17,7 @@ ANALYSIS_STAGES = (
     "extracting_keyframes",
     "consolidating",
     "extracting_structure",
+    "rendering_knowledge_draft",
 )
 
 GENERATION_STAGES = (

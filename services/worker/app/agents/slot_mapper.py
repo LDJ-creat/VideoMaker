@@ -302,16 +302,20 @@ def run_slot_mapper(
     progress: int = 35,
     generation_id: str | None = None,
     variant_overrides: dict[str, Any] | None = None,
+    knowledge_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    inputs: dict[str, Any] = {
+        "videoStructure": structure,
+        "assetInventory": inventory,
+        "variantOverrides": variant_overrides or {},
+    }
+    if knowledge_context:
+        inputs["knowledgeContext"] = knowledge_context
     output = runner.run(
         "slot_mapper",
         task=TASK_KEY,
         schema_name=None,
-        inputs={
-            "videoStructure": structure,
-            "assetInventory": inventory,
-            "variantOverrides": variant_overrides or {},
-        },
+        inputs=inputs,
         context=context,
         progress=progress,
         generation_id=generation_id,

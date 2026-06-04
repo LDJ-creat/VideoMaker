@@ -133,20 +133,24 @@ def run_storyboard_writer(
     generation_id: str | None = None,
     variant: str = "default",
     agent_overrides: dict[str, Any] | None = None,
+    knowledge_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     if agent_overrides:
         variant_overrides = {**variant_overrides, **agent_overrides}
+    inputs: dict[str, Any] = {
+        "structure": structure,
+        "inventory": inventory,
+        "gapReport": gap_report,
+        "variantOverrides": variant_overrides,
+    }
+    if knowledge_context:
+        inputs["knowledgeContext"] = knowledge_context
     output = runner.run(
         "storyboard_writer",
         task=TASK_KEY,
         schema_name=None,
-        inputs={
-            "structure": structure,
-            "inventory": inventory,
-            "gapReport": gap_report,
-            "variantOverrides": variant_overrides,
-        },
+        inputs=inputs,
         context=context,
         progress=progress,
         generation_id=generation_id,

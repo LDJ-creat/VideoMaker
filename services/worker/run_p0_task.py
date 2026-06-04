@@ -152,6 +152,22 @@ def main() -> int:
                 context=context,
             )
             result = {"ok": True, "intents": parsed.get("intents", [])}
+        elif mode == "knowledge_selector":
+            from app.agents.knowledge_selector import run_knowledge_selector
+            from app.runtime.task_context import TaskContext
+
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=storage_root,
+            )
+            parsed = run_knowledge_selector(
+                pipeline._build_runner(),  # noqa: SLF001
+                brief=payload["userBrief"],
+                candidates=payload["candidates"],
+                context=context,
+            )
+            result = {"ok": True, "selection": parsed}
         else:
             print(f"Unknown mode: {mode}", file=sys.stderr)
             return 2
