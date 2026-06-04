@@ -8,7 +8,8 @@ The competition brief is stored in `VideoMaker.md`. The user's original solution
 
 - `docs/superpowers/specs/2026-05-27-videomaker-design.md` (architecture spec)
 - `docs/superpowers/plans/P0/` (archived P0 implementation plans; see index below)
-- `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` (active P1 master plan)
+- `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` (P1 master plan; merged on `main`)
+- Post-P1 extension plans: `2026-06-02-master-narration-layer-plan.md`, `2026-06-03-knowledge-deposition-plan.md`, `2026-06-04-multi-sample-analysis-plan.md`
 
 ### P0 Plan Archive (`docs/superpowers/plans/P0/`)
 
@@ -50,6 +51,18 @@ The key scoring dimensions are:
 - visible migration process
 - verifiable output such as storyboard, timeline, or demo video
 
+P1 extends the loop with **LLM structure evidence**, **semantic slot mapping**, **AIGC gap completion**, **dual-variant generation**, **NL revise**, plus post-P1 **knowledge deposition** and **multi-sample structure synthesis**:
+
+```text
+sample video input (+ optional batch / knowledge context)
+-> perception + LLM structure_analyst (+ knowledge draft)
+-> brief + asset understanding (content_strategist)
+-> slot mapping + gap planning (LLM Agents)
+-> storyboard (masterNarration) + packaging + material completion (AIGC / HyperFrames / TTS)
+-> dual variants (high_click / high_conversion) + HyperFrames preview
+-> optional NL revise + generation run history
+```
+
 ## P0 Status (merged on `main`)
 
 P0 module work is complete on `main`. The following feature/integration branches were implemented and merged:
@@ -66,15 +79,47 @@ Post-P0 fixes (also on `main`) include checkpoint resume, global cookie upload, 
 
 Demo verification checklist: `docs/demos/p0-demo-checklist.md`.
 
-## P1 Status (in planning)
+## P1 Status (merged on `main`)
 
-P1 master plan: `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md`.
+P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC material completion**. Core loop is verified end-to-end on `main`: live sample analysis → structure evidence → slot mapping / gap → dual-variant generation (`high_click`, `high_conversion`) → HyperFrames preview / optional MP4 render, with NL revise and agent-run observability.
 
-P1 execution order and per-plan agent prompts: `docs/superpowers/plans/2026-05-29-p1-execution-order-and-prompts.md`.
+**Master plan:** `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md`
 
-P1 submodule plans (under `docs/superpowers/plans/2026-05-29-p1-*-plan.md`): contracts extension, ModelGateway, agent orchestration, LLM structure, asset understanding, semantic mapping/gap, AIGC material, HyperFrames material, multi-variant, NL revise, web workbench, observability.
+**Execution order & session prompts:** `docs/superpowers/plans/2026-05-29-p1-execution-order-and-prompts.md`
 
-P1 focus: real LLM Agent pipeline (no rule semantic fallback), ModelGateway (OpenAI-compatible text/vision/TTS/image + pluggable video), AIGC material completion, HyperFrames clip-level material generation, default variants `high_click` + `high_conversion`, NL revise. Submodule plans listed in the master plan §3; execute per execution-order doc.
+**Demo verification:** `docs/demos/p1-demo-checklist.md` (steps in `docs/demos/p1-manual-test-guide.md`)
+
+### P1 Submodule Plans (implemented)
+
+| Plan | Purpose |
+|------|---------|
+| `2026-05-29-p1-contracts-extension-plan.md` | `EditIntent`, `MaterialSpec`, `AgentRunLog`, variant registry |
+| `2026-05-29-p1-model-gateway-plan.md` | ModelGateway, OpenAI-compatible + image/video/TTS adapters |
+| `2026-05-29-p1-agent-orchestration-plan.md` | Agent runners, prompt wiring, remove rule pipelines |
+| `2026-05-29-p1-llm-structure-analysis-plan.md` | `structure_analyst`, multimodal inputs, evidence UI data |
+| `2026-05-29-p1-asset-understanding-plan.md` | `content_strategist`, visual tags, highlight moments |
+| `2026-05-29-p1-semantic-mapping-gap-plan.md` | `slot_mapper`, `gap_planner`, provider selection |
+| `2026-05-29-p1-aigc-material-completion-plan.md` | ImageGen, VideoGen, TTS, per-generation video quota |
+| `2026-05-29-p1-hyperframes-material-plan.md` | `HyperFramesMaterialTool`, templates, `material_author` |
+| `2026-05-29-p1-multi-variant-generation-plan.md` | Variant registry, parallel generation tasks |
+| `2026-05-29-p1-nl-revise-plan.md` | `EditIntent`, revise API, incremental re-run |
+| `2026-05-29-p1-web-workbench-plan.md` | Variant UI, gateway status, multi-task progress, evidence, NL bar |
+| `2026-05-29-p1-observability-plan.md` | Model gateway status API, agent-runs, optional Langfuse sink |
+
+**Locked P1 behaviors (no rule semantic fallback in production):**
+
+- Sample structure extraction uses **`structure_analyst`** LLM Agent (perception facts from FFmpeg/OpenCV/Whisper remain algorithm inputs).
+- Generation uses Agent pipeline for mapping, gap, storyboard, packaging; material completion via `hyperframes_material` / `image_generation` / `video_generation` / `tts`.
+- **`VIDEOMAKER_FIXTURE_MODE=true`** — test/CI fixtures only; not a production fallback when live models fail.
+- Default variants: **`high_click`** + **`high_conversion`**. Video generation quota: max **1** successful `video_generation` per `generationId` (configurable via env; see below).
+
+### Post-P1 Extensions (also on `main`)
+
+| Plan | Purpose | E2E checklist |
+|------|---------|---------------|
+| `2026-06-02-master-narration-layer-plan.md` | Full-video `masterNarration` before per-scene scripts (`storyboard_writer` 档 A) | covered in P1 demo § storyboard |
+| `2026-06-03-knowledge-deposition-plan.md` | Karpathy-style structure skills, promote, recommend/bind, progressive disclosure in generation | `docs/demos/knowledge-deposition-e2e-checklist.md` |
+| `2026-06-04-multi-sample-analysis-plan.md` | Upload-batch, parallel analyze, sample selection, structure synthesis, generation runs | `docs/demos/multi-sample-e2e-test-plan.md` |
 
 ## Current Implementation State
 
@@ -84,6 +129,9 @@ TypeScript types and JSON Schemas for:
 
 - `ArtifactRef`, `ToolError`, `TaskEvent`
 - `VideoStructure`, `AssetInventory`, `GapReport`, `GenerationPlan`, `RenderTimeline`
+- P1: `EditIntent`, `MaterialSpec`, `AgentRunLog`; variant registry (`variants/registry.yaml`)
+- Knowledge: `KnowledgeEntry`, `KnowledgeRecommendation`, `ProjectKnowledgeSelection`
+- Multi-sample: `UploadBatch`, `SampleRecommendation`, `ProjectSampleSelection`, `StructureProvenance`, `GenerationRun`
 
 ```powershell
 cd packages/contracts
@@ -109,7 +157,7 @@ POST /api/tasks/{task_id}/cancel
 
 `POST /api/tasks/{task_id}/retry` re-dispatches the worker for the same `task_id` with `resume=true` for sample analysis or generation. Do not create a new analyze task for retries.
 
-**Projects and P0 demo flow:**
+**Projects and demo flow:**
 
 ```http
 GET /api/projects
@@ -159,13 +207,16 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 
 Gap completion: image weak matches on visual slots → `video_generation` (i2v); video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
 
-**Samples and generations:**
+**Samples, generations, and revise:**
 
 ```http
 POST /api/samples/{sample_id}/analyze
 GET /api/samples/{sample_id}/structure
 GET /api/samples/{sample_id}/analysis
+GET /api/samples/{sample_id}/keyframes
 GET /api/generations/{generation_id}
+POST /api/generations/{generation_id}/revise
+GET /api/generations/{generation_id}/agent-runs
 ```
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
@@ -182,10 +233,14 @@ python -m compileall app
 
 Pipelines and tools:
 
-- `SampleAnalysisPipeline` / `p0_demo_pipeline` — metadata, shots, Whisper ASR, deterministic `structure_pipeline`
-- `generation_pipeline` — asset inventory, slot mapping, gap report, generation plan
-- Tools: `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, optional `hyperframes_tool`
-- Render: `render_timeline_to_hyperframes`, `hyperframes_backend` (preview under `generations/{generationId}/render/`)
+- **Perception:** `SampleAnalysisPipeline` — metadata, shots, Whisper ASR, keyframe extraction (algorithm inputs to Agents)
+- **Sample analysis:** `p0_demo_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
+- **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (`masterNarration` + storyboard) → `packaging_designer` → material completion → HyperFrames render
+- **Revise:** `revise_pipeline` — `edit_intent_parser` + partial stage re-run
+- **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.)
+- **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
+- **Tools:** `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, `llm_tool`, `image_gen_tool`, `video_gen_tool`, `tts_tool`, `hyperframes_tool`
+- **Render:** `render_timeline_to_hyperframes`, `hyperframes_backend` (preview under `generations/{generationId}/render/`)
 
 ```powershell
 cd services/worker
@@ -212,9 +267,9 @@ Requires **Node.js >= 22** and **FFmpeg** on PATH.
 
 Next.js workbench at `/projects` and `/projects/{projectId}`:
 
-- Task progress: SSE primary, polling fallback (`useTaskProgress`)
-- Panels: input, progress, analysis, structure slots, gap, timeline, result
-- Loads projects, samples, assets, brief, and latest generation from API on mount (not sessionStorage-only)
+- Task progress: SSE primary, polling fallback (`useTaskProgress`); **MultiTaskProgressPanel** for dual-variant runs
+- Panels: input (multi-upload, batch analyze), **sample selection**, **knowledge selection/draft**, progress, **SampleAnalysisPanel** (analyzed-sample master-detail), structure evidence (keyframe lightbox), structure slots, gap, **master narration**, **variant tabs/compare**, timeline, result, **generation run history**, **NL revise**, **ModelGateway status**, **AgentRunsDrawer**
+- Loads projects, samples, assets, brief, knowledge selection, sample selection, and latest generation from API on mount (not sessionStorage-only)
 
 ```powershell
 cd apps/web
@@ -324,7 +379,7 @@ Do not commit generated videos, SQLite databases, temp files, model outputs, or 
 
 Use isolated worktrees for feature work. Do not implement substantial features directly on `main`.
 
-P0 branches listed above are merged; new work should start from current `main` with a new `feature/<name>` or `integration/<name>` branch.
+P0 and P1 feature branches listed above are merged; new work should start from current `main` with a new `feature/<name>` or `integration/<name>` branch.
 
 ```powershell
 git worktree add .worktrees/<name> -b feature/<name> main
@@ -332,16 +387,16 @@ git worktree add .worktrees/<name> -b feature/<name> main
 
 Ensure `.worktrees/` remains ignored.
 
-## Post-P0 Development
+## Post-P1 Development
 
-When extending beyond P0:
+When extending beyond the current P1 + post-P1 extensions on `main`:
 
 1. Read `docs/superpowers/specs/2026-05-27-videomaker-design.md` for boundaries.
-2. Use `docs/superpowers/plans/P0/` for how the current system works; add new plans under `docs/superpowers/plans/YYYY-MM-DD-<module-name>-plan.md`.
+2. Use `docs/superpowers/plans/P0/` and P1 plans under `docs/superpowers/plans/2026-05-29-p1-*` for how the current system works; add new plans under `docs/superpowers/plans/YYYY-MM-DD-<module-name>-plan.md`.
 3. Do not parallelize schema changes casually — update `packages/contracts` first, then dependents.
 4. Run module verification (below) before claiming work is done.
 
-Likely post-P0 themes (not yet planned here): real LLM structure extraction, async job queue, production auth, richer editor UX, full MP4 render automation.
+Likely next themes (not yet planned here): async job queue, production auth, full timeline editor / NLE, music generation, PostgreSQL / object storage migration, Langfuse production rollout.
 
 ## Testing Expectations
 
@@ -392,11 +447,12 @@ When starting a new session:
 1. Read this file first.
 2. Read `docs/superpowers/specs/2026-05-27-videomaker-design.md`.
 3. For P0 behavior, read the relevant plan in `docs/superpowers/plans/P0/` (or the master P0 plan).
-4. For new features, read or write the active plan under `docs/superpowers/plans/`.
-5. Check `git status --short`.
-6. Use a feature worktree unless the user explicitly asks for a small docs-only change on `main`.
-7. Run existing tests before and after changes.
-8. Keep commits scoped to the task.
+4. For P1 behavior, read `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` and the relevant `2026-05-29-p1-*` sub-plan; for knowledge / multi-sample / master narration, read the `2026-06-0*` extension plans.
+5. For new features, read or write the active plan under `docs/superpowers/plans/`.
+6. Check `git status --short`.
+7. Use a feature worktree unless the user explicitly asks for a small docs-only change on `main`.
+8. Run existing tests before and after changes.
+9. Keep commits scoped to the task.
 
 ## Plan Quality Gate
 
