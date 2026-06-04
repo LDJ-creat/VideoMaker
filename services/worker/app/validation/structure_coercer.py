@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 _ALLOWED_METADATA_KEYS = frozenset(
@@ -30,6 +31,52 @@ _DEFAULT_PACKAGING = {
     "transitions": [],
     "visualDensity": "medium",
 }
+_ALLOWED_TEMPOS = frozenset({"slow", "medium", "fast", "mixed"})
+_TEMPO_ALIASES = {
+    "moderate": "medium",
+    "normal": "medium",
+    "avg": "medium",
+    "average": "medium",
+    "steady": "medium",
+    "quick": "fast",
+    "rapid": "fast",
+    "slow-paced": "slow",
+    "fast-paced": "fast",
+}
+
+
+def _normalize_beat_points(
+    beat_points: list[Any],
+    *,
+    duration_sec: float,
+) -> list[float]:
+    normalized: list[float] = []
+    for item in beat_points:
+        if isinstance(item, (int, float)):
+            normalized.append(float(item))
+            continue
+        if isinstance(item, dict):
+            time_sec = item.get("timeSec", item.get("time", item.get("sec")))
+            if time_sec is not None:
+                normalized.append(float(time_sec))
+    if not normalized:
+        return [0.0, duration_sec] if duration_sec > 0 else [0.0]
+    normalized = sorted(set(max(0.0, value) for value in normalized))
+    if duration_sec > 0 and normalized[-1] < duration_sec:
+        normalized.append(duration_sec)
+    return normalized
+
+
+def _normalize_tempo(value: str | None, *, fallback: str = "mixed") -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return fallback
+    if raw in _ALLOWED_TEMPOS:
+        return raw
+    mapped = _TEMPO_ALIASES.get(raw)
+    if mapped:
+        return mapped
+    return fallback
 
 
 def _compute_rhythm_facts(
@@ -45,7 +92,13 @@ def _compute_rhythm_facts(
             "durationSec": duration_sec or 0.0,
         }
 
-    durations = [float(shot["endSec"]) - float(shot["startSec"]) for shot in shots]
+    durations = [
+        float(shot.get("endSec", 0.0)) - float(shot.get("startSec", 0.0))
+        for shot in shots
+        if shot.get("endSec") is not None or shot.get("startSec") is not None
+    ]
+    if not durations and shots:
+        durations = [1.0 for _ in shots]
     avg = sum(durations) / len(durations)
     if len(durations) > 1 and avg > 0:
         variance = sum((value - avg) ** 2 for value in durations) / len(durations)
@@ -66,7 +119,7 @@ def _compute_rhythm_facts(
         "shotCount": len(shots),
         "avgShotDurationSec": round(avg, 3),
         "tempoHint": tempo_hint,
-        "durationSec": duration_sec if duration_sec is not None else shots[-1]["endSec"],
+        "durationSec": duration_sec if duration_sec is not None else float(shots[-1].get("endSec", 0.0)),
     }
 
 
@@ -97,12 +150,13 @@ def _ensure_segment_evidence(
     normalized: list[dict[str, Any]] = []
     for item in evidence:
         segment = segments_by_id.get(str(item.get("targetId", "")), {})
+        source = str(item.get("source") or "shot_detection")
         normalized.append(
             {
                 "targetId": str(item["targetId"]),
-                "source": str(item["source"]),
+                "source": source,
                 "summary": _normalize_evidence_summary(
-                    source=str(item["source"]),
+                    source=source,
                     summary=str(item.get("summary") or ""),
                     segment=segment,
                 ),
@@ -241,6 +295,63 @@ def _normalize_slot_role(role: str) -> str:
     return normalized if normalized in allowed else "usage_scene"
 
 
+_SEGMENT_ROLE_ALIASES = {
+    "attention_grabber": "hook",
+    "intro": "hook",
+    "opening": "hook",
+    "pain_point": "problem",
+    "pain": "problem",
+    "product_intro": "solution",
+    "solution_visual": "solution",
+    "benefit": "benefit",
+    "call_to_action": "cta",
+    "cta_visual": "cta",
+    "outro": "cta",
+}
+_ALLOWED_SEGMENT_ROLES = frozenset(
+    {"hook", "problem", "solution", "proof", "benefit", "comparison", "cta", "transition"}
+)
+
+
+def _normalize_segment_role(role: str) -> str:
+    raw = str(role or "hook").strip().lower()
+    if raw in _ALLOWED_SEGMENT_ROLES:
+        return raw
+    return _SEGMENT_ROLE_ALIASES.get(raw, "hook")
+
+
+def _normalize_narrative_segment(segment: dict[str, Any], *, index: int) -> dict[str, Any]:
+    item = dict(segment)
+    item.pop("textOverlay", None)
+    item.pop("text_overlay", None)
+    if item.get("startSec") is None and item.get("startTimeSec") is not None:
+        item["startSec"] = item.pop("startTimeSec")
+    if item.get("endSec") is None and item.get("endTimeSec") is not None:
+        item["endSec"] = item.pop("endTimeSec")
+    item.pop("startTimeSec", None)
+    item.pop("endTimeSec", None)
+
+    role = _normalize_segment_role(str(item.get("role") or "hook"))
+    script = str(
+        item.get("scriptSummary")
+        or item.get("script")
+        or item.get("narration")
+        or item.get("text")
+        or role
+    ).strip()
+    visual = str(item.get("visualSummary") or item.get("visual") or script or role).strip()
+    intent = str(item.get("intent") or visual or role).strip()
+    return {
+        "id": str(item.get("id") or f"segment-{index + 1}"),
+        "role": role,
+        "startSec": item.get("startSec"),
+        "endSec": item.get("endSec"),
+        "scriptSummary": script,
+        "visualSummary": visual,
+        "intent": intent,
+    }
+
+
 def _segment_times(
     segments: list[dict[str, Any]],
     *,
@@ -286,10 +397,15 @@ def _normalize_shot_boundaries(
     if boundaries and isinstance(boundaries[0], dict):
         normalized: list[dict[str, Any]] = []
         for item in boundaries:
+            start = float(item.get("startSec", 0.0))
+            end_raw = item.get("endSec")
+            end = float(end_raw if end_raw is not None else start + 0.5)
+            if end <= start:
+                end = start + 0.5
             normalized.append(
                 {
-                    "startSec": float(item["startSec"]),
-                    "endSec": float(item["endSec"]),
+                    "startSec": start,
+                    "endSec": end,
                     "confidence": float(item.get("confidence", 0.75)),
                     "changeReason": item.get("changeReason", "scene_change"),
                 }
@@ -297,15 +413,24 @@ def _normalize_shot_boundaries(
         return normalized
 
     if shots:
-        return [
-            {
-                "startSec": float(shot["startSec"]),
-                "endSec": float(shot["endSec"]),
-                "confidence": float(shot.get("confidence", 0.75)),
-                "changeReason": shot.get("changeReason", "scene_change"),
-            }
-            for shot in shots
-        ]
+        normalized_shots: list[dict[str, Any]] = []
+        cursor = 0.0
+        for shot in shots:
+            start = float(shot.get("startSec", cursor))
+            end_raw = shot.get("endSec")
+            end = float(end_raw if end_raw is not None else max(start + 0.5, cursor + 0.5))
+            if end <= start:
+                end = start + 0.5
+            normalized_shots.append(
+                {
+                    "startSec": start,
+                    "endSec": end,
+                    "confidence": float(shot.get("confidence", 0.75)),
+                    "changeReason": shot.get("changeReason", "scene_change"),
+                }
+            )
+            cursor = end
+        return normalized_shots
 
     if boundaries and isinstance(boundaries[0], (int, float)):
         starts = [float(value) for value in boundaries]
@@ -385,7 +510,11 @@ def coerce_video_structure(
     coerced["metadata"] = clean_metadata
 
     narrative = dict(payload.get("narrative") or {})
-    segments = _segment_times(list(narrative.get("segments") or []), duration_sec=duration_sec)
+    raw_segments = [
+        _normalize_narrative_segment(segment, index=index)
+        for index, segment in enumerate(list(narrative.get("segments") or []))
+    ]
+    segments = _segment_times(raw_segments, duration_sec=duration_sec)
     narrative["segments"] = segments
     narrative.setdefault(
         "summary",
@@ -402,8 +531,14 @@ def coerce_video_structure(
         "totalDurationSec": float(rhythm_facts.get("durationSec", duration_sec)),
         "shotCount": int(rhythm_facts.get("shotCount", len(boundaries))),
         "avgShotDurationSec": float(rhythm_facts.get("avgShotDurationSec", 0.0)),
-        "tempo": str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
-        "beatPoints": list(rhythm.get("beatPoints") or [0.0, duration_sec]),
+        "tempo": _normalize_tempo(
+            str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
+            fallback="mixed",
+        ),
+        "beatPoints": _normalize_beat_points(
+            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
+            duration_sec=duration_sec,
+        ),
         "shotBoundaries": boundaries,
     }
 
