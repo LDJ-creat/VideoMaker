@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/project-sample-selection.schema.json",
+  "title": "ProjectSampleSelection",
+  "type": "object",
+  "required": [
+    "projectId",
+    "referenceSampleIds",
+    "mode",
+    "updatedAt"
+  ],
+  "properties": {
+    "projectId": { "type": "string", "minLength": 1 },
+    "primarySampleId": { "type": ["string", "null"] },
+    "referenceSampleIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "activeUploadBatchId": { "type": ["string", "null"] },
+    "mode": {
+      "type": "string",
+      "enum": ["auto", "user_override", "none"]
+    },
+    "recommendationSnapshot": { "$ref": "sample-recommendation.schema.json" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

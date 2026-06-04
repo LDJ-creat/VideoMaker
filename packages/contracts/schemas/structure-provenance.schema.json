@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/structure-provenance.schema.json",
+  "title": "StructureProvenance",
+  "type": "object",
+  "required": [
+    "id",
+    "projectId",
+    "generationRunId",
+    "primarySampleId",
+    "referenceSampleIds",
+    "slotAttribution",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "generationRunId": { "type": "string", "minLength": 1 },
+    "primarySampleId": { "type": "string", "minLength": 1 },
+    "referenceSampleIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "slotAttribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "sourceSampleId", "rationale"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "sourceSampleId": { "type": "string", "minLength": 1 },
+          "sourceSlotId": { "type": "string" },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "segmentAttribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["segmentId", "sourceSampleId", "rationale"],
+        "properties": {
+          "segmentId": { "type": "string", "minLength": 1 },
+          "sourceSampleId": { "type": "string", "minLength": 1 },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "synthesizerModel": { "type": "string" },
+    "fallback": { "type": "boolean" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

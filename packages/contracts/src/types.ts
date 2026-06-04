@@ -512,3 +512,90 @@ export type KnowledgeSkillOutput = {
   };
   markdown: string;
 };
+
+export type UploadBatchStatus = "uploading" | "complete" | "partial_failed";
+
+export type UploadBatch = {
+  id: string;
+  projectId: string;
+  status: UploadBatchStatus;
+  sampleIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SampleRecommendationCandidate = {
+  sampleId: string;
+  score: number;
+  reasons: string[];
+  summary?: string;
+  uploadBatchId?: string | null;
+  hasStructure: boolean;
+  status: string;
+};
+
+export type SampleRecommendation = {
+  projectId: string;
+  candidates: SampleRecommendationCandidate[];
+  suggestedPrimaryId: string;
+  suggestedReferenceIds: string[];
+  computedAt: string;
+};
+
+export type ProjectSampleSelectionMode = "auto" | "user_override" | "none";
+
+export type ProjectSampleSelection = {
+  projectId: string;
+  primarySampleId: string | null;
+  referenceSampleIds: string[];
+  activeUploadBatchId?: string | null;
+  mode: ProjectSampleSelectionMode;
+  recommendationSnapshot?: SampleRecommendation;
+  updatedAt: string;
+};
+
+export type StructureProvenanceSlotAttribution = {
+  slotId: string;
+  sourceSampleId: string;
+  sourceSlotId?: string;
+  rationale: string;
+};
+
+export type StructureProvenanceSegmentAttribution = {
+  segmentId: string;
+  sourceSampleId: string;
+  rationale: string;
+};
+
+export type StructureProvenance = {
+  id: string;
+  projectId: string;
+  generationRunId: string;
+  primarySampleId: string;
+  referenceSampleIds: string[];
+  slotAttribution: StructureProvenanceSlotAttribution[];
+  segmentAttribution?: StructureProvenanceSegmentAttribution[];
+  synthesizerModel?: string;
+  fallback?: boolean;
+  createdAt: string;
+};
+
+export type GenerationRunStatus = "running" | "completed" | "partial_failed";
+
+export type GenerationRun = {
+  id: string;
+  projectId: string;
+  sampleSelectionSnapshot: ProjectSampleSelection;
+  synthesizedStructureId?: string | null;
+  provenanceId?: string | null;
+  variantIds: string[];
+  generationIds: string[];
+  status: GenerationRunStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SampleSelectionOverride = {
+  primarySampleId: string;
+  referenceSampleIds?: string[];
+};

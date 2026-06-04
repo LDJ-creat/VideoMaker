@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/sample-recommendation.schema.json",
+  "title": "SampleRecommendation",
+  "type": "object",
+  "required": ["projectId", "candidates", "suggestedPrimaryId", "suggestedReferenceIds", "computedAt"],
+  "properties": {
+    "projectId": { "type": "string", "minLength": 1 },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sampleId", "score", "reasons", "hasStructure", "status"],
+        "properties": {
+          "sampleId": { "type": "string", "minLength": 1 },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "summary": { "type": "string" },
+          "uploadBatchId": { "type": ["string", "null"] },
+          "hasStructure": { "type": "boolean" },
+          "status": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "suggestedPrimaryId": { "type": "string", "minLength": 1 },
+    "suggestedReferenceIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "computedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/generation-run.schema.json",
+  "title": "GenerationRun",
+  "type": "object",
+  "required": [
+    "id",
+    "projectId",
+    "sampleSelectionSnapshot",
+    "variantIds",
+    "generationIds",
+    "status",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "sampleSelectionSnapshot": { "$ref": "project-sample-selection.schema.json" },
+    "synthesizedStructureId": { "type": ["string", "null"] },
+    "provenanceId": { "type": ["string", "null"] },
+    "variantIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "generationIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["running", "completed", "partial_failed"]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
