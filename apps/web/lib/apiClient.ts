@@ -67,12 +67,87 @@ export type GenerationPlanEntry = {
 };
 
 export type MultiVariantGenerationResponse = {
+  generationRunId?: string;
   generations: GenerationPlanEntry[];
+};
+
+export type SampleSelectionOverride = {
+  primarySampleId: string;
+  referenceSampleIds?: string[];
 };
 
 export type CreateGenerationPlanBody = {
   variants?: string[];
   brief?: UserBrief;
+  sampleSelection?: SampleSelectionOverride;
+};
+
+export type UploadBatchSummary = {
+  id: string;
+  projectId: string;
+  status: string;
+  sampleIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  samples?: Array<{
+    id: string;
+    status: string;
+    hasStructure: boolean;
+    uploadBatchId?: string | null;
+  }>;
+};
+
+export type ProjectSampleSelection = {
+  projectId: string;
+  primarySampleId: string | null;
+  referenceSampleIds: string[];
+  activeUploadBatchId?: string | null;
+  mode: "auto" | "user_override" | "none";
+  updatedAt: string;
+};
+
+export type SampleRecommendation = {
+  projectId: string;
+  suggestedPrimaryId: string;
+  suggestedReferenceIds: string[];
+  candidates: Array<{
+    sampleId: string;
+    score: number;
+    reasons: string[];
+    summary?: string;
+    uploadBatchId?: string | null;
+    hasStructure: boolean;
+    status: string;
+  }>;
+  computedAt: string;
+};
+
+export type GenerationRunSummary = {
+  id: string;
+  projectId: string;
+  status: string;
+  variantIds: string[];
+  generationIds: string[];
+  synthesizedStructureId?: string | null;
+  provenanceId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StructureProvenanceSummary = {
+  id: string;
+  projectId: string;
+  generationRunId: string;
+  primarySampleId: string;
+  referenceSampleIds: string[];
+  slotAttribution: Array<{
+    slotId: string;
+    sourceSampleId: string;
+    sourceSlotId?: string;
+    rationale: string;
+  }>;
+  fallback?: boolean;
+  createdAt: string;
 };
 
 export type ReviseGenerationResponse = {
@@ -203,6 +278,8 @@ export type ActiveSampleSummary = {
   sourceUrl?: string;
   fileName?: string;
   previewUrl?: string;
+  uploadBatchId?: string | null;
+  batchCreatedAt?: string | null;
 };
 
 export type ProjectAsset = {
@@ -242,13 +319,110 @@ export async function listProjectAssets(
 export async function uploadSampleVideo(
   projectId: string,
   file: File,
+  uploadBatchId?: string,
 ): Promise<ApiResult<UploadResponse>> {
   const form = new FormData();
   form.append("file", file);
-  return apiFetch(`/api/projects/${projectId}/samples/upload`, {
+  const query = uploadBatchId
+    ? `?uploadBatchId=${encodeURIComponent(uploadBatchId)}`
+    : "";
+  return apiFetch(`/api/projects/${projectId}/samples/upload${query}`, {
     method: "POST",
     body: form,
   });
+}
+
+export async function uploadSampleBatch(
+  projectId: string,
+  files: File[],
+): Promise<ApiResult<{ batchId: string; samples: UploadResponse[] }>> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  return apiFetch(`/api/projects/${projectId}/samples/upload-batch`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function listUploadBatches(
+  projectId: string,
+): Promise<ApiResult<{ batches: UploadBatchSummary[] }>> {
+  return apiFetch(`/api/projects/${projectId}/upload-batches`);
+}
+
+export async function analyzeSampleBatch(
+  projectId: string,
+  body?: { sampleIds?: string[]; uploadBatchId?: string },
+): Promise<ApiResult<{ tasks: Array<{ sampleId: string; taskId: string }>; maxConcurrent: number }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/analyze-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export async function getSampleSelection(
+  projectId: string,
+): Promise<ApiResult<{ selection: ProjectSampleSelection | null }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/selection`);
+}
+
+export async function updateSampleSelection(
+  projectId: string,
+  body: {
+    primarySampleId?: string | null;
+    referenceSampleIds?: string[];
+    activeUploadBatchId?: string | null;
+  },
+): Promise<ApiResult<{ selection: ProjectSampleSelection }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/selection`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function resetSampleSelection(
+  projectId: string,
+): Promise<ApiResult<{ selection: ProjectSampleSelection | null }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/selection/reset`, {
+    method: "POST",
+  });
+}
+
+export async function recommendSamples(
+  projectId: string,
+): Promise<ApiResult<{ recommendation: SampleRecommendation }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/recommend`, {
+    method: "POST",
+  });
+}
+
+export async function listGenerationRuns(
+  projectId: string,
+  limit = 20,
+): Promise<ApiResult<{ runs: GenerationRunSummary[] }>> {
+  return apiFetch(`/api/projects/${projectId}/generation-runs?limit=${limit}`);
+}
+
+export async function getGenerationRun(
+  projectId: string,
+  runId: string,
+): Promise<
+  ApiResult<{
+    run: GenerationRunSummary;
+    generations: Array<{
+      generationId: string;
+      variant?: string;
+      status?: string;
+      plan?: GenerationResponse;
+    }>;
+    provenance?: StructureProvenanceSummary | null;
+  }>
+> {
+  return apiFetch(`/api/projects/${projectId}/generation-runs/${runId}`);
 }
 
 /** URL import — backend runs yt-dlp; frontend only calls BFF/API. */

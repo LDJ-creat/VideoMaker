@@ -34,10 +34,14 @@ import {
   BriefEditor,
   type BriefEditorHandle,
 } from "@/features/project-input/BriefEditor";
+import { GenerationRunHistoryPanel } from "@/features/generation-runs/GenerationRunHistoryPanel";
+import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatchAnalysisProgress";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
+import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
 import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
+import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
 import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
@@ -57,6 +61,7 @@ import type {
   GenerationResponse,
   LatestGenerationsResponse,
   ProjectAsset,
+  StructureProvenanceSummary,
   UserBriefRequest,
 } from "@/lib/apiClient";
 import {
@@ -64,8 +69,10 @@ import {
   getActiveSample,
   getBrief,
   getGeneration,
+  getGenerationRun,
   getLatestGenerations,
   getSampleKeyframes,
+  getSampleSelection,
   getSampleStructure,
   getTask,
   getVariantLabel,
@@ -215,6 +222,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [activeGenerations, setActiveGenerations] = useState<ActiveGeneration[]>(
     [],
   );
+  const [analysisBatchTasks, setAnalysisBatchTasks] = useState<
+    Array<{ sampleId: string; taskId: string }>
+  >([]);
+  const [activeGenerationRunId, setActiveGenerationRunId] = useState<
+    string | null
+  >(null);
+  const [structureProvenance, setStructureProvenance] =
+    useState<StructureProvenanceSummary | null>(null);
   const [reviseIntents, setReviseIntents] = useState<EditIntentItem[] | null>(
     null,
   );
@@ -239,6 +254,20 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setDataLoading(false);
     }
   }, []);
+
+  const loadGenerationRunProvenance = useCallback(
+    async (runId: string) => {
+      try {
+        const { data } = await getGenerationRun(projectId, runId);
+        if (data.provenance) {
+          setStructureProvenance(data.provenance);
+        }
+      } catch {
+        /* run may still be running or incomplete */
+      }
+    },
+    [projectId],
+  );
 
   const loadProjectInput = useCallback(async () => {
     const [briefResult, assetsResult, samplesResult, sampleResult] =
@@ -316,6 +345,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           /* plan may no longer exist */
         });
     }
+    if (saved?.activeGenerationRunId) {
+      setActiveGenerationRunId(saved.activeGenerationRunId);
+      void getGenerationRun(projectId, saved.activeGenerationRunId)
+        .then(({ data }) => {
+          if (data.provenance) {
+            setStructureProvenance(data.provenance);
+          }
+        })
+        .catch(() => {
+          /* run may be incomplete */
+        });
+    }
     if (saved?.taskId) {
       setTaskId(saved.taskId);
       setPanel("progress");
@@ -329,6 +370,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       taskId,
       sampleId,
       generationId,
+      activeGenerationRunId,
       lastAction,
       activeGenerations,
       activeVariantGenerationId,
@@ -340,6 +382,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     taskId,
     sampleId,
     generationId,
+    activeGenerationRunId,
     lastAction,
     activeGenerations,
     activeVariantGenerationId,
@@ -422,6 +465,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const handleAllGenerationTerminal = useCallback(
     (events: Record<string, TaskEvent>) => {
       void loadProjectResults();
+      if (activeGenerationRunId) {
+        void loadGenerationRunProvenance(activeGenerationRunId);
+      }
       const statuses = Object.values(events).map((entry) => entry.status);
       if (statuses.some((status) => status === "failed" || status === "cancelled")) {
         setPanel("progress");
@@ -436,7 +482,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setPanel("result");
       }
     },
-    [activeGenerations, loadProjectResults],
+    [
+      activeGenerationRunId,
+      activeGenerations,
+      loadGenerationRunProvenance,
+      loadProjectResults,
+    ],
   );
 
   const handleTerminal = useCallback(
@@ -509,17 +560,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setLastAction("analysis");
     setActiveGenerations([]);
     try {
-      const { data: active } = await getActiveSample(projectId);
-      setSampleId(active.id);
-      const { data } = await startSampleAnalysis(active.id);
+      const targetSampleId =
+        sampleId ?? (await getActiveSample(projectId)).data.id;
+      setSampleId(targetSampleId);
+      const { data } = await startSampleAnalysis(targetSampleId);
       setTaskId(data.taskId);
+      setAnalysisBatchTasks([]);
       setPanel("progress");
     } catch (err) {
       setDataError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [projectId]);
+  }, [projectId, sampleId]);
 
   const handleStartGeneration = useCallback(async () => {
     setBusy(true);
@@ -530,17 +583,31 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       await saveBrief(projectId, brief);
       setSavedBrief(brief);
 
-      const { data: active } = await getActiveSample(projectId);
-      if (!active.hasStructure) {
-        setDataError(
-          "请先对样例视频完成「开始样例分析」，成功后再生成计划。",
-        );
+      const { data: selectionData } = await getSampleSelection(projectId);
+      const primaryId = selectionData.selection?.primarySampleId;
+      if (!primaryId) {
+        setDataError("请先上传样例并设置主样例。");
+        return;
+      }
+      const { data: samplesData } = await listProjectSamples(projectId);
+      const primarySample = samplesData.samples.find(
+        (sample) => sample.id === primaryId,
+      );
+      if (!primarySample?.hasStructure) {
+        setDataError("请先对主样例视频完成分析，成功后再生成计划。");
         return;
       }
       const { data } = await createGenerationPlan(projectId, {
         brief,
         variants: selectedVariantIds,
+        sampleSelection: {
+          primarySampleId: primaryId,
+          referenceSampleIds: selectionData.selection?.referenceSampleIds ?? [],
+        },
       });
+      if (data.generationRunId) {
+        setActiveGenerationRunId(data.generationRunId);
+      }
       const entries: ActiveGeneration[] = data.generations.map((entry) => ({
         generationId: entry.generationId,
         variant: entry.variant,
@@ -811,11 +878,21 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               projectId={projectId}
               samples={projectSamples}
               activeSample={activeSample}
+              selectedSampleId={sampleId}
               onTaskStarted={handleTaskStarted}
+              onBatchAnalysisStarted={(tasks) => {
+                setAnalysisBatchTasks(tasks);
+                setLastAction("analysis");
+                setPanel("progress");
+              }}
               onSampleReady={(id) => {
                 setSampleId(id);
                 setTaskId(null);
                 setDataError(null);
+              }}
+              onSelectSample={(id) => {
+                setSampleId(id);
+                void loadAnalysisResults(id);
               }}
               onSampleChanged={() => void loadProjectInput()}
             />
@@ -824,6 +901,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               assets={projectAssets}
               onAssetsChanged={() => void loadProjectInput()}
             />
+            <div className="lg:col-span-2">
+              <SampleSelectionPanel
+                projectId={projectId}
+                onSelectionChanged={() => void loadProjectInput()}
+              />
+            </div>
             <div className="lg:col-span-2">
               <KnowledgeSelectionPanel
                 projectId={projectId}
@@ -850,6 +933,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "progress" && (
           <div className="lg:col-span-2 space-y-4">
+            {analysisBatchTasks.length > 0 && lastAction === "analysis" && (
+              <SampleBatchAnalysisProgress
+                projectId={projectId}
+                tasks={analysisBatchTasks}
+                onAllComplete={() => {
+                  void loadProjectInput();
+                  if (sampleId) {
+                    void loadAnalysisResults(sampleId);
+                  }
+                }}
+              />
+            )}
             {isGenerationProgress ? (
               <MultiTaskProgressPanel
                 projectId={projectId}
@@ -909,6 +1004,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   }
                 />
                 <SampleAnalysisView structure={structure} />
+                {structureProvenance && (
+                  <StructureProvenancePanel provenance={structureProvenance} />
+                )}
                 {sampleId && (
                   <KnowledgeDraftPanel
                     projectId={projectId}
@@ -998,6 +1096,34 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "result" && (
           <div className="lg:col-span-2 space-y-4">
+            {structureProvenance && (
+              <StructureProvenancePanel provenance={structureProvenance} />
+            )}
+            <GenerationRunHistoryPanel
+              projectId={projectId}
+              activeRunId={activeGenerationRunId}
+              onSelectRun={(runId) => {
+                setActiveGenerationRunId(runId);
+                void getGenerationRun(projectId, runId)
+                  .then(({ data }) => {
+                    if (data.provenance) {
+                      setStructureProvenance(data.provenance);
+                    }
+                    const first = data.generations[0];
+                    if (first?.plan) {
+                      setGenerationPlan(first.plan);
+                      setGenerationId(first.generationId);
+                      setActiveVariantGenerationId(first.generationId);
+                      if (first.plan.gapReport) {
+                        setGapReport(first.plan.gapReport);
+                      }
+                    }
+                  })
+                  .catch(() => {
+                    /* run may be incomplete */
+                  });
+              }}
+            />
             {preRevisePlan &&
               generationPlan &&
               preRevisePlan.id !== generationPlan.id && (

@@ -8,6 +8,7 @@ export type ProjectSessionState = {
   taskId: string | null;
   sampleId: string | null;
   generationId: string | null;
+  activeGenerationRunId?: string | null;
   lastAction: "analysis" | "generation" | "revise" | null;
   activeGenerations?: GenerationPlanEntry[];
   activeVariantGenerationId?: string | null;

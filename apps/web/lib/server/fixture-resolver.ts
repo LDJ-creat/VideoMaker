@@ -218,6 +218,245 @@ export function resolveFixture(
   if (
     method === "POST" &&
     segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "upload-batch"
+  ) {
+    return {
+      status: 201,
+      body: {
+        batchId: "batch-fixture-001",
+        samples: [
+          { id: "sample-fixture-local", taskId: null },
+          { id: "sample-fixture-local-2", taskId: null },
+        ],
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "analyze-batch"
+  ) {
+    return {
+      status: 200,
+      body: {
+        tasks: [
+          { sampleId: "sample-fixture-local", taskId: fixtureTaskEvent.taskId },
+        ],
+        maxConcurrent: 2,
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "upload-batches"
+  ) {
+    return {
+      status: 200,
+      body: {
+        batches: [
+          {
+            id: "batch-fixture-001",
+            projectId: segments[1],
+            status: "uploading",
+            sampleIds: ["sample-fixture-local"],
+            createdAt: "2026-06-04T00:00:00Z",
+            updatedAt: "2026-06-04T00:00:00Z",
+            samples: [
+              {
+                id: "sample-fixture-local",
+                status: "queued",
+                hasStructure: false,
+                uploadBatchId: "batch-fixture-001",
+              },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "selection"
+  ) {
+    return {
+      status: 200,
+      body: {
+        selection: {
+          projectId: segments[1],
+          primarySampleId: "sample-fixture-local",
+          referenceSampleIds: [],
+          activeUploadBatchId: "batch-fixture-001",
+          mode: "auto",
+          updatedAt: "2026-06-04T00:00:00Z",
+        },
+      },
+    };
+  }
+
+  if (
+    method === "PUT" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "selection"
+  ) {
+    let primarySampleId = "sample-fixture-local";
+    let referenceSampleIds: string[] = [];
+    if (requestBody) {
+      try {
+        const parsed = JSON.parse(requestBody) as {
+          primarySampleId?: string;
+          referenceSampleIds?: string[];
+        };
+        if (parsed.primarySampleId) primarySampleId = parsed.primarySampleId;
+        if (parsed.referenceSampleIds) referenceSampleIds = parsed.referenceSampleIds;
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      status: 200,
+      body: {
+        selection: {
+          projectId: segments[1],
+          primarySampleId,
+          referenceSampleIds,
+          activeUploadBatchId: "batch-fixture-001",
+          mode: "user_override",
+          updatedAt: "2026-06-04T00:00:00Z",
+        },
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "selection" &&
+    segments[4] === "reset"
+  ) {
+    return {
+      status: 200,
+      body: {
+        selection: {
+          projectId: segments[1],
+          primarySampleId: "sample-fixture-local",
+          referenceSampleIds: [],
+          activeUploadBatchId: "batch-fixture-001",
+          mode: "auto",
+          updatedAt: "2026-06-04T00:00:00Z",
+        },
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "projects" &&
+    segments[2] === "samples" &&
+    segments[3] === "recommend"
+  ) {
+    return {
+      status: 200,
+      body: {
+        recommendation: {
+          projectId: segments[1],
+          suggestedPrimaryId: "sample-fixture-local",
+          suggestedReferenceIds: [],
+          candidates: [
+            {
+              sampleId: "sample-fixture-local",
+              score: 1,
+              reasons: ["fixture"],
+              hasStructure: true,
+              status: "analyzed",
+            },
+          ],
+          computedAt: "2026-06-04T00:00:00Z",
+        },
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "generation-runs" &&
+    segments.length === 3
+  ) {
+    return {
+      status: 200,
+      body: {
+        runs: [
+          {
+            id: "run-fixture-001",
+            projectId: segments[1],
+            status: "completed",
+            variantIds: ["high_click", "high_conversion"],
+            generationIds: fixtureMultiVariantGenerations.map(
+              (entry) => entry.generationId,
+            ),
+            synthesizedStructureId: "synthesized-run-fixture-001",
+            provenanceId: null,
+            createdAt: "2026-06-04T00:00:00Z",
+            updatedAt: "2026-06-04T00:00:00Z",
+          },
+        ],
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "projects" &&
+    segments[2] === "generation-runs" &&
+    segments.length === 4
+  ) {
+    return {
+      status: 200,
+      body: {
+        run: {
+          id: segments[3],
+          projectId: segments[1],
+          status: "completed",
+          variantIds: ["high_click", "high_conversion"],
+          generationIds: fixtureMultiVariantGenerations.map(
+            (entry) => entry.generationId,
+          ),
+          synthesizedStructureId: `synthesized-${segments[3]}`,
+          provenanceId: null,
+          createdAt: "2026-06-04T00:00:00Z",
+          updatedAt: "2026-06-04T00:00:00Z",
+        },
+        generations: fixtureMultiVariantGenerations.map((entry) => ({
+          generationId: entry.generationId,
+          variant: entry.variant,
+          status: "succeeded",
+          plan: {
+            ...(entry.variant === "high_click"
+              ? fixtureGenerationPlanHighClick
+              : fixtureGenerationPlan),
+            id: entry.generationId,
+            variant: entry.variant,
+            gapReport: fixtureGapReport,
+          },
+        })),
+        provenance: null,
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "projects" &&
     segments[2] === "generation-plan"
   ) {
     const requestedVariants = parseGenerationPlanVariants(requestBody);
@@ -226,7 +465,10 @@ export function resolveFixture(
     );
     return {
       status: 201,
-      body: { generations },
+      body: {
+        generationRunId: `run-fixture-${Date.now()}`,
+        generations,
+      },
     };
   }
 
