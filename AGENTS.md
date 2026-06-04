@@ -265,7 +265,43 @@ Runtime artifacts belong under:
 ```text
 storage/projects/{projectId}/
 storage/global/cookies/
+storage/knowledge/                          # published global knowledge library
 ```
+
+Project knowledge drafts (pre-promote):
+
+```text
+storage/projects/{projectId}/knowledge/drafts/{sampleId}/
+  structure-skill.md
+  video-structure.json
+  entry-meta.json
+```
+
+Published entries:
+
+```text
+storage/knowledge/{categorySlug}/{entryId}/
+  structure-skill.md
+  video-structure.json
+  entry-meta.json
+```
+
+Knowledge API (index in SQLite `knowledge_entries`, selection in `project_knowledge_selection`):
+
+```http
+GET /api/knowledge/entries
+GET /api/knowledge/entries/{entry_id}
+GET /api/knowledge/entries/{entry_id}/skill
+GET /api/projects/{project_id}/samples/{sample_id}/knowledge-draft
+POST /api/projects/{project_id}/samples/{sample_id}/knowledge/promote
+POST /api/projects/{project_id}/knowledge/recommend
+GET /api/projects/{project_id}/knowledge/selection
+PUT /api/projects/{project_id}/knowledge/selection
+POST /api/projects/{project_id}/knowledge/selection/reset
+POST /api/projects/{project_id}/structure-from-knowledge
+```
+
+Brief save and `POST .../generation-plan` call `ensure_selection` to auto-recommend and bind Top-1 knowledge (see `docs/superpowers/plans/2026-06-03-knowledge-deposition-plan.md`).
 
 API-local runtime storage is ignored:
 
