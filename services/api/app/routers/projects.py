@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
+from app.services.knowledge_recommender import KnowledgeRecommender
+from app.services.knowledge_store import KnowledgeStore
 from app.services.generation_responses import build_latest_generations_response
 from app.services.variant_registry import get_variant_label, resolve_requested_variants
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
@@ -458,11 +460,21 @@ async def upload_cookies(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _knowledge_recommender(request: Request) -> KnowledgeRecommender:
+    return KnowledgeRecommender(
+        KnowledgeStore(request.app.state.db, request.app.state.storage_root),
+        _project_store(request),
+        storage_root=request.app.state.storage_root,
+        database_path=request.app.state.db.path,
+    )
+
+
 @router.post("/{project_id}/brief")
 def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> dict[str, bool]:
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     _project_store(request).save_brief(project_id, payload.model_dump(by_alias=True, exclude_none=True))
+    _knowledge_recommender(request).ensure_selection(project_id)
     return {"ok": True}
 
 
@@ -499,6 +511,8 @@ def create_generation_plan(
             project_id,
             payload.brief.model_dump(by_alias=True, exclude_none=True),
         )
+
+    _knowledge_recommender(request).ensure_selection(project_id)
 
     try:
         variant_ids = resolve_requested_variants(None if payload is None else payload.variants)

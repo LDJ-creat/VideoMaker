@@ -322,6 +322,25 @@ class SubprocessDemoPipeline:
             }
         )
 
+    def run_knowledge_selector(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        user_brief: dict[str, Any],
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._invoke(
+            {
+                **self._payload_base(),
+                "mode": "knowledge_selector",
+                "taskId": task_id,
+                "projectId": project_id,
+                "userBrief": user_brief,
+                "candidates": candidates,
+            }
+        )
+
 
 class PipelineRunner:
     def __init__(

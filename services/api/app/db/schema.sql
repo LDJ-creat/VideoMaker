@@ -86,3 +86,38 @@ CREATE TABLE IF NOT EXISTS model_gateway_providers (
   api_key_ciphertext BLOB,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  category_slug TEXT NOT NULL,
+  style TEXT NOT NULL,
+  hook_type TEXT,
+  tempo TEXT,
+  duration_bucket TEXT,
+  slot_pattern TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  skill_md_uri TEXT NOT NULL,
+  structure_json_uri TEXT NOT NULL,
+  source_project_id TEXT,
+  source_sample_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_entries(category, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_slot_pattern ON knowledge_entries(slot_pattern);
+
+CREATE TABLE IF NOT EXISTS project_knowledge_selection (
+  project_id TEXT PRIMARY KEY,
+  primary_entry_id TEXT,
+  reference_entry_ids_json TEXT NOT NULL DEFAULT '[]',
+  mode TEXT NOT NULL DEFAULT 'auto',
+  applied_as_structure INTEGER NOT NULL DEFAULT 0,
+  recommendation_json TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);

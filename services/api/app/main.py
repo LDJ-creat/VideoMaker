@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from app.db.session import Database, initialize_database
 from app.logging_config import configure_logging
 from app.routers.generations import router as generations_router
+from app.routers.knowledge import project_router as project_knowledge_router
+from app.routers.knowledge import router as knowledge_router
 from app.routers.projects import router as projects_router
 from app.routers.samples import router as samples_router
 from app.routers.settings import router as settings_router
@@ -55,8 +57,10 @@ def create_app(
     app.include_router(tasks_router)
     app.include_router(settings_router)
     app.include_router(projects_router)
+    app.include_router(project_knowledge_router)
     app.include_router(samples_router)
     app.include_router(generations_router)
+    app.include_router(knowledge_router)
 
     @app.get("/health")
     def health() -> dict[str, bool]:

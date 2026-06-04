@@ -264,13 +264,33 @@ class ProjectStore:
             "structure": structure,
         }
 
+    def get_latest_analyzed_sample_structure(self, project_id: str) -> dict[str, Any] | None:
+        """Return structure from a real (non-knowledge) analyzed sample only."""
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT structure_json FROM samples
+                WHERE project_id = ?
+                  AND structure_json IS NOT NULL
+                  AND source_kind != 'knowledge'
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None or not row["structure_json"]:
+            return None
+        return json.loads(row["structure_json"])
+
     def get_latest_sample_structure(self, project_id: str) -> dict[str, Any] | None:
+        """Prefer real analyzed samples; fall back to knowledge-applied structure."""
         with self.database.connect() as connection:
             row = connection.execute(
                 """
                 SELECT structure_json FROM samples
                 WHERE project_id = ? AND structure_json IS NOT NULL
-                ORDER BY updated_at DESC LIMIT 1
+                ORDER BY CASE WHEN source_kind = 'knowledge' THEN 1 ELSE 0 END,
+                         updated_at DESC
+                LIMIT 1
                 """,
                 (project_id,),
             ).fetchone()
