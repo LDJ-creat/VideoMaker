@@ -122,7 +122,16 @@ POST /api/projects/{project_id}/assets/upload
 GET /api/projects/{project_id}/samples
 GET /api/projects/{project_id}/samples/active
 POST /api/projects/{project_id}/samples/upload
+POST /api/projects/{project_id}/samples/upload-batch
+POST /api/projects/{project_id}/samples/analyze-batch
+POST /api/projects/{project_id}/samples/recommend
+GET /api/projects/{project_id}/samples/selection
+PUT /api/projects/{project_id}/samples/selection
+POST /api/projects/{project_id}/samples/selection/reset
+GET /api/projects/{project_id}/upload-batches
 POST /api/projects/{project_id}/samples/from-url
+GET /api/projects/{project_id}/generation-runs
+GET /api/projects/{project_id}/generation-runs/{run_id}
 GET /api/projects/{project_id}/media/samples/{sample_id}
 GET /api/projects/{project_id}/media/assets/{asset_id}
 POST /api/projects/{project_id}/generation-plan
@@ -301,7 +310,7 @@ POST /api/projects/{project_id}/knowledge/selection/reset
 POST /api/projects/{project_id}/structure-from-knowledge
 ```
 
-Brief save and `POST .../generation-plan` call `ensure_selection` to auto-recommend and bind Top-1 knowledge (see `docs/superpowers/plans/2026-06-03-knowledge-deposition-plan.md`).
+Brief save and `POST .../generation-plan` call `ensure_selection` for knowledge and sample selection (see `docs/superpowers/plans/2026-06-03-knowledge-deposition-plan.md` and `docs/superpowers/plans/2026-06-04-multi-sample-analysis-plan.md`).
 
 API-local runtime storage is ignored:
 
