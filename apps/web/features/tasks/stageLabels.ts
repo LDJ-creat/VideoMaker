@@ -8,6 +8,7 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
   detecting_shots: "镜头切分",
   extracting_keyframes: "提取关键帧",
   extracting_structure: "结构拆解",
+  rendering_knowledge_draft: "生成知识草稿",
   analyzing_assets: "分析素材",
   mapping_slots: "槽位匹配",
   planning_completion: "缺口规划",

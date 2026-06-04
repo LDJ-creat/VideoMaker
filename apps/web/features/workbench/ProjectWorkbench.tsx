@@ -12,7 +12,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { GapReportView } from "@/features/gap-report/GapReportView";
+import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
+import {
+  KnowledgeLibraryView,
+  KnowledgeSelectionPanel,
+} from "@/features/knowledge/KnowledgeSelectionPanel";
 import {
   getDefaultSelectedVariantIds,
   VariantPicker,
@@ -20,6 +24,7 @@ import {
 import { VariantCompareView } from "@/features/generation-variants/VariantCompareView";
 import { VariantTabs } from "@/features/generation-variants/VariantTabs";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
+import { GapReportView } from "@/features/gap-report/GapReportView";
 import { MasterNarrationPanel } from "@/features/master-narration/MasterNarrationPanel";
 import { EditIntentList } from "@/features/nl-revise/EditIntentList";
 import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
@@ -70,6 +75,7 @@ import {
   reviseGeneration,
   saveBrief,
   startSampleAnalysis,
+  updateKnowledgeSelection,
   type SampleKeyframeRecord,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
@@ -86,7 +92,8 @@ export type WorkbenchPanel =
   | "gap"
   | "timeline"
   | "narration"
-  | "result";
+  | "result"
+  | "knowledge";
 
 const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   input: "录入",
@@ -97,6 +104,7 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   timeline: "时间线",
   narration: "全片口播",
   result: "结果",
+  knowledge: "知识库",
 };
 
 type LastPipelineAction = "analysis" | "generation" | "revise" | null;
@@ -720,6 +728,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     "timeline",
     "narration",
     "result",
+    "knowledge",
   ];
 
   return (
@@ -816,6 +825,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               onAssetsChanged={() => void loadProjectInput()}
             />
             <div className="lg:col-span-2">
+              <KnowledgeSelectionPanel
+                projectId={projectId}
+                onApplied={() => void loadProjectInput()}
+              />
+            </div>
+            <div className="lg:col-span-2">
               <BriefEditor
                 ref={briefEditorRef}
                 projectId={projectId}
@@ -894,6 +909,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   }
                 />
                 <SampleAnalysisView structure={structure} />
+                {sampleId && (
+                  <KnowledgeDraftPanel
+                    projectId={projectId}
+                    sampleId={sampleId}
+                  />
+                )}
               </>
             ) : (
               <EmptyPanel message="暂无分析结果，请先完成样例分析或加载演示数据。" />
@@ -1031,6 +1052,29 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
             {activeResultGenerationId && (
               <AgentRunsDrawer generationId={activeResultGenerationId} />
+            )}
+          </div>
+        )}
+
+        {panel === "knowledge" && (
+          <div className="lg:col-span-2 space-y-4">
+            <KnowledgeSelectionPanel
+              projectId={projectId}
+              onApplied={() => void loadProjectInput()}
+            />
+            <KnowledgeLibraryView
+              onSelect={(entryId) => {
+                void updateKnowledgeSelection(projectId, {
+                  primaryEntryId: entryId,
+                  applyStructure: false,
+                }).then(() => void loadProjectInput());
+              }}
+            />
+            {sampleId && (
+              <KnowledgeDraftPanel
+                projectId={projectId}
+                sampleId={sampleId}
+              />
             )}
           </div>
         )}

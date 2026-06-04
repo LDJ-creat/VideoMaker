@@ -78,6 +78,30 @@ describe("ProjectWorkbench", () => {
     });
     vi.spyOn(apiClient, "getLatestGenerations").mockRejectedValue(new Error("no generation"));
     vi.spyOn(apiClient, "getActiveSample").mockRejectedValue(new Error("no sample"));
+    vi.spyOn(apiClient, "getSampleKeyframes").mockResolvedValue({
+      data: { sampleId: "sample-upload-1", keyframes: [] },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getKnowledgeSelection").mockResolvedValue({
+      data: { selection: null },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "recommendKnowledge").mockResolvedValue({
+      data: {
+        recommendation: {
+          projectId: "proj-test",
+          candidates: [],
+          suggestedPrimaryId: "",
+          computedAt: "2026-06-03T00:00:00Z",
+        },
+        selection: null,
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listKnowledgeEntries").mockResolvedValue({
+      data: { entries: [] },
+      meta: { dataSource: "api" },
+    });
   });
 
   afterEach(() => {
@@ -152,6 +176,8 @@ describe("ProjectWorkbench", () => {
       expect(getStructure).toHaveBeenCalledWith("sample-upload-1"),
     );
 
+    await user.click(screen.getByRole("button", { name: "样例分析" }));
+
     expect(
       screen.getByRole("heading", { name: "样例分析" }),
     ).toBeInTheDocument();
@@ -173,6 +199,17 @@ describe("ProjectWorkbench", () => {
         taskId: "task-retry-1",
         status: "retrying",
         progress: 45,
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getTask").mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-retry-1",
+        status: "failed",
+        progress: 45,
+        stage: "transcribing",
+        message: "transcription failed",
       },
       meta: { dataSource: "api" },
     });

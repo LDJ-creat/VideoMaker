@@ -3,6 +3,9 @@ import type {
   EditIntentItem,
   GapReport,
   GenerationPlan,
+  KnowledgeEntry,
+  KnowledgeRecommendation,
+  ProjectKnowledgeSelection,
   TaskEvent,
   UserBrief,
   VariantDefinition,
@@ -422,5 +425,135 @@ export function getTaskEventsUrl(taskId: string): string {
 }
 
 export { artifactDisplayUrl } from "@/lib/artifactUrl";
+
+export type KnowledgeDraftResponse = {
+  projectId: string;
+  sampleId: string;
+  skillMarkdown: string;
+  entryMeta: Record<string, unknown>;
+  skillMdUri: string;
+  structureJsonUri: string;
+};
+
+export type KnowledgeListResponse = {
+  entries: KnowledgeEntry[];
+};
+
+export type KnowledgeRecommendResponse = {
+  recommendation: KnowledgeRecommendation;
+  selection: ProjectKnowledgeSelection | null;
+};
+
+export type KnowledgeSelectionResponse = {
+  selection: ProjectKnowledgeSelection | null;
+};
+
+export async function listKnowledgeEntries(params?: {
+  category?: string;
+  style?: string;
+  hookType?: string;
+  tempo?: string;
+  q?: string;
+}): Promise<ApiResult<KnowledgeListResponse>> {
+  const search = new URLSearchParams();
+  if (params?.category) search.set("category", params.category);
+  if (params?.style) search.set("style", params.style);
+  if (params?.hookType) search.set("hookType", params.hookType);
+  if (params?.tempo) search.set("tempo", params.tempo);
+  if (params?.q) search.set("q", params.q);
+  const query = search.toString();
+  return apiFetch(`/api/knowledge/entries${query ? `?${query}` : ""}`);
+}
+
+export async function getKnowledgeEntry(
+  entryId: string,
+): Promise<ApiResult<KnowledgeEntry>> {
+  return apiFetch(`/api/knowledge/entries/${entryId}`);
+}
+
+export async function getKnowledgeSkill(
+  entryId: string,
+): Promise<ApiResult<{ entryId: string; markdown: string }>> {
+  return apiFetch(`/api/knowledge/entries/${entryId}/skill`);
+}
+
+export async function getKnowledgeDraft(
+  projectId: string,
+  sampleId: string,
+): Promise<ApiResult<KnowledgeDraftResponse>> {
+  return apiFetch(`/api/projects/${projectId}/samples/${sampleId}/knowledge-draft`);
+}
+
+export async function promoteKnowledgeDraft(
+  projectId: string,
+  sampleId: string,
+  body: {
+    title: string;
+    category: string;
+    style: string;
+    hookType?: string;
+    summaryOverride?: string;
+    categorySlug?: string;
+  },
+): Promise<ApiResult<{ entry: KnowledgeEntry }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/${sampleId}/knowledge/promote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function recommendKnowledge(
+  projectId: string,
+): Promise<ApiResult<KnowledgeRecommendResponse>> {
+  return apiFetch(`/api/projects/${projectId}/knowledge/recommend`, {
+    method: "POST",
+  });
+}
+
+export async function getKnowledgeSelection(
+  projectId: string,
+): Promise<ApiResult<KnowledgeSelectionResponse>> {
+  return apiFetch(`/api/projects/${projectId}/knowledge/selection`);
+}
+
+export async function updateKnowledgeSelection(
+  projectId: string,
+  body: {
+    primaryEntryId?: string | null;
+    referenceEntryIds?: string[];
+    applyStructure?: boolean;
+  },
+): Promise<ApiResult<KnowledgeSelectionResponse>> {
+  return apiFetch(`/api/projects/${projectId}/knowledge/selection`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function resetKnowledgeSelection(
+  projectId: string,
+): Promise<ApiResult<KnowledgeSelectionResponse>> {
+  return apiFetch(`/api/projects/${projectId}/knowledge/selection/reset`, {
+    method: "POST",
+  });
+}
+
+export async function applyKnowledgeToProject(
+  projectId: string,
+  body: { entryId: string; applyStructure?: boolean },
+): Promise<
+  ApiResult<{
+    applied: { sampleId?: string; entryId: string };
+    selection: ProjectKnowledgeSelection;
+  }>
+> {
+  return apiFetch(`/api/projects/${projectId}/structure-from-knowledge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 
 export type { ApiMeta, ApiResult };
