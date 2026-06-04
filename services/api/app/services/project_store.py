@@ -72,6 +72,7 @@ class ProjectStore:
         video_uri: str | None = None,
         status: str = "uploaded",
         task_id: str | None = None,
+        upload_batch_id: str | None = None,
     ) -> dict[str, Any]:
         sample_id = str(uuid.uuid4())
         created_at = now_iso()
@@ -80,9 +81,9 @@ class ProjectStore:
                 """
                 INSERT INTO samples (
                   id, project_id, source_kind, source_url, video_uri, status, task_id,
-                  structure_json, created_at, updated_at
+                  structure_json, upload_batch_id, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sample_id,
@@ -93,6 +94,7 @@ class ProjectStore:
                     status,
                     task_id,
                     None,
+                    upload_batch_id,
                     created_at,
                     created_at,
                 ),
@@ -103,30 +105,22 @@ class ProjectStore:
             "sourceKind": source_kind,
             "status": status,
             "taskId": task_id,
+            "uploadBatchId": upload_batch_id,
         }
 
     def get_sample(self, sample_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id,
+                       structure_json, upload_batch_id, created_at, updated_at
                 FROM samples WHERE id = ?
                 """,
                 (sample_id,),
             ).fetchone()
         if row is None:
             return None
-        structure = json.loads(row["structure_json"]) if row["structure_json"] else None
-        return {
-            "id": row["id"],
-            "projectId": row["project_id"],
-            "sourceKind": row["source_kind"],
-            "sourceUrl": row["source_url"],
-            "videoUri": row["video_uri"],
-            "status": row["status"],
-            "taskId": row["task_id"],
-            "structure": structure,
-        }
+        return self._parse_sample_row(row)
 
     def update_sample(
         self,
@@ -164,30 +158,22 @@ class ProjectStore:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id,
+                       structure_json, upload_batch_id, created_at, updated_at
                 FROM samples WHERE task_id = ?
                 """,
                 (task_id,),
             ).fetchone()
         if row is None:
             return None
-        structure = json.loads(row["structure_json"]) if row["structure_json"] else None
-        return {
-            "id": row["id"],
-            "projectId": row["project_id"],
-            "sourceKind": row["source_kind"],
-            "sourceUrl": row["source_url"],
-            "videoUri": row["video_uri"],
-            "status": row["status"],
-            "taskId": row["task_id"],
-            "structure": structure,
-        }
+        return self._parse_sample_row(row)
 
     def get_generation_by_task_id(self, task_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                       status, task_id, variant, generation_run_id
                 FROM generations WHERE task_id = ?
                 """,
                 (task_id,),
@@ -212,46 +198,24 @@ class ProjectStore:
             shutil.rmtree(analysis_dir)
 
     def list_samples(self, project_id: str) -> list[dict[str, Any]]:
+        return self.list_samples_with_meta(project_id)
+
+    def list_samples_with_meta(self, project_id: str) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id,
+                       structure_json, upload_batch_id, created_at, updated_at
                 FROM samples
                 WHERE project_id = ?
                 ORDER BY updated_at DESC
                 """,
                 (project_id,),
             ).fetchall()
-        samples: list[dict[str, Any]] = []
-        for row in rows:
-            structure = json.loads(row["structure_json"]) if row["structure_json"] else None
-            samples.append(
-                {
-                    "id": row["id"],
-                    "projectId": row["project_id"],
-                    "sourceKind": row["source_kind"],
-                    "sourceUrl": row["source_url"],
-                    "videoUri": row["video_uri"],
-                    "status": row["status"],
-                    "taskId": row["task_id"],
-                    "structure": structure,
-                }
-            )
-        return samples
+        return [self._parse_sample_row(row) for row in rows]
 
-    def get_latest_sample_with_video(self, project_id: str) -> dict[str, Any] | None:
-        with self.database.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id, structure_json
-                FROM samples
-                WHERE project_id = ? AND video_uri IS NOT NULL AND video_uri != ''
-                ORDER BY updated_at DESC LIMIT 1
-                """,
-                (project_id,),
-            ).fetchone()
-        if row is None:
-            return None
+    @staticmethod
+    def _parse_sample_row(row: Any) -> dict[str, Any]:
         structure = json.loads(row["structure_json"]) if row["structure_json"] else None
         return {
             "id": row["id"],
@@ -262,7 +226,50 @@ class ProjectStore:
             "status": row["status"],
             "taskId": row["task_id"],
             "structure": structure,
+            "uploadBatchId": row["upload_batch_id"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
         }
+
+    def get_latest_sample_with_video(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id,
+                       structure_json, upload_batch_id, created_at, updated_at
+                FROM samples
+                WHERE project_id = ? AND video_uri IS NOT NULL AND video_uri != ''
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._parse_sample_row(row)
+
+    def get_latest_analyzed_sample(self, project_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_kind, source_url, video_uri, status, task_id,
+                       structure_json, upload_batch_id, created_at, updated_at
+                FROM samples
+                WHERE project_id = ?
+                  AND structure_json IS NOT NULL
+                  AND source_kind != 'knowledge'
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                (project_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._parse_sample_row(row)
+
+    def get_sample_structure(self, sample_id: str) -> dict[str, Any] | None:
+        sample = self.get_sample(sample_id)
+        if sample is None:
+            return None
+        return sample.get("structure")
 
     def get_latest_analyzed_sample_structure(self, project_id: str) -> dict[str, Any] | None:
         """Return structure from a real (non-knowledge) analyzed sample only."""
@@ -413,6 +420,7 @@ class ProjectStore:
         task_id: str | None = None,
         status: str = "queued",
         variant: str | None = None,
+        generation_run_id: str | None = None,
     ) -> dict[str, Any]:
         generation_id = str(uuid.uuid4())
         created_at = now_iso()
@@ -421,9 +429,9 @@ class ProjectStore:
                 """
                 INSERT INTO generations (
                   id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
-                  status, task_id, variant, created_at, updated_at
+                  status, task_id, variant, generation_run_id, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     generation_id,
@@ -435,6 +443,7 @@ class ProjectStore:
                     status,
                     task_id,
                     variant,
+                    generation_run_id,
                     created_at,
                     created_at,
                 ),
@@ -445,6 +454,7 @@ class ProjectStore:
             "status": status,
             "taskId": task_id,
             "variant": variant,
+            "generationRunId": generation_run_id,
         }
 
     def update_generation(
@@ -503,13 +513,17 @@ class ProjectStore:
             "status": row["status"],
             "taskId": row["task_id"],
             "variant": variant,
+            "generationRunId": row["generation_run_id"]
+            if "generation_run_id" in row.keys()
+            else None,
         }
 
     def get_generation(self, generation_id: str) -> dict[str, Any] | None:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                       status, task_id, variant, generation_run_id
                 FROM generations WHERE id = ?
                 """,
                 (generation_id,),
@@ -517,6 +531,20 @@ class ProjectStore:
         if row is None:
             return None
         return self._parse_generation_row(row)
+
+    def list_generations_for_run(self, generation_run_id: str) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                       status, task_id, variant, generation_run_id
+                FROM generations
+                WHERE generation_run_id = ?
+                ORDER BY created_at ASC
+                """,
+                (generation_run_id,),
+            ).fetchall()
+        return [self._parse_generation_row(row) for row in rows]
 
     def get_latest_generation_with_plan(self, project_id: str) -> dict[str, Any] | None:
         records = self.get_latest_generations_with_plan(project_id)
@@ -526,7 +554,8 @@ class ProjectStore:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json, status, task_id, variant
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                       status, task_id, variant, generation_run_id
                 FROM generations
                 WHERE project_id = ? AND plan_json IS NOT NULL
                 ORDER BY updated_at DESC

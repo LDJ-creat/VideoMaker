@@ -75,6 +75,75 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
+    sample_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(samples)").fetchall()
+    }
+    if "upload_batch_id" not in sample_columns:
+        connection.execute("ALTER TABLE samples ADD COLUMN upload_batch_id TEXT")
+
+    if "generation_run_id" not in generation_columns:
+        connection.execute("ALTER TABLE generations ADD COLUMN generation_run_id TEXT")
+
+    sample_columns_after = {
+        row[1] for row in connection.execute("PRAGMA table_info(samples)").fetchall()
+    }
+    if "upload_batch_id" in sample_columns_after:
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_samples_upload_batch ON samples(upload_batch_id)"
+        )
+
+    if "upload_batches" not in tables:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS upload_batches (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              status TEXT NOT NULL,
+              sample_ids_json TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_upload_batches_project ON upload_batches(project_id, created_at DESC);
+            """
+        )
+
+    if "project_sample_selection" not in tables:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_sample_selection (
+              project_id TEXT PRIMARY KEY,
+              primary_sample_id TEXT,
+              reference_sample_ids_json TEXT NOT NULL DEFAULT '[]',
+              active_upload_batch_id TEXT,
+              mode TEXT NOT NULL DEFAULT 'auto',
+              recommendation_json TEXT,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (project_id) REFERENCES projects(id)
+            )
+            """
+        )
+
+    if "generation_runs" not in tables:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS generation_runs (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL,
+              sample_selection_json TEXT NOT NULL,
+              synthesized_structure_id TEXT,
+              provenance_id TEXT,
+              variant_ids_json TEXT NOT NULL DEFAULT '[]',
+              generation_ids_json TEXT NOT NULL DEFAULT '[]',
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (project_id) REFERENCES projects(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_generation_runs_project ON generation_runs(project_id, created_at DESC);
+            """
+        )
+
 
 def initialize_database(database: Database, *, storage_root: Path | None = None) -> None:
     schema_path = Path(__file__).with_name("schema.sql")

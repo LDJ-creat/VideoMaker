@@ -14,6 +14,7 @@ from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
+from app.services.upload_batch_store import UploadBatchStore
 
 logger = logging.getLogger(__name__)
 worker_logger = logging.getLogger("videomaker.worker")
@@ -45,6 +46,8 @@ class DemoPipeline(Protocol):
         emit: Any,
         resume: bool = False,
         variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     def run_revise(
@@ -252,6 +255,8 @@ class SubprocessDemoPipeline:
         emit: Any,
         resume: bool = False,
         variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             **self._payload_base(),
@@ -265,6 +270,10 @@ class SubprocessDemoPipeline:
             "resume": resume,
             "variant": variant,
         }
+        if sample_selection is not None:
+            payload["sampleSelection"] = sample_selection
+        if generation_run_id is not None:
+            payload["generationRunId"] = generation_run_id
         return self._invoke(payload)
 
     def run_revise(
@@ -366,6 +375,16 @@ class PipelineRunner:
         self._pipeline = pipeline
         self._active_tasks: set[str] = set()
         self._running_lock = threading.Lock()
+        self._sample_analysis_active = 0
+        self._sample_analysis_queue: list[dict[str, Any]] = []
+        self._sample_analysis_lock = threading.Lock()
+
+    def _max_concurrent_sample_analysis(self) -> int:
+        raw = os.getenv("VIDEOMAKER_MAX_CONCURRENT_SAMPLE_ANALYSIS", "2")
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return 2
 
     def _is_task_active(self, task_id: str) -> bool:
         with self._running_lock:
@@ -518,6 +537,50 @@ class PipelineRunner:
 
         self._run_task(task_id, job)
 
+    def enqueue_sample_analysis(
+        self,
+        *,
+        project_id: str,
+        sample_id: str,
+        task_id: str,
+        video_uri: str,
+        resume: bool = False,
+    ) -> None:
+        with self._sample_analysis_lock:
+            self._sample_analysis_queue.append(
+                {
+                    "project_id": project_id,
+                    "sample_id": sample_id,
+                    "task_id": task_id,
+                    "video_uri": video_uri,
+                    "resume": resume,
+                }
+            )
+        self._drain_sample_analysis_queue()
+
+    def _drain_sample_analysis_queue(self) -> None:
+        while True:
+            with self._sample_analysis_lock:
+                if self._sample_analysis_active >= self._max_concurrent_sample_analysis():
+                    return
+                if not self._sample_analysis_queue:
+                    return
+                item = self._sample_analysis_queue.pop(0)
+                self._sample_analysis_active += 1
+            self._start_sample_analysis_job(
+                project_id=item["project_id"],
+                sample_id=item["sample_id"],
+                task_id=item["task_id"],
+                video_uri=item["video_uri"],
+                resume=item["resume"],
+                from_queue=True,
+            )
+
+    def _finish_sample_analysis_slot(self) -> None:
+        with self._sample_analysis_lock:
+            self._sample_analysis_active = max(0, self._sample_analysis_active - 1)
+        self._drain_sample_analysis_queue()
+
     def start_sample_analysis(
         self,
         *,
@@ -527,9 +590,46 @@ class PipelineRunner:
         video_uri: str,
         resume: bool = False,
     ) -> None:
+        self._start_sample_analysis_job(
+            project_id=project_id,
+            sample_id=sample_id,
+            task_id=task_id,
+            video_uri=video_uri,
+            resume=resume,
+            from_queue=False,
+        )
+
+    def _refresh_upload_batch_for_sample(self, sample_id: str) -> None:
+        sample = self.project_store.get_sample(sample_id)
+        if sample is None:
+            return
+        batch_id = sample.get("uploadBatchId")
+        if not batch_id:
+            return
+        batch_store = UploadBatchStore(self.database)
+        batch = batch_store.get_batch(str(batch_id))
+        if batch is None:
+            return
+        statuses: dict[str, str] = {}
+        for sid in batch["sampleIds"]:
+            row = self.project_store.get_sample(str(sid))
+            statuses[str(sid)] = str(row.get("status", "unknown")) if row else "unknown"
+        batch_store.refresh_batch_status(str(batch_id), statuses)
+
+    def _start_sample_analysis_job(
+        self,
+        *,
+        project_id: str,
+        sample_id: str,
+        task_id: str,
+        video_uri: str,
+        resume: bool = False,
+        from_queue: bool = False,
+    ) -> None:
         def job() -> None:
             try:
                 self.project_store.update_sample(sample_id, status="analyzing", task_id=task_id)
+                self._refresh_upload_batch_for_sample(sample_id)
                 if resume:
                     self._emit(
                         task_id,
@@ -562,6 +662,7 @@ class PipelineRunner:
                         default_stage="extracting_metadata",
                         default_code="sample_analysis_failed",
                     )
+                self._refresh_upload_batch_for_sample(sample_id)
             except Exception as exc:  # pragma: no cover
                 logger.exception("Sample analysis failed task_id=%s sample_id=%s", task_id, sample_id)
                 latest = self.task_events.get_task(task_id)
@@ -579,6 +680,10 @@ class PipelineRunner:
                         },
                     )
                 self.project_store.update_sample(sample_id, status="failed")
+                self._refresh_upload_batch_for_sample(sample_id)
+            finally:
+                if from_queue:
+                    self._finish_sample_analysis_slot()
 
         self._run_task(task_id, job)
 
@@ -593,6 +698,9 @@ class PipelineRunner:
         assets: list[dict[str, Any]],
         resume: bool = False,
         variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
+        on_generation_complete: Any | None = None,
     ) -> None:
         def job() -> None:
             try:
@@ -615,12 +723,15 @@ class PipelineRunner:
                     emit=self._make_emit(task_id),
                     resume=resume,
                     variant=variant,
+                    sample_selection=sample_selection,
+                    generation_run_id=generation_run_id,
                 )
                 if result.get("ok"):
                     self.project_store.update_generation(
                         generation_id,
                         status="succeeded",
-                        structure_id=structure.get("id"),
+                        structure_id=result.get("plan", {}).get("structureId")
+                        or structure.get("id"),
                         inventory_id=result["inventory"]["id"],
                         gap_report=result["gapReport"],
                         plan=result["plan"],
@@ -638,6 +749,7 @@ class PipelineRunner:
                     task_id,
                     generation_id,
                 )
+                result = {"ok": False}
                 self._emit(
                     task_id,
                     status="failed",
@@ -651,6 +763,9 @@ class PipelineRunner:
                     },
                 )
                 self.project_store.update_generation(generation_id, status="failed")
+            finally:
+                if on_generation_complete is not None:
+                    on_generation_complete(generation_id, result if "result" in locals() else {"ok": False})
 
         self._run_task(task_id, job)
 

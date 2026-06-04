@@ -75,6 +75,9 @@ class FakeDemoPipeline:
         emit: Any,
         resume: bool = False,
         variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
+        **_: Any,
     ) -> dict[str, Any]:
         FakeDemoPipeline.last_resume = resume
         FakeDemoPipeline.last_retry_task_id = task_id

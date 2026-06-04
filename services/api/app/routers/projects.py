@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,10 @@ from app.services.cookie_store import CookieStore, UploadMode
 from app.services.knowledge_recommender import KnowledgeRecommender
 from app.services.knowledge_store import KnowledgeStore
 from app.services.generation_responses import build_latest_generations_response
+from app.services.generation_run_store import GenerationRunStore
+from app.services.sample_recommender import SampleRecommender
+from app.services.sample_selection_store import SampleSelectionStore
+from app.services.upload_batch_store import UploadBatchStore
 from app.services.variant_registry import get_variant_label, resolve_requested_variants
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
 from app.services.pipeline_runner import PipelineRunner
@@ -67,13 +72,26 @@ class GenerationPlanEntry(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class SampleSelectionOverride(BaseModel):
+    primary_sample_id: str = Field(alias="primarySampleId")
+    reference_sample_ids: list[str] = Field(default_factory=list, alias="referenceSampleIds")
+
+    model_config = {"populate_by_name": True}
+
+
 class MultiVariantGenerationResponse(BaseModel):
+    generationRunId: str | None = Field(default=None, alias="generationRunId")
     generations: list[GenerationPlanEntry]
+
+    model_config = {"populate_by_name": True}
 
 
 class GenerationPlanRequest(BaseModel):
     brief: UserBriefPayload | None = None
     variants: list[str] | None = None
+    sample_selection: SampleSelectionOverride | None = Field(default=None, alias="sampleSelection")
+
+    model_config = {"populate_by_name": True}
 
 
 class BriefResponse(BaseModel):
@@ -93,6 +111,9 @@ class SampleSummaryResponse(BaseModel):
     sourceUrl: str | None = None
     fileName: str | None = None
     previewUrl: str | None = None
+    uploadBatchId: str | None = Field(default=None, alias="uploadBatchId")
+
+    model_config = {"populate_by_name": True}
 
 
 class ProjectSamplesResponse(BaseModel):
@@ -111,9 +132,20 @@ def _asset_with_preview(project_id: str, asset: dict[str, Any]) -> dict[str, Any
     return enriched
 
 
-def _sample_summary(project_id: str, sample: dict[str, Any]) -> dict[str, Any]:
+def _sample_summary(
+    project_id: str,
+    sample: dict[str, Any],
+    *,
+    batch_store: UploadBatchStore | None = None,
+) -> dict[str, Any]:
     video_uri = sample.get("videoUri")
     file_name = Path(video_uri).name if video_uri else None
+    upload_batch_id = sample.get("uploadBatchId")
+    batch_created_at: str | None = None
+    if upload_batch_id and batch_store is not None:
+        batch = batch_store.get_batch(str(upload_batch_id))
+        if batch is not None:
+            batch_created_at = batch.get("createdAt")
     return {
         "id": sample["id"],
         "status": sample["status"],
@@ -123,7 +155,84 @@ def _sample_summary(project_id: str, sample: dict[str, Any]) -> dict[str, Any]:
         "sourceUrl": sample.get("sourceUrl"),
         "fileName": file_name,
         "previewUrl": sample_media_path(project_id, sample["id"]) if video_uri else None,
+        "uploadBatchId": upload_batch_id,
+        "batchCreatedAt": batch_created_at,
     }
+
+
+def _knowledge_recommender(request: Request) -> KnowledgeRecommender:
+    return KnowledgeRecommender(
+        KnowledgeStore(request.app.state.db, request.app.state.storage_root),
+        _project_store(request),
+        storage_root=request.app.state.storage_root,
+        database_path=request.app.state.db.path,
+    )
+
+
+def _sample_recommender(request: Request) -> SampleRecommender:
+    db = request.app.state.db
+    return SampleRecommender(
+        _project_store(request),
+        SampleSelectionStore(db),
+        UploadBatchStore(db),
+    )
+
+
+def _generation_run_store(request: Request) -> GenerationRunStore:
+    return GenerationRunStore(request.app.state.db)
+
+
+def _generation_artifact_path(
+    storage_root: Path,
+    project_id: str,
+    generation_id: str,
+    filename: str,
+) -> Path:
+    return (
+        storage_root
+        / "projects"
+        / project_id
+        / "generations"
+        / generation_id
+        / filename
+    )
+
+
+def _resolve_run_artifact_ids(
+    *,
+    storage_root: Path,
+    project_id: str,
+    generation_ids: list[str],
+    run_id: str,
+    has_references: bool,
+    primary_structure_id: str,
+) -> tuple[str, str | None]:
+    if not has_references:
+        return str(primary_structure_id), None
+
+    synthesized_id = f"synthesized-{run_id}"
+    provenance_id = f"provenance-{run_id}"
+    has_synthesized = False
+    has_provenance = False
+    for generation_id in generation_ids:
+        if _generation_artifact_path(
+            storage_root,
+            project_id,
+            generation_id,
+            "synthesized-structure.json",
+        ).exists():
+            has_synthesized = True
+        if _generation_artifact_path(
+            storage_root,
+            project_id,
+            generation_id,
+            "structure-provenance.json",
+        ).exists():
+            has_provenance = True
+
+    resolved_structure_id = synthesized_id if has_synthesized else str(primary_structure_id)
+    resolved_provenance_id = provenance_id if has_provenance else None
+    return resolved_structure_id, resolved_provenance_id
 
 
 def _media_type_for_path(path: Path) -> str:
@@ -217,15 +326,22 @@ async def upload_sample(
     project_id: str,
     request: Request,
     file: UploadFile = File(...),
+    upload_batch_id: str | None = Query(default=None, alias="uploadBatchId"),
 ) -> dict[str, Any]:
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
     store = _project_store(request)
+    if upload_batch_id:
+        batch = UploadBatchStore(request.app.state.db).get_batch(upload_batch_id)
+        if batch is None or batch["projectId"] != project_id:
+            raise HTTPException(status_code=404, detail="Upload batch not found")
+
     created = store.create_sample(
         project_id=project_id,
         source_kind="local",
         status="uploaded",
+        upload_batch_id=upload_batch_id,
     )
     sample_id = created["id"]
     suffix = Path(file.filename or "sample.mp4").suffix or ".mp4"
@@ -233,6 +349,8 @@ async def upload_sample(
     destination = _artifact_store(request).resolve_project_path(project_id, relative_path)
     destination.write_bytes(await file.read())
     store.update_sample(sample_id, video_uri=str(destination))
+    if upload_batch_id:
+        UploadBatchStore(request.app.state.db).add_sample_to_batch(upload_batch_id, sample_id)
     return {"id": sample_id, "taskId": None}
 
 
@@ -336,18 +454,34 @@ def stream_project_artifact_media(
 def list_project_samples(project_id: str, request: Request) -> dict[str, Any]:
     store = _project_store(request)
     _ensure_project(store, project_id)
+    batch_store = _batch_store(request)
     samples = store.list_samples(project_id)
-    return {"samples": [_sample_summary(project_id, sample) for sample in samples]}
+    return {
+        "samples": [
+            _sample_summary(project_id, sample, batch_store=batch_store)
+            for sample in samples
+        ]
+    }
+
+
+def _batch_store(request: Request) -> UploadBatchStore:
+    return UploadBatchStore(request.app.state.db)
 
 
 @router.get("/{project_id}/samples/active")
 def get_active_sample(project_id: str, request: Request) -> dict[str, Any]:
     store = _project_store(request)
     _ensure_project(store, project_id)
-    sample = store.get_latest_sample_with_video(project_id)
+    batch_store = _batch_store(request)
+    selection = _sample_recommender(request).ensure_selection(project_id)
+    sample: dict[str, Any] | None = None
+    if selection and selection.get("primarySampleId"):
+        sample = store.get_sample(str(selection["primarySampleId"]))
+    if sample is None or not sample.get("videoUri"):
+        sample = store.get_latest_sample_with_video(project_id)
     if sample is None:
         raise HTTPException(status_code=404, detail="No sample with video file for project")
-    return _sample_summary(project_id, sample)
+    return _sample_summary(project_id, sample, batch_store=batch_store)
 
 
 @router.post(
@@ -359,9 +493,15 @@ def import_sample_from_url(
     project_id: str,
     payload: SampleFromUrlRequest,
     request: Request,
+    upload_batch_id: str | None = Query(default=None, alias="uploadBatchId"),
 ) -> dict[str, Any]:
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    if upload_batch_id:
+        batch = UploadBatchStore(request.app.state.db).get_batch(upload_batch_id)
+        if batch is None or batch["projectId"] != project_id:
+            raise HTTPException(status_code=404, detail="Upload batch not found")
 
     task = _task_events(request).create_task(
         project_id,
@@ -374,7 +514,10 @@ def import_sample_from_url(
         source_url=payload.url,
         status="importing",
         task_id=task["taskId"],
+        upload_batch_id=upload_batch_id,
     )
+    if upload_batch_id:
+        UploadBatchStore(request.app.state.db).add_sample_to_batch(upload_batch_id, sample["id"])
     _pipeline_runner(request).start_url_import(
         project_id=project_id,
         sample_id=sample["id"],
@@ -460,20 +603,12 @@ async def upload_cookies(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _knowledge_recommender(request: Request) -> KnowledgeRecommender:
-    return KnowledgeRecommender(
-        KnowledgeStore(request.app.state.db, request.app.state.storage_root),
-        _project_store(request),
-        storage_root=request.app.state.storage_root,
-        database_path=request.app.state.db.path,
-    )
-
-
 @router.post("/{project_id}/brief")
 def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> dict[str, bool]:
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     _project_store(request).save_brief(project_id, payload.model_dump(by_alias=True, exclude_none=True))
+    _sample_recommender(request).ensure_selection(project_id)
     _knowledge_recommender(request).ensure_selection(project_id)
     return {"ok": True}
 
@@ -512,15 +647,30 @@ def create_generation_plan(
             payload.brief.model_dump(by_alias=True, exclude_none=True),
         )
 
-    _knowledge_recommender(request).ensure_selection(project_id)
+    sample_recommender = _sample_recommender(request)
+    override = None
+    if payload is not None and payload.sample_selection is not None:
+        override = payload.sample_selection.model_dump(by_alias=True)
+
+    if store.get_latest_analyzed_sample(project_id) is None:
+        _knowledge_recommender(request).ensure_selection(project_id)
+    else:
+        sample_recommender.ensure_selection(project_id)
 
     try:
         variant_ids = resolve_requested_variants(None if payload is None else payload.variants)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    structure = store.get_latest_sample_structure(project_id)
-    if structure is None:
+    try:
+        selection = sample_recommender.resolve_effective_selection(
+            project_id,
+            override=override,
+        )
+        _primary_sample, primary_structure, reference_structures = (
+            sample_recommender.load_structures_for_selection(selection)
+        )
+    except ValueError as exc:
         ready = store.get_latest_sample_with_video(project_id)
         if ready and ready.get("videoUri") and ready.get("structure") is None:
             raise HTTPException(
@@ -529,11 +679,24 @@ def create_generation_plan(
                     "No analyzed sample structure for project. "
                     f"Run sample analysis on {ready['id']} first."
                 ),
-            )
-        raise HTTPException(
-            status_code=400,
-            detail="No analyzed sample structure for project. Complete sample analysis first.",
-        )
+            ) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    run_store = _generation_run_store(request)
+    generation_run = run_store.create_run(
+        project_id=project_id,
+        sample_selection_snapshot=selection,
+        variant_ids=variant_ids,
+    )
+    run_id = generation_run["id"]
+
+    sample_selection_payload: dict[str, Any] | None = None
+    if reference_structures:
+        sample_selection_payload = {
+            "primarySampleId": selection.get("primarySampleId"),
+            "referenceSampleIds": selection.get("referenceSampleIds") or [],
+            "referenceStructures": reference_structures,
+        }
 
     brief = store.get_brief(project_id) or {
         "topic": "Demo topic",
@@ -542,6 +705,45 @@ def create_generation_plan(
         "avoidMention": [],
     }
     assets = store.list_assets(project_id)
+
+    completion_lock = threading.Lock()
+    completion_state = {"done": 0, "total": len(variant_ids), "failed": 0, "succeeded": 0}
+    has_references = bool(reference_structures)
+    storage_root: Path = request.app.state.storage_root
+
+    def on_generation_complete(_generation_id: str, result: dict[str, Any]) -> None:
+        with completion_lock:
+            completion_state["done"] = int(completion_state["done"]) + 1
+            if result.get("ok"):
+                completion_state["succeeded"] = int(completion_state["succeeded"]) + 1
+            else:
+                completion_state["failed"] = int(completion_state["failed"]) + 1
+            if int(completion_state["done"]) < int(completion_state["total"]):
+                return
+            failed_count = int(completion_state["failed"])
+            succeeded_count = int(completion_state["succeeded"])
+            if failed_count == 0:
+                run_status = "completed"
+            elif succeeded_count == 0:
+                run_status = "partial_failed"
+            else:
+                run_status = "partial_failed"
+            run = run_store.get_run(run_id)
+            generation_ids = list(run["generationIds"]) if run else []
+            synthesized_structure_id, provenance_id = _resolve_run_artifact_ids(
+                storage_root=storage_root,
+                project_id=project_id,
+                generation_ids=generation_ids,
+                run_id=run_id,
+                has_references=has_references,
+                primary_structure_id=str(primary_structure.get("id", "")),
+            )
+            run_store.update_run(
+                run_id,
+                status=run_status,
+                synthesized_structure_id=synthesized_structure_id,
+                provenance_id=provenance_id,
+            )
 
     generations: list[dict[str, Any]] = []
     for variant in variant_ids:
@@ -555,15 +757,20 @@ def create_generation_plan(
             task_id=task["taskId"],
             status="queued",
             variant=variant,
+            generation_run_id=run_id,
         )
+        run_store.append_generation(run_id, generation["id"])
         _pipeline_runner(request).start_generation(
             project_id=project_id,
             generation_id=generation["id"],
             task_id=task["taskId"],
-            structure=structure,
+            structure=primary_structure,
             user_brief=brief,
             assets=assets,
             variant=variant,
+            sample_selection=sample_selection_payload,
+            generation_run_id=run_id,
+            on_generation_complete=on_generation_complete,
         )
         generations.append(
             {
@@ -574,4 +781,4 @@ def create_generation_plan(
             }
         )
 
-    return {"generations": generations}
+    return {"generationRunId": run_id, "generations": generations}

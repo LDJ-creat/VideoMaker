@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS samples (
   status TEXT NOT NULL,
   task_id TEXT,
   structure_json TEXT,
+  upload_batch_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS generations (
   status TEXT NOT NULL,
   task_id TEXT,
   variant TEXT,
+  generation_run_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -121,3 +123,42 @@ CREATE TABLE IF NOT EXISTS project_knowledge_selection (
   updated_at TEXT NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(id)
 );
+
+CREATE TABLE IF NOT EXISTS upload_batches (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  sample_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_batches_project ON upload_batches(project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_sample_selection (
+  project_id TEXT PRIMARY KEY,
+  primary_sample_id TEXT,
+  reference_sample_ids_json TEXT NOT NULL DEFAULT '[]',
+  active_upload_batch_id TEXT,
+  mode TEXT NOT NULL DEFAULT 'auto',
+  recommendation_json TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE IF NOT EXISTS generation_runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  sample_selection_json TEXT NOT NULL,
+  synthesized_structure_id TEXT,
+  provenance_id TEXT,
+  variant_ids_json TEXT NOT NULL DEFAULT '[]',
+  generation_ids_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_generation_runs_project ON generation_runs(project_id, created_at DESC);
