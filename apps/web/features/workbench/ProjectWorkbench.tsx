@@ -38,7 +38,7 @@ import { GenerationRunHistoryPanel } from "@/features/generation-runs/Generation
 import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatchAnalysisProgress";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
-import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
+import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
@@ -181,6 +181,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
+  const [analysisSampleId, setAnalysisSampleId] = useState<string | null>(null);
+  const [pendingAnalysisSampleId, setPendingAnalysisSampleId] = useState<
+    string | null
+  >(null);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<LastPipelineAction>(null);
   const [busy, setBusy] = useState(false);
@@ -237,23 +241,51 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     null,
   );
 
-  const loadAnalysisResults = useCallback(async (currentSampleId: string) => {
-    setDataLoading(true);
-    setDataError(null);
-    try {
-      const [structureResult, keyframesResult] = await Promise.all([
-        getSampleStructure(currentSampleId),
-        getSampleKeyframes(currentSampleId),
-      ]);
-      setStructure(structureResult.data);
-      setSampleKeyframes(keyframesResult.data.keyframes ?? []);
-      setDataSource(structureResult.meta.dataSource);
-    } catch (err) {
-      setDataError(getErrorMessage(err));
-    } finally {
-      setDataLoading(false);
-    }
-  }, []);
+  const loadAnalysisResults = useCallback(
+    async (
+      currentSampleId: string,
+      options?: { showGlobalLoading?: boolean },
+    ) => {
+      setPendingAnalysisSampleId(currentSampleId);
+      if (options?.showGlobalLoading) {
+        setDataLoading(true);
+      }
+      setDataError(null);
+      try {
+        const [structureResult, keyframesResult] = await Promise.all([
+          getSampleStructure(currentSampleId),
+          getSampleKeyframes(currentSampleId),
+        ]);
+        setStructure(structureResult.data);
+        setSampleKeyframes(keyframesResult.data.keyframes ?? []);
+        setAnalysisSampleId(currentSampleId);
+        setDataSource(structureResult.meta.dataSource);
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+      } finally {
+        setPendingAnalysisSampleId(null);
+        if (options?.showGlobalLoading) {
+          setDataLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleSelectAnalysisSample = useCallback(
+    (nextSampleId: string) => {
+      if (
+        nextSampleId === analysisSampleId ||
+        nextSampleId === pendingAnalysisSampleId
+      ) {
+        return;
+      }
+      void loadAnalysisResults(nextSampleId);
+    },
+    [analysisSampleId, pendingAnalysisSampleId, loadAnalysisResults],
+  );
+
+  const viewAnalysisSampleId = analysisSampleId ?? sampleId;
 
   const loadGenerationRunProvenance = useCallback(
     async (runId: string) => {
@@ -299,7 +331,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setActiveSample(sample);
       setSampleId(sample.id);
       if (sample.hasStructure) {
-        void loadAnalysisResults(sample.id);
+        const allSamples =
+          samplesResult.status === "fulfilled"
+            ? samplesResult.value.data.samples
+            : [];
+        const analyzedIds = new Set(
+          allSamples
+            .filter((item) => item.hasStructure && item.status === "analyzed")
+            .map((item) => item.id),
+        );
+        setAnalysisSampleId((prev) => {
+          const next =
+            prev && analyzedIds.has(prev) ? prev : sample.id;
+          void loadAnalysisResults(next, {
+            showGlobalLoading: !(prev && analyzedIds.has(prev)),
+          });
+          return prev && analyzedIds.has(prev) ? prev : null;
+        });
       }
     } else {
       setActiveSample(null);
@@ -989,34 +1037,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         )}
 
         {panel === "analysis" && (
-          <div className="lg:col-span-2 space-y-4">
-            {structure ? (
-              <>
-                <StructureEvidencePanel
-                  structure={structure}
-                  projectId={projectId}
-                  sampleId={sampleId}
-                  keyframes={sampleKeyframes}
-                  highlightedSlotIds={highlightedSlotIds}
-                  onHighlightSlot={(slotId) => setHighlightedSlotIds([slotId])}
-                  analysisStage={
-                    lastAction === "analysis" ? event?.stage : undefined
-                  }
-                />
-                <SampleAnalysisView structure={structure} />
-                {structureProvenance && (
-                  <StructureProvenancePanel provenance={structureProvenance} />
-                )}
-                {sampleId && (
-                  <KnowledgeDraftPanel
-                    projectId={projectId}
-                    sampleId={sampleId}
-                  />
-                )}
-              </>
-            ) : (
-              <EmptyPanel message="暂无分析结果，请先完成样例分析或加载演示数据。" />
-            )}
+          <div className="lg:col-span-2">
+            <SampleAnalysisPanel
+              projectId={projectId}
+              samples={projectSamples}
+              displayedSampleId={viewAnalysisSampleId}
+              pendingSampleId={pendingAnalysisSampleId}
+              onSelectSample={handleSelectAnalysisSample}
+              structure={structure}
+              sampleKeyframes={sampleKeyframes}
+              error={dataError}
+              highlightedSlotIds={highlightedSlotIds}
+              onHighlightSlot={(slotId) => setHighlightedSlotIds([slotId])}
+              analysisStage={
+                lastAction === "analysis" ? event?.stage : undefined
+              }
+            />
           </div>
         )}
 
