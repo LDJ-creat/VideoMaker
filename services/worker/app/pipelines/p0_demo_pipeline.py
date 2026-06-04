@@ -290,6 +290,8 @@ class P0DemoPipeline:
         emit: EmitFn,
         resume: bool = False,
         variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
     ) -> dict[str, Any]:
         project_root = self._storage_root / "projects" / project_id
         generation_root = generation_artifact_root(project_root, generation_id)
@@ -323,6 +325,50 @@ class P0DemoPipeline:
             project_id=project_id,
             level=1,
         )
+
+        reference_structures: list[dict[str, Any]] = []
+        primary_sample_id = str(structure.get("sourceVideoId") or "")
+        if sample_selection:
+            refs = sample_selection.get("referenceStructures")
+            if isinstance(refs, list):
+                reference_structures = [item for item in refs if isinstance(item, dict)]
+            primary_sample_id = str(
+                sample_selection.get("primarySampleId") or primary_sample_id
+            )
+
+        if reference_structures and generation_run_id:
+            from app.agents.structure_synthesizer import run_structure_synthesizer
+
+            emit(
+                status="running",
+                stage="synthesizing_structure",
+                progress=6,
+                message="Synthesizing structure from multiple sample references",
+            )
+            synthesized, provenance = run_structure_synthesizer(
+                runner,
+                context=context,
+                project_id=project_id,
+                generation_run_id=str(generation_run_id),
+                primary_sample_id=primary_sample_id,
+                primary_structure=structure,
+                reference_structures=reference_structures,
+                reference_sample_ids=[
+                    str(item)
+                    for item in (sample_selection or {}).get("referenceSampleIds") or []
+                ],
+                user_brief=user_brief,
+                knowledge_context=knowledge_context,
+            )
+            structure = synthesized
+            (generation_root / "synthesized-structure.json").write_text(
+                json.dumps(structure, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (generation_root / "structure-provenance.json").write_text(
+                json.dumps(provenance, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
         inventory: dict[str, Any] | None = None
         gap_report: dict[str, Any] | None = None

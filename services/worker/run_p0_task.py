@@ -119,6 +119,8 @@ def main() -> int:
                 emit=emit,
                 resume=resume,
                 variant=str(payload.get("variant", "default")),
+                sample_selection=payload.get("sampleSelection"),
+                generation_run_id=payload.get("generationRunId"),
             )
         elif mode == "run_revise":
             result = pipeline.run_revise(
