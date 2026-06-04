@@ -18,13 +18,135 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _looks_corrupted(value: str | None) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    return all(char == "?" for char in text)
+
+
+def _pick_text(*values: str | None, default: str) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text and not _looks_corrupted(text):
+            return text
+    return default
+
 class KnowledgeStore:
     def __init__(self, database: Database, storage_root: Path) -> None:
         self.database = database
         self.storage_root = storage_root
 
+    def _entry_meta_path(self, entry: dict[str, Any]) -> Path | None:
+        try:
+            skill_path = resolve_storage_path(self.storage_root, entry["skillMdUri"])
+        except ValueError:
+            return None
+        meta_path = skill_path.parent / "entry-meta.json"
+        return meta_path if meta_path.is_file() else None
+
+    def _parse_skill_frontmatter(self, entry: dict[str, Any]) -> dict[str, Any]:
+        try:
+            skill_path = resolve_storage_path(self.storage_root, entry["skillMdUri"])
+        except ValueError:
+            return {}
+        return self._parse_skill_frontmatter_from_path(skill_path)
+
+    def _parse_skill_frontmatter_from_path(self, skill_path: Path) -> dict[str, Any]:
+        if not skill_path.is_file():
+            return {}
+        text = skill_path.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            return {}
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return {}
+        meta: dict[str, Any] = {}
+        for line in parts[1].splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or ":" not in stripped:
+                continue
+            key, value = stripped.split(":", 1)
+            meta[key.strip()] = value.strip()
+        return meta
+
+    def _read_disk_meta(self, entry: dict[str, Any]) -> dict[str, Any]:
+        meta_path = self._entry_meta_path(entry)
+        disk_meta: dict[str, Any] = {}
+        if meta_path is not None:
+            disk_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        skill_meta = self._parse_skill_frontmatter(entry)
+        merged = {**skill_meta, **disk_meta}
+        for key, value in skill_meta.items():
+            if _looks_corrupted(str(disk_meta.get(key, ""))) and value:
+                merged[key] = value
+        return merged
+
+    def _persist_entry_display_fields(self, entry_id: str, fields: dict[str, Any]) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                UPDATE knowledge_entries
+                SET title = ?, category = ?, style = ?, summary = ?,
+                    hook_type = ?, tempo = ?, duration_bucket = ?, slot_pattern = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    fields["title"],
+                    fields["category"],
+                    fields["style"],
+                    fields["summary"],
+                    fields.get("hookType"),
+                    fields.get("tempo"),
+                    fields.get("durationBucket"),
+                    fields.get("slotPattern"),
+                    now_iso(),
+                    entry_id,
+                ),
+            )
+
+    def _enrich_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
+        disk_meta = self._read_disk_meta(entry)
+        if not disk_meta:
+            return entry
+
+        enriched = dict(entry)
+        display_keys = (
+            "title",
+            "category",
+            "style",
+            "summary",
+            "hookType",
+            "tempo",
+            "durationBucket",
+            "slotPattern",
+        )
+        repaired = False
+        for key in display_keys:
+            disk_value = disk_meta.get(key)
+            if disk_value is None:
+                continue
+            if _looks_corrupted(str(enriched.get(key, ""))):
+                enriched[key] = disk_value
+                repaired = True
+
+        if repaired:
+            meta_path = self._entry_meta_path(entry)
+            if meta_path is not None:
+                merged_meta = {**disk_meta}
+                for key in display_keys:
+                    if enriched.get(key) is not None:
+                        merged_meta[key] = enriched[key]
+                meta_path.write_text(
+                    json.dumps(merged_meta, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            self._persist_entry_display_fields(enriched["id"], enriched)
+        return enriched
+
     def _row_to_entry(self, row: Any) -> dict[str, Any]:
-        return {
+        entry = {
             "id": row["id"],
             "status": row["status"],
             "title": row["title"],
@@ -44,6 +166,7 @@ class KnowledgeStore:
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }
+        return self._enrich_entry(entry)
 
     def list_entries(
         self,
@@ -161,13 +284,39 @@ class KnowledgeStore:
     ) -> dict[str, Any]:
         existing = self.find_published_by_source(project_id, sample_id)
         if existing is not None:
-            return existing
+            return self._enrich_entry(existing)
 
         draft_root = draft_dir(self.storage_root, project_id, sample_id)
         skill_path = draft_root / "structure-skill.md"
         structure_path = draft_root / "video-structure.json"
         if not skill_path.is_file() or not structure_path.is_file():
             raise FileNotFoundError("Knowledge draft not found for sample")
+
+        draft_meta_path = draft_root / "entry-meta.json"
+        draft_meta = (
+            json.loads(draft_meta_path.read_text(encoding="utf-8"))
+            if draft_meta_path.is_file()
+            else {}
+        )
+        skill_meta = self._parse_skill_frontmatter_from_path(skill_path)
+        for key, value in skill_meta.items():
+            if value and _looks_corrupted(str(draft_meta.get(key, ""))):
+                draft_meta[key] = value
+        title = _pick_text(title, draft_meta.get("title"), skill_meta.get("title"), default="结构经验")
+        category = _pick_text(
+            category,
+            draft_meta.get("category"),
+            skill_meta.get("category"),
+            default="通用短视频",
+        )
+        style = _pick_text(style, draft_meta.get("style"), skill_meta.get("style"), default="标准结构")
+        summary_override = _pick_text(
+            summary_override,
+            draft_meta.get("summary"),
+            skill_meta.get("summary"),
+            default=title,
+        )
+        hook_type = hook_type or draft_meta.get("hookType") or skill_meta.get("hookType")
 
         structure = json.loads(structure_path.read_text(encoding="utf-8"))
         meta = build_entry_meta(

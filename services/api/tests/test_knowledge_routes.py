@@ -270,3 +270,62 @@ def test_generation_plan_uses_payload_brief(client: TestClient, tmp_path: Path) 
 
     selection = client.get(f"/api/projects/{project_id}/knowledge/selection")
     assert selection.json()["selection"]["primaryEntryId"] == entry_id
+
+
+def test_enrich_entry_repairs_corrupted_metadata(client: TestClient, tmp_path: Path) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    draft_root = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / project_id
+        / "knowledge"
+        / "drafts"
+        / sample_id
+    )
+    draft_root.mkdir(parents=True, exist_ok=True)
+    skill_md = """---
+title: 问题-解决方案短视频结构
+category: 通用短视频
+style: 标准结构
+summary: 通过钩子引入问题，快速展示解决方案并引导行动。
+hookType: engaging opening
+tempo: mixed
+durationBucket: short
+slotPattern: hook→problem→solution→cta
+---
+
+## 适用场景
+测试
+"""
+    (draft_root / "structure-skill.md").write_text(skill_md, encoding="utf-8")
+    (draft_root / "video-structure.json").write_text(
+        json.dumps(_sample_structure(project_id, sample_id, marker="marker")),
+        encoding="utf-8",
+    )
+    (draft_root / "entry-meta.json").write_text(
+        json.dumps(
+            {
+                "title": "??????",
+                "category": "?????",
+                "style": "????",
+                "summary": "??????",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    promote = client.post(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge/promote",
+        json={"title": "??????", "category": "?????", "style": "????"},
+    )
+    assert promote.status_code == 200
+    entry_id = promote.json()["entry"]["id"]
+
+    fetched = client.get(f"/api/knowledge/entries/{entry_id}")
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["title"] == "问题-解决方案短视频结构"
+    assert body["category"] == "通用短视频"
+    assert "????" not in body["summary"]

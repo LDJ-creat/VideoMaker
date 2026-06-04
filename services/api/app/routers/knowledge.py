@@ -14,9 +14,9 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
 class PromoteKnowledgeRequest(BaseModel):
-    title: str
-    category: str
-    style: str
+    title: str = ""
+    category: str = ""
+    style: str = ""
     hook_type: str | None = Field(default=None, alias="hookType")
     summary_override: str | None = Field(default=None, alias="summaryOverride")
     category_slug: str | None = Field(default=None, alias="categorySlug")
