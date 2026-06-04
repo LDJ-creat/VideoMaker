@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/knowledge-selector-output.schema.json",
+  "title": "KnowledgeSelectorOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rankedEntryIds", "primaryEntryId"],
+  "properties": {
+    "rankedEntryIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "primaryEntryId": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string" }
+  }
+}

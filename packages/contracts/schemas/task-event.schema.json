@@ -20,6 +20,7 @@
         "detecting_shots",
         "extracting_keyframes",
         "extracting_structure",
+        "rendering_knowledge_draft",
         "analyzing_assets",
         "mapping_slots",
         "planning_completion",

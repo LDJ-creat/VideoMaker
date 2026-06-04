@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/knowledge-recommendation.schema.json",
+  "title": "KnowledgeRecommendation",
+  "type": "object",
+  "required": ["projectId", "candidates", "suggestedPrimaryId", "computedAt"],
+  "properties": {
+    "projectId": { "type": "string", "minLength": 1 },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["entryId", "score", "reasons", "entry"],
+        "properties": {
+          "entryId": { "type": "string", "minLength": 1 },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "entry": { "$ref": "knowledge-entry.schema.json" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "suggestedPrimaryId": { "type": "string", "minLength": 1 },
+    "computedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

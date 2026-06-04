@@ -14,6 +14,7 @@ export type TaskStage =
   | "detecting_shots"
   | "extracting_keyframes"
   | "extracting_structure"
+  | "rendering_knowledge_draft"
   | "analyzing_assets"
   | "mapping_slots"
   | "planning_completion"
@@ -446,4 +447,68 @@ export type GenerationPlan = {
   timeline: RenderTimeline;
   packagingPlan: PackagingPlan;
   completionActions: CompletionAction[];
+};
+
+export type KnowledgeEntryStatus = "draft" | "published" | "archived";
+
+export type KnowledgeEntry = {
+  id: string;
+  status: KnowledgeEntryStatus;
+  title: string;
+  category: string;
+  categorySlug?: string;
+  style: string;
+  hookType?: string;
+  tempo?: "slow" | "medium" | "fast" | "mixed";
+  durationBucket?: string;
+  slotPattern: string;
+  summary: string;
+  skillMdUri: string;
+  structureJsonUri: string;
+  sourceProjectId?: string;
+  sourceSampleId?: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KnowledgeRecommendationCandidate = {
+  entryId: string;
+  score: number;
+  reasons: string[];
+  entry: KnowledgeEntry;
+};
+
+export type KnowledgeRecommendation = {
+  projectId: string;
+  candidates: KnowledgeRecommendationCandidate[];
+  suggestedPrimaryId: string;
+  computedAt: string;
+};
+
+export type ProjectKnowledgeSelectionMode = "auto" | "user_override" | "none";
+
+export type ProjectKnowledgeSelection = {
+  projectId: string;
+  primaryEntryId: string | null;
+  referenceEntryIds: string[];
+  mode: ProjectKnowledgeSelectionMode;
+  appliedAsStructure: boolean;
+  recommendationSnapshot?: KnowledgeRecommendation;
+  updatedAt: string;
+};
+
+export type KnowledgeSkillOutput = {
+  frontmatter: {
+    title: string;
+    category: string;
+    style: string;
+    hookType?: string;
+    tempo?: "slow" | "medium" | "fast" | "mixed";
+    durationBucket?: string;
+    slotPattern?: string;
+    summary: string;
+    [key: string]: unknown;
+  };
+  markdown: string;
 };
