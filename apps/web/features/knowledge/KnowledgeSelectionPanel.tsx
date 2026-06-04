@@ -48,7 +48,8 @@ export function KnowledgeSelectionPanel({
 
       const primaryId =
         recommendResult.data.selection?.primaryEntryId ??
-        currentSelection?.primaryEntryId;
+        currentSelection?.primaryEntryId ??
+        recommendResult.data.recommendation?.suggestedPrimaryId;
       if (primaryId) {
         const entryResult = await getKnowledgeEntry(primaryId);
         setPrimaryEntry(entryResult.data);
@@ -252,11 +253,18 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
           />
           <div className="space-y-2">
             {entries.map((entry) => (
-              <button
+              <div
                 key={entry.id}
-                type="button"
-                className="w-full rounded-lg border border-border p-3 text-left hover:bg-muted/40"
+                role="button"
+                tabIndex={0}
+                className="w-full cursor-pointer rounded-lg border border-border p-3 text-left hover:bg-muted/40"
                 onClick={() => void handleOpen(entry.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void handleOpen(entry.id);
+                  }
+                }}
               >
                 <div className="font-medium">{entry.title}</div>
                 <div className="text-xs text-muted-foreground">
@@ -278,7 +286,7 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
                     </Button>
                   </div>
                 )}
-              </button>
+              </div>
             ))}
             {entries.length === 0 && (
               <p className="text-sm text-muted-foreground">暂无已发布知识条目。</p>
