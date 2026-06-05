@@ -240,15 +240,24 @@ class SampleRecommender:
         if ensured and ensured.get("primarySampleId"):
             return ensured
         latest = self.project_store.get_latest_analyzed_sample(project_id)
-        if latest is None:
-            raise ValueError("No analyzed sample available for project")
-        return {
-            "projectId": project_id,
-            "primarySampleId": latest["id"],
-            "referenceSampleIds": [],
-            "mode": "auto",
-            "updatedAt": now_iso(),
-        }
+        if latest is not None:
+            return {
+                "projectId": project_id,
+                "primarySampleId": latest["id"],
+                "referenceSampleIds": [],
+                "mode": "auto",
+                "updatedAt": now_iso(),
+            }
+        for sample in self.project_store.list_samples(project_id):
+            if sample.get("sourceKind") == "knowledge" and sample.get("structure") is not None:
+                return {
+                    "projectId": project_id,
+                    "primarySampleId": sample["id"],
+                    "referenceSampleIds": [],
+                    "mode": "auto",
+                    "updatedAt": now_iso(),
+                }
+        raise ValueError("No analyzed sample available for project")
 
     def load_structures_for_selection(
         self,

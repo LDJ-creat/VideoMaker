@@ -161,6 +161,23 @@ def test_promote_uses_sample_analysis_for_has_bgm(
     assert published_meta["hasBgm"] is True
 
 
+def test_get_knowledge_selection_does_not_auto_apply_structure(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    _promote_entry(client, project_id, sample_id)
+
+    selection = client.get(f"/api/projects/{project_id}/knowledge/selection")
+    assert selection.status_code == 200
+    assert selection.json()["selection"] is None
+
+    samples = client.get(f"/api/projects/{project_id}/samples")
+    assert samples.json()["samples"] == []
+
+
 def test_promote_and_apply_knowledge(client: TestClient, tmp_path: Path) -> None:
     project_id = _create_project(client)
     sample_id = str(uuid.uuid4())

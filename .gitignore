@@ -5,6 +5,7 @@ node_modules/
 __pycache__/
 .pytest_cache/
 .pytest-tmp/
+.pytest-tmp-run/
 
 # Build outputs
 .next/

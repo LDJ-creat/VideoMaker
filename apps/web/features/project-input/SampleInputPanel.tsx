@@ -134,12 +134,9 @@ export function SampleInputPanel({
     }
   };
 
-  const previewSamples =
-    samples.length > 0
-      ? samples
-      : activeSample
-        ? [activeSample]
-        : [];
+  const previewSamples = (samples.length > 0 ? samples : activeSample ? [activeSample] : []).filter(
+    (sample) => sample.sourceKind !== "knowledge",
+  );
 
   const effectiveSelectedId =
     selectedSampleId ?? activeSample?.id ?? previewSamples[0]?.id ?? null;

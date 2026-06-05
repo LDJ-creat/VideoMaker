@@ -175,8 +175,6 @@ def get_knowledge_selection(project_id: str, request: Request) -> dict[str, Any]
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     selection = _knowledge_store(request).get_selection(project_id)
-    if selection is None:
-        selection = _recommender(request).ensure_selection(project_id)
     return {"selection": selection}
 
 
