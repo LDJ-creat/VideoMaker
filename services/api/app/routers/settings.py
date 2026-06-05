@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.session import Database
 from app.services.cookie_store import CookieStore, UploadMode
+from app.services.model_gateway_probe import probe_model_gateway_provider
 from app.services.model_gateway_service import ModelGatewayService
 from app.services.model_gateway_status import get_model_gateway_status
 
@@ -52,6 +53,27 @@ class ProviderSettingsUpdate(BaseModel):
         return stripped
 
 
+class ModelGatewayProviderProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    provider: Literal["text"]
+    base_url: str | None = Field(default=None, alias="baseUrl")
+    model: str | None = None
+    api_key: str | None = Field(default=None, alias="apiKey")
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_probe_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            return stripped
+        if not stripped.startswith(("http://", "https://")):
+            raise ValueError("baseUrl must start with http:// or https://")
+        return stripped
+
+
 class ModelGatewaySettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -87,6 +109,26 @@ def get_global_cookies(request: Request) -> dict[str, Any]:
 def get_model_gateway_settings(request: Request) -> dict[str, Any]:
     """Provider readiness from SQLite (no secrets). fixtureMode from VIDEOMAKER_FIXTURE_MODE env."""
     return get_model_gateway_status(request.app.state.db, request.app.state.storage_root)
+
+
+@router.post("/model-gateway/test")
+def post_model_gateway_provider_test(
+    request: Request,
+    body: ModelGatewayProviderProbeRequest,
+) -> dict[str, Any]:
+    """Probe a single model provider using saved or inline credentials."""
+    database: Database = request.app.state.db
+    try:
+        return probe_model_gateway_provider(
+            database,
+            request.app.state.storage_root,
+            provider=body.provider,
+            base_url=body.base_url,
+            model=body.model,
+            api_key=body.api_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/model-gateway")

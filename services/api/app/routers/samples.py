@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
+from app.services.sample_analysis import load_sample_analysis_artifact
 from app.services.sample_keyframes import load_sample_keyframes
 from app.services.task_events import TaskEventService
 
@@ -81,8 +82,24 @@ def get_sample_structure(sample_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/{sample_id}/analysis")
-def get_sample_analysis(sample_id: str, request: Request) -> dict[str, Any]:
+def get_sample_analysis_legacy(sample_id: str, request: Request) -> dict[str, Any]:
     return get_sample_structure(sample_id, request)
+
+
+@router.get("/{sample_id}/sample-analysis")
+def get_sample_analysis_facts(sample_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    sample = store.get_sample(sample_id)
+    if sample is None:
+        raise HTTPException(status_code=404, detail="Sample not found")
+    payload = load_sample_analysis_artifact(
+        request.app.state.storage_root,
+        project_id=str(sample["projectId"]),
+        sample_id=sample_id,
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Sample analysis not available")
+    return payload
 
 
 @router.get("/{sample_id}/keyframes")

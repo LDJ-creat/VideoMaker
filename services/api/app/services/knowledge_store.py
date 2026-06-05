@@ -11,7 +11,10 @@ from knowledge.index_builder import build_entry_meta
 from knowledge.paths import category_slug, draft_dir, published_entry_dir, rel_uri, resolve_storage_path
 
 from app.db.session import Database
+from app.services.sample_analysis import load_sample_analysis_artifact
 from app.services.task_events import now_iso
+
+_DRAFT_META_FALLBACK_KEYS = ("hasBgm", "voPersona", "visualStyle", "rhetoricalPattern")
 
 
 def _utc_now_iso() -> str:
@@ -292,6 +295,13 @@ class KnowledgeStore:
         if not skill_path.is_file() or not structure_path.is_file():
             raise FileNotFoundError("Knowledge draft not found for sample")
 
+        structure = json.loads(structure_path.read_text(encoding="utf-8"))
+        quality_warnings = list((structure.get("analysisQuality") or {}).get("warnings") or [])
+        if any(str(item).startswith("critical:") for item in quality_warnings):
+            raise ValueError(
+                "Cannot promote knowledge draft while critical structure quality warnings remain"
+            )
+
         draft_meta_path = draft_root / "entry-meta.json"
         draft_meta = (
             json.loads(draft_meta_path.read_text(encoding="utf-8"))
@@ -318,7 +328,11 @@ class KnowledgeStore:
         )
         hook_type = hook_type or draft_meta.get("hookType") or skill_meta.get("hookType")
 
-        structure = json.loads(structure_path.read_text(encoding="utf-8"))
+        sample_analysis = load_sample_analysis_artifact(
+            self.storage_root,
+            project_id=project_id,
+            sample_id=sample_id,
+        )
         meta = build_entry_meta(
             structure,
             title=title,
@@ -326,7 +340,16 @@ class KnowledgeStore:
             style=style,
             summary=summary_override or title,
             hook_type=hook_type,
+            sample_analysis=sample_analysis,
         )
+        for key in _DRAFT_META_FALLBACK_KEYS:
+            draft_value = draft_meta.get(key)
+            if draft_value is None:
+                continue
+            if key == "hasBgm" and meta.get("hasBgm"):
+                continue
+            if not meta.get(key):
+                meta[key] = draft_value
         slug = category_slug_override or category_slug(category)
         entry_id = str(uuid.uuid4())
         target = published_entry_dir(self.storage_root, slug, entry_id)

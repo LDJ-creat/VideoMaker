@@ -86,6 +86,81 @@ def _promote_entry(client: TestClient, project_id: str, sample_id: str) -> str:
     return promote.json()["entry"]["id"]
 
 
+def test_promote_blocked_by_critical_warnings(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    draft_root = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / project_id
+        / "knowledge"
+        / "drafts"
+        / sample_id
+    )
+    structure_path = draft_root / "video-structure.json"
+    structure = json.loads(structure_path.read_text(encoding="utf-8"))
+    structure["analysisQuality"] = {
+        "locale": "zh",
+        "warnings": ["critical: slot_roles_uniform:usage_scene"],
+    }
+    structure_path.write_text(json.dumps(structure), encoding="utf-8")
+
+    promote = client.post(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge/promote",
+        json={
+            "title": "电商促销",
+            "category": "电商带货",
+            "style": "快节奏促销",
+        },
+    )
+    assert promote.status_code == 422
+    assert "critical" in promote.json()["detail"].lower()
+
+
+def test_promote_uses_sample_analysis_for_has_bgm(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    analysis_dir = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / project_id
+        / "samples"
+        / sample_id
+        / "analysis"
+    )
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    (analysis_dir / "sample-analysis.json").write_text(
+        json.dumps(
+            {
+                "audioProfile": {
+                    "hasVoiceover": True,
+                    "hasBgm": True,
+                    "metrics": {"voiceoverCoveragePct": 0.8},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    entry_id = _promote_entry(client, project_id, sample_id)
+    meta_files = list(
+        (tmp_path / "storage" / "knowledge").glob(f"**/{entry_id}/entry-meta.json")
+    )
+    assert len(meta_files) == 1
+    published_meta = json.loads(meta_files[0].read_text(encoding="utf-8"))
+    assert published_meta["hasBgm"] is True
+
+
 def test_promote_and_apply_knowledge(client: TestClient, tmp_path: Path) -> None:
     project_id = _create_project(client)
     sample_id = str(uuid.uuid4())
