@@ -120,6 +120,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-02-master-narration-layer-plan.md` | Full-video `masterNarration` before per-scene scripts (`storyboard_writer` 档 A) | covered in P1 demo § storyboard |
 | `2026-06-03-knowledge-deposition-plan.md` | Karpathy-style structure skills, promote, recommend/bind, progressive disclosure in generation | `docs/demos/knowledge-deposition-e2e-checklist.md` |
 | `2026-06-04-multi-sample-analysis-plan.md` | Upload-batch, parallel analyze, sample selection, structure synthesis, generation runs | `docs/demos/multi-sample-e2e-test-plan.md` |
+| `2026-06-07-direct-multimodal-sample-analysis-plan.md` | `videoUnderstanding` provider, direct multimodal sample analysis route, preferences toggle | `docs/demos/direct-multimodal-analysis-e2e-checklist.md` |
 | `2026-06-06-sample-analysis-cost-resilience-plan.md` | Batch vision incremental persist/retry, keyframe sampling, segment vision dedup, analysis depth | `docs/demos/sample-analysis-depth-e2e-checklist.md` § 成本与韧性 |
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 
@@ -194,7 +195,7 @@ PUT /api/settings/model-gateway
 
 Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; use global settings routes.
 
-Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT).
+Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT). Global preferences (e.g. `directMultimodalAnalysisEnabled`, default `true`) live in `model_gateway_preferences`; `analysisRoutePreview` is computed server-side from provider readiness + preference.
 
 **Video generation (worker):** Configure a `video` provider in the workbench (DashScope: `baseUrl` e.g. `https://dashscope.aliyuncs.com/compatible-mode/v1`, models such as `wan2.6-i2v-flash` / `wan2.1-t2v-plus`). When `baseUrl` contains `dashscope`, the worker uses the `dashscope_wan` driver (`video-synthesis` + task poll). Otherwise set `VIDEO_DRIVER=generic_job` for a custom `POST /videos` job API.
 
@@ -212,6 +213,8 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_SHOT_MERGE_MAX_SEC` | Merge adjacent short shots before LLM keyframe sampling | `1.0` |
 | `VIDEOMAKER_MIN_SHOT_DURATION_SEC` | OpenCV shot detection minimum cut interval | `0.45` |
 | `VIDEOMAKER_SEGMENT_VISION_MIN_COVERAGE` | Skip segment-level vision when batch digest time coverage meets ratio | `0.6` |
+| `VIDEOMAKER_VIDEO_UNDERSTANDING_MAX_MB` | Max sample file size for direct multimodal structure analysis | `50` |
+| `VIDEOMAKER_VIDEO_UNDERSTANDING_MAX_SEC` | Max sample duration for direct multimodal structure analysis | `300` |
 | `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
 
