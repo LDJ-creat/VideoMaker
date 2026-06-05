@@ -13,7 +13,7 @@ Produce a two-phase JSON payload compatible with `GenerationPlan`:
 - Output JSON only with `{ "masterNarration": "...", "storyboard": [...] }`.
 - Write **`masterNarration` first** as a coherent full script (hook → benefit → proof → CTA).
 - Each scene `script` must be a **contiguous segment** of `masterNarration` (same wording, no paraphrase). Together, scene scripts should cover the full master narration in slot order.
-- `visual`: creative direction for video/image generation (may paraphrase slot `visualIntent`).
+- `visual`: creative direction for video/image generation — prefer slot **`visualSpec`** (framing, cameraMove, onScreenText) and **`migrationTemplate`** when present; may paraphrase slot `visualIntent`.
 - `script`: **spoken voiceover** for TTS and subtitles. Must **not** copy slot `scriptIntent` / `visualIntent` English directions verbatim.
 - Leave `script` empty only when the slot truly has no narration (and omit that portion from `masterNarration`).
 - Each scene `source` must be one of:
