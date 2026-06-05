@@ -9,7 +9,7 @@ The competition brief is stored in `VideoMaker.md`. The user's original solution
 - `docs/superpowers/specs/2026-05-27-videomaker-design.md` (architecture spec)
 - `docs/superpowers/plans/P0/` (archived P0 implementation plans; see index below)
 - `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` (P1 master plan; merged on `main`)
-- Post-P1 extension plans: `2026-06-02-master-narration-layer-plan.md`, `2026-06-03-knowledge-deposition-plan.md`, `2026-06-04-multi-sample-analysis-plan.md`
+- Post-P1 extension plans: `2026-06-02-master-narration-layer-plan.md`, `2026-06-03-knowledge-deposition-plan.md`, `2026-06-04-multi-sample-analysis-plan.md`, `2026-06-06-sample-analysis-cost-resilience-plan.md`
 
 ### P0 Plan Archive (`docs/superpowers/plans/P0/`)
 
@@ -120,6 +120,8 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-02-master-narration-layer-plan.md` | Full-video `masterNarration` before per-scene scripts (`storyboard_writer` 档 A) | covered in P1 demo § storyboard |
 | `2026-06-03-knowledge-deposition-plan.md` | Karpathy-style structure skills, promote, recommend/bind, progressive disclosure in generation | `docs/demos/knowledge-deposition-e2e-checklist.md` |
 | `2026-06-04-multi-sample-analysis-plan.md` | Upload-batch, parallel analyze, sample selection, structure synthesis, generation runs | `docs/demos/multi-sample-e2e-test-plan.md` |
+| `2026-06-06-sample-analysis-cost-resilience-plan.md` | Batch vision incremental persist/retry, keyframe sampling, segment vision dedup, analysis depth | `docs/demos/sample-analysis-depth-e2e-checklist.md` § 成本与韧性 |
+| `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 
 ## Current Implementation State
 
@@ -202,6 +204,14 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_VIDEO_GEN_MAX_SLOTS` | Cap on slots that may consume video quota in one generation | structure visual weak/missing count (min 1) |
 | `VIDEOMAKER_VIDEO_GEN_QUOTA` | Legacy alias for generation-level cap | — |
 | `VIDEOMAKER_VIDEO_GEN_FALLBACK` | On video failure: `hyperframes_material` or `image_generation` | fail fast |
+| `VIDEOMAKER_VISION_BATCH_SIZE` | Max keyframes per vision batch call during sample analysis | `8` |
+| `VIDEOMAKER_VISION_BATCH_MAX_CALLS` | Safety cap on batch vision calls per sample | `6` (4 when `analysisDepth=fast`) |
+| `VIDEOMAKER_VISION_BATCH_MIN_COVERAGE` | Minimum completed batch ratio to finish `extracting_visual_facts` after partial failures | `0.67` |
+| `VIDEOMAKER_ANALYSIS_DEPTH` | Sample analysis depth: `auto`, `fast`, `standard`, or `deep` | `auto` → `standard` |
+| `VIDEOMAKER_KEYFRAME_MAX_PER_VIDEO` | Hard cap on keyframes sent to LLM vision (overrides duration formula) | `min(30, max(12, round(durationSec/6)))` |
+| `VIDEOMAKER_SHOT_MERGE_MAX_SEC` | Merge adjacent short shots before LLM keyframe sampling | `1.0` |
+| `VIDEOMAKER_MIN_SHOT_DURATION_SEC` | OpenCV shot detection minimum cut interval | `0.45` |
+| `VIDEOMAKER_SEGMENT_VISION_MIN_COVERAGE` | Skip segment-level vision when batch digest time coverage meets ratio | `0.6` |
 | `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
 
@@ -213,6 +223,7 @@ Gap completion: image weak matches on visual slots → `video_generation` (i2v);
 POST /api/samples/{sample_id}/analyze
 GET /api/samples/{sample_id}/structure
 GET /api/samples/{sample_id}/analysis
+GET /api/samples/{sample_id}/sample-analysis
 GET /api/samples/{sample_id}/keyframes
 GET /api/generations/{generation_id}
 POST /api/generations/{generation_id}/revise
