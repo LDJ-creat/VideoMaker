@@ -6,8 +6,14 @@ from typing import Any
 
 from app.runtime.checkpoint import AnalysisCheckpoint, should_skip_analysis_stage
 from app.runtime.task_context import TaskContext
+from app.tools.audio_profile_tool import build_audio_profile
 from app.tools.ffmpeg_tool import FFmpegTool
-from app.tools.opencv_tool import OpenCVTool
+from app.tools.opencv_tool import (
+    OpenCVTool,
+    env_min_shot_duration_sec,
+    relaxed_fast_cut_min_shot_duration_sec,
+    should_relax_fast_cut_shot_detection,
+)
 from app.tools.whisper_tool import WHISPER_SOFT_FAIL_CODES, WhisperTool
 from app.tools.ytdlp_tool import YtDlpTool
 
@@ -272,6 +278,33 @@ class SampleAnalysisPipeline:
             checkpoint.mark_stage_complete("transcribing")
             checkpoint.save(checkpoint_path)
 
+        audio_profile: dict[str, Any] | None = None
+        if should_skip_analysis_stage("analyzing_audio", checkpoint, analysis_root, resume=resume):
+            skipped_stages.append("analyzing_audio")
+            audio_profile = _read_json(analysis_root / "audio-profile.json")
+            context.emit_event("analyzing_audio", 50, "(resumed) audio profile ready")
+        elif audio_path is not None:
+            executed_stages.append("analyzing_audio")
+            context.emit_event("analyzing_audio", 50, "analyzing audio profile")
+            try:
+                audio_profile = build_audio_profile(
+                    str(audio_path),
+                    transcript=transcript,
+                    duration_sec=float(metadata.get("durationSec", 0.0)),
+                )
+            except Exception as exc:
+                pipeline_warnings.append(f"audio_profile_failed: {exc}")
+                audio_profile = None
+            if audio_profile is not None:
+                context.artifacts.write_json(analysis_rel_dir / "audio-profile.json", audio_profile)
+            checkpoint.mark_stage_complete("analyzing_audio")
+            checkpoint.save(checkpoint_path)
+        else:
+            executed_stages.append("analyzing_audio")
+            context.emit_event("analyzing_audio", 50, "audio missing, skip audio profile")
+            checkpoint.mark_stage_complete("analyzing_audio")
+            checkpoint.save(checkpoint_path)
+
         shots: list[dict[str, Any]]
         if should_skip_analysis_stage("detecting_shots", checkpoint, analysis_root, resume=resume):
             skipped_stages.append("detecting_shots")
@@ -280,12 +313,26 @@ class SampleAnalysisPipeline:
         else:
             executed_stages.append("detecting_shots")
             context.emit_event("detecting_shots", 60, "detecting video shots")
+            duration_value = float(metadata.get("durationSec", 0.0))
+            min_shot_duration = env_min_shot_duration_sec()
             shots_result = self._opencv_tool.detect_shots(
                 str(selected_video_path),
-                duration_sec=float(metadata.get("durationSec", 0.0)),
+                duration_sec=duration_value,
+                min_shot_duration_sec=min_shot_duration,
             )
             _append_tool_warning(pipeline_warnings, shots_result)
             shots = shots_result.get("shots", [])
+            if should_relax_fast_cut_shot_detection(shots, duration_value):
+                relaxed_min = relaxed_fast_cut_min_shot_duration_sec(min_shot_duration)
+                if relaxed_min > min_shot_duration:
+                    pipeline_warnings.append("fast_cut_shot_detection_relaxed")
+                    shots_result = self._opencv_tool.detect_shots(
+                        str(selected_video_path),
+                        duration_sec=duration_value,
+                        min_shot_duration_sec=relaxed_min,
+                    )
+                    _append_tool_warning(pipeline_warnings, shots_result)
+                    shots = shots_result.get("shots", [])
             shots_path = context.artifacts.write_json(analysis_rel_dir / "shots.json", shots)
             context.register_artifact("json", shots_path)
             checkpoint.mark_stage_complete("detecting_shots")
@@ -335,7 +382,10 @@ class SampleAnalysisPipeline:
                     *pipeline_warnings,
                 ],
                 "sourcePath": str(selected_video_path),
+                "locale": "zh",
             }
+            if audio_profile is not None:
+                sample_analysis["audioProfile"] = audio_profile
             sample_analysis_path = context.artifacts.write_json(
                 analysis_rel_dir / "sample-analysis.json",
                 sample_analysis,

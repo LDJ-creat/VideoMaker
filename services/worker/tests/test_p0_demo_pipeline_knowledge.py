@@ -43,6 +43,34 @@ def test_write_knowledge_draft(tmp_path: Path) -> None:
     assert "适用场景" in skill_path.read_text(encoding="utf-8")
 
 
+def test_write_knowledge_draft_uses_sample_analysis_has_bgm(tmp_path: Path) -> None:
+    uris = write_knowledge_draft(
+        tmp_path,
+        project_id="project-1",
+        sample_id="sample-1",
+        structure=_structure(),
+        skill_output={
+            "frontmatter": {
+                "title": "测试",
+                "category": "电商",
+                "style": "快节奏",
+                "summary": "摘要",
+            },
+            "markdown": "## 适用场景\n\n测试\n",
+        },
+        sample_analysis={
+            "audioProfile": {
+                "hasVoiceover": True,
+                "hasBgm": True,
+                "metrics": {"voiceoverCoveragePct": 0.8},
+            }
+        },
+    )
+    meta_path = tmp_path / uris["entryMetaUri"]
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["hasBgm"] is True
+
+
 def test_deposit_knowledge_draft(tmp_path: Path) -> None:
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
     runner = AgentRunner(

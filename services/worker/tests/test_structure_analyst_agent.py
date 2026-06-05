@@ -99,7 +99,7 @@ def test_run_structure_analyst_repair_omits_images_on_second_attempt(tmp_path: P
 
     valid = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")["structure_analyst"]
     broken = json.loads(json.dumps(valid))
-    broken["evidence"] = []
+    broken["narrative"]["segments"][0]["visualSummary"] = "Engaging opening that captures viewer attention"
 
     gateway = MagicMock()
     gateway.complete_json_messages.side_effect = [broken, valid]
@@ -131,7 +131,7 @@ def test_run_structure_analyst_repair_omits_images_on_second_attempt(tmp_path: P
 
 def test_run_structure_analyst_fails_on_invalid_evidence_after_repair(tmp_path: Path) -> None:
     broken = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")["structure_analyst"]
-    broken["evidence"] = []
+    broken["narrative"]["segments"][0]["visualSummary"] = "Engaging opening that captures viewer attention"
 
     gateway = MagicMock()
     gateway.complete_json_messages.return_value = broken
@@ -164,7 +164,7 @@ def test_run_structure_analyst_persists_schema_failure_debug(tmp_path: Path) -> 
         (analysis_root / item["path"]).write_bytes(b"frame")
 
     gateway = MagicMock()
-    gateway.complete_json_messages.return_value = {"id": "partial-structure"}
+    gateway.complete_json_messages.return_value = {"id": "partial-structure", "confidence": 99}
 
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=False, gateway=gateway),

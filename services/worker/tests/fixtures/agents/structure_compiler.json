@@ -2,7 +2,7 @@
   "id": "video-structure-project-1",
   "projectId": "project-1",
   "sourceVideoId": "sample-1",
-  "version": "p0-v1",
+  "version": "p1-v2",
   "metadata": {
     "durationSec": 30.0,
     "width": 1080,
@@ -20,7 +20,12 @@
         "endSec": 3.0,
         "scriptSummary": "第二人称反问开场，点出「太贵又麻烦」痛点，语速偏快建立停滑。",
         "visualSummary": "9:16 胸景口播，博主直视镜头；0.8s 快切至产品 UI 特写，底部黄字关键词。",
-        "intent": "停滑并建立共鸣"
+        "intent": "停滑并建立共鸣",
+        "transcriptExcerpt": "第二人称反问开场，点出「太贵又麻烦」痛点，语速偏快建立停滑。",
+        "emotionTone": "中性",
+        "rhetoricalDevices": [
+          "陈述"
+        ]
       },
       {
         "id": "seg-2",
@@ -29,7 +34,12 @@
         "endSec": 10.5,
         "scriptSummary": "数字+结果证言，强调效率提升与使用便捷，语气由焦虑转希望。",
         "visualSummary": "中景使用演示镜头，屏幕录屏叠加三要点字幕卡片，节奏中等。",
-        "intent": "建立产品价值"
+        "intent": "建立产品价值",
+        "transcriptExcerpt": "数字+结果证言，强调效率提升与使用便捷，语气由焦虑转希望。",
+        "emotionTone": "中性",
+        "rhetoricalDevices": [
+          "陈述"
+        ]
       },
       {
         "id": "seg-3",
@@ -38,7 +48,12 @@
         "endSec": 22.5,
         "scriptSummary": "前后对比式证言，展示真实场景与结果截图，增强可信度。",
         "visualSummary": "分屏对比：左旧方案卡顿、右新方案流畅；穿插用户操作近景。",
-        "intent": "社会证明"
+        "intent": "社会证明",
+        "transcriptExcerpt": "前后对比式证言，展示真实场景与结果截图，增强可信度。",
+        "emotionTone": "中性",
+        "rhetoricalDevices": [
+          "陈述"
+        ]
       },
       {
         "id": "seg-cta",
@@ -47,7 +62,12 @@
         "endSec": 30.0,
         "scriptSummary": "限时优惠+明确行动指令，语速加快，制造紧迫感。",
         "visualSummary": "产品特写叠加价格贴纸与「立即购买」花字，BGM 推高。",
-        "intent": "转化引导"
+        "intent": "转化引导",
+        "transcriptExcerpt": "限时优惠+明确行动指令，语速加快，制造紧迫感。",
+        "emotionTone": "中性",
+        "rhetoricalDevices": [
+          "陈述"
+        ]
       }
     ]
   },
@@ -137,7 +157,15 @@
       "visualIntent": "快切胸景口播+产品 UI 特写，黄字强调痛点词",
       "scriptIntent": "反问式口播，第二人称痛点，语速快",
       "importance": "must_have",
-      "constraints": []
+      "constraints": [],
+      "durationSharePct": 0.1,
+      "migrationTemplate": "沿用hook_visual镜头语言，替换为新品卖点",
+      "packagingRequirements": [
+        "字幕强调关键词"
+      ],
+      "antiPatterns": [
+        "纯口播无画面"
+      ]
     },
     {
       "id": "seg-hook-hook_text-2",
@@ -153,7 +181,15 @@
       "scriptIntent": "反问式口播，第二人称痛点，语速快",
       "packagingHint": "highlight key message",
       "importance": "recommended",
-      "constraints": []
+      "constraints": [],
+      "durationSharePct": 0.1,
+      "migrationTemplate": "沿用hook_text镜头语言，替换为新品卖点",
+      "packagingRequirements": [
+        "字幕强调关键词"
+      ],
+      "antiPatterns": [
+        "纯口播无画面"
+      ]
     },
     {
       "id": "seg-2-benefit_card-1",
@@ -169,7 +205,15 @@
       "scriptIntent": "数字证言强调效率与便捷",
       "packagingHint": "highlight key message",
       "importance": "recommended",
-      "constraints": []
+      "constraints": [],
+      "durationSharePct": 0.25,
+      "migrationTemplate": "沿用benefit_card镜头语言，替换为新品卖点",
+      "packagingRequirements": [
+        "字幕强调关键词"
+      ],
+      "antiPatterns": [
+        "纯口播无画面"
+      ]
     },
     {
       "id": "seg-3-proof-1",
@@ -185,7 +229,15 @@
       "visualIntent": "分屏对比+真实操作近景",
       "scriptIntent": "前后对比证言，强调可信结果",
       "importance": "recommended",
-      "constraints": []
+      "constraints": [],
+      "durationSharePct": 0.4,
+      "migrationTemplate": "沿用proof镜头语言，替换为新品卖点",
+      "packagingRequirements": [
+        "字幕强调关键词"
+      ],
+      "antiPatterns": [
+        "纯口播无画面"
+      ]
     },
     {
       "id": "seg-cta-cta-1",
@@ -201,7 +253,15 @@
       "scriptIntent": "限时优惠口播，明确下单指令",
       "packagingHint": "highlight key message",
       "importance": "must_have",
-      "constraints": []
+      "constraints": [],
+      "durationSharePct": 0.15,
+      "migrationTemplate": "沿用cta镜头语言，替换为新品卖点",
+      "packagingRequirements": [
+        "字幕强调关键词"
+      ],
+      "antiPatterns": [
+        "纯口播无画面"
+      ]
     }
   ],
   "evidence": [
@@ -276,5 +336,9 @@
       "confidence": 0.78
     }
   ],
-  "confidence": 0.82
+  "confidence": 0.82,
+  "analysisQuality": {
+    "locale": "zh",
+    "warnings": []
+  }
 }

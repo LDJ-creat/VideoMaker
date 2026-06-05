@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import statistics
 from pathlib import Path
 from typing import Any
+
+_FAST_CUT_SHOTS_PER_SEC = 0.35
+_FAST_CUT_RELAXED_MIN_SHOT_SEC = 0.9
 
 
 def _tool_error(code: str, message: str, retryable: bool = True) -> dict[str, Any]:
@@ -117,6 +121,26 @@ def score_keyframe_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any
     return max(scored, key=lambda item: item["score"])
 
 
+def env_min_shot_duration_sec() -> float:
+    raw = os.environ.get("VIDEOMAKER_MIN_SHOT_DURATION_SEC", "0.45").strip()
+    try:
+        return max(0.1, float(raw))
+    except ValueError:
+        return 0.45
+
+
+def should_relax_fast_cut_shot_detection(shots: list[dict[str, Any]], duration_sec: float) -> bool:
+    if os.environ.get("VIDEOMAKER_MIN_SHOT_DURATION_SEC", "").strip():
+        return False
+    if duration_sec <= 0 or not shots:
+        return False
+    return len(shots) / duration_sec > _FAST_CUT_SHOTS_PER_SEC
+
+
+def relaxed_fast_cut_min_shot_duration_sec(current_min: float) -> float:
+    return max(current_min, _FAST_CUT_RELAXED_MIN_SHOT_SEC)
+
+
 class OpenCVTool:
     def __init__(self, cv2_module: Any = "auto") -> None:
         if cv2_module == "auto":
@@ -134,6 +158,7 @@ class OpenCVTool:
         *,
         duration_sec: float | None = None,
         output_json_path: str | Path | None = None,
+        min_shot_duration_sec: float | None = None,
     ) -> dict[str, Any]:
         if self.cv2 is None:
             return self._fallback_shots(duration_sec, "opencv_missing")
@@ -171,8 +196,18 @@ class OpenCVTool:
             distance = 1 - float(self.cv2.compareHist(prev, curr, self.cv2.HISTCMP_CORREL))
             distances.append(distance)
 
-        shots = build_shot_boundaries(distances, sample_times, max(video_duration, 0.0))
-        result: dict[str, Any] = {"shots": shots}
+        min_duration = (
+            min_shot_duration_sec
+            if min_shot_duration_sec is not None
+            else env_min_shot_duration_sec()
+        )
+        shots = build_shot_boundaries(
+            distances,
+            sample_times,
+            max(video_duration, 0.0),
+            min_shot_duration_sec=min_duration,
+        )
+        result: dict[str, Any] = {"shots": shots, "minShotDurationSec": min_duration}
         if output_json_path is not None:
             output_path = Path(output_json_path).resolve()
             output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,36 @@
+{
+  "segments": [
+    {
+      "id": "seg-hook",
+      "role": "hook",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "confidence": 0.92,
+      "rationale": "反问痛点开场"
+    },
+    {
+      "id": "seg-benefit",
+      "role": "benefit",
+      "startSec": 3.0,
+      "endSec": 10.5,
+      "confidence": 0.88,
+      "rationale": "价值展示"
+    },
+    {
+      "id": "seg-proof",
+      "role": "proof",
+      "startSec": 10.5,
+      "endSec": 22.5,
+      "confidence": 0.9,
+      "rationale": "对比证言"
+    },
+    {
+      "id": "seg-cta",
+      "role": "cta",
+      "startSec": 22.5,
+      "endSec": 30.0,
+      "confidence": 0.95,
+      "rationale": "限时转化"
+    }
+  ]
+}

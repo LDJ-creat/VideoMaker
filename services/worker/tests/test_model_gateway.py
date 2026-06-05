@@ -84,6 +84,41 @@ def test_complete_json_with_mocked_httpx() -> None:
     assert gateway.last_latency_ms >= 0
 
 
+def test_complete_json_omits_response_format_for_volcengine() -> None:
+    response_payload = {
+        "choices": [{"message": {"content": json.dumps({"ok": True})}}]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        assert "response_format" not in body
+        return httpx.Response(200, json=response_payload)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    config = GatewayConfig(
+        text=ProviderConfig(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key="test-key",
+            model="doubao-vision",
+        ),
+        vision=ProviderConfig(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key="test-key",
+            model="doubao-vision",
+        ),
+        tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
+        image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
+        video_driver="generic_job",
+        video=ProviderConfig("https://video.example/v1", "video-key", "video-model"),
+    )
+    gateway = ModelGateway(config=config, client=client)
+
+    result = gateway.complete_json("Task", {"x": 1}, "schema", profile="vision")
+
+    assert result == {"ok": True}
+
+
 def test_complete_text_routes_vision_profile() -> None:
     seen_models: list[str] = []
 

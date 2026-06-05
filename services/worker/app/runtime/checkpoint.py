@@ -13,10 +13,16 @@ ANALYSIS_STAGES = (
     "extracting_metadata",
     "extracting_audio",
     "transcribing",
+    "analyzing_audio",
     "detecting_shots",
     "extracting_keyframes",
+    "extracting_visual_facts",
     "consolidating",
     "extracting_structure",
+    "proposing_segments",
+    "analyzing_segments",
+    "compiling_structure",
+    "critiquing_structure",
     "rendering_knowledge_draft",
 )
 
@@ -157,6 +163,13 @@ def is_analysis_stage_done(stage: str, analysis_root: Path, *, metadata: dict[st
         data = _read_json(analysis_root / "transcript.json")
         return isinstance(data, dict) and "segments" in data
 
+    if stage == "analyzing_audio":
+        meta = metadata if metadata is not None else _read_json(analysis_root / "metadata.json")
+        if isinstance(meta, dict) and not meta.get("hasAudio"):
+            return True
+        data = _read_json(analysis_root / "audio-profile.json")
+        return isinstance(data, dict) and "metrics" in data
+
     if stage == "detecting_shots":
         data = _read_json(analysis_root / "shots.json")
         return isinstance(data, list)
@@ -166,13 +179,46 @@ def is_analysis_stage_done(stage: str, analysis_root: Path, *, metadata: dict[st
         keyframes_dir = analysis_root / "keyframes"
         return isinstance(data, list) and keyframes_dir.is_dir()
 
+    if stage == "extracting_visual_facts":
+        from app.perception.visual_facts_progress import is_visual_facts_stage_complete
+
+        if is_visual_facts_stage_complete(analysis_root):
+            return True
+        data = _read_json(analysis_root / "sample-analysis.json")
+        if isinstance(data, dict) and data.get("keyframeBatchDigests"):
+            return True
+        keyframes = _read_json(analysis_root / "keyframes.json")
+        return isinstance(keyframes, list) and len(keyframes) <= 8
+
     if stage == "consolidating":
         data = _read_json(analysis_root / "sample-analysis.json")
         return isinstance(data, dict) and "metadata" in data
 
     if stage == "extracting_structure":
         data = _read_json(analysis_root / "video-structure.json")
-        return isinstance(data, dict) and "slots" in data
+        if not isinstance(data, dict) or "slots" not in data:
+            return False
+        quality = data.get("analysisQuality")
+        return isinstance(quality, dict) and "warnings" in quality
+
+    if stage == "proposing_segments":
+        proposal = _read_json(analysis_root / "segment-proposal.json")
+        return isinstance(proposal, dict) and bool(proposal.get("segments"))
+
+    if stage == "analyzing_segments":
+        analyses = _read_json(analysis_root / "segment-analyses.json")
+        return isinstance(analyses, list) and len(analyses) > 0
+
+    if stage == "compiling_structure":
+        data = _read_json(analysis_root / "video-structure.json")
+        return isinstance(data, dict) and bool(data.get("slots"))
+
+    if stage == "critiquing_structure":
+        data = _read_json(analysis_root / "video-structure.json")
+        if not isinstance(data, dict):
+            return False
+        quality = data.get("analysisQuality")
+        return isinstance(quality, dict) and "warnings" in quality
 
     return False
 
@@ -189,6 +235,11 @@ def should_skip_analysis_stage(
         return False
     if stage not in checkpoint.completedStages:
         return False
+    if stage == "extracting_visual_facts":
+        from app.perception.visual_facts_progress import has_pending_visual_facts_batches
+
+        if has_pending_visual_facts_batches(analysis_root):
+            return False
     return is_analysis_stage_done(stage, analysis_root, metadata=metadata)
 
 

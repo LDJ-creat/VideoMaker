@@ -137,7 +137,16 @@ def build_structure_analyst_inputs(
         "transcript": list(analysis.get("transcript", [])),
         "shots": shots,
         "rhythmFacts": compute_rhythm_facts(shots, duration_sec=duration_sec),
+        "locale": str(analysis.get("locale") or "zh"),
     }
+
+    audio_profile = analysis.get("audioProfile")
+    if isinstance(audio_profile, dict):
+        payload["audioProfile"] = audio_profile
+
+    batch_digests = analysis.get("keyframeBatchDigests")
+    if isinstance(batch_digests, list):
+        payload["keyframeBatchDigests"] = batch_digests
 
     raw_keyframes = list(analysis.get("keyframes", []))
     if analysis_root is not None and raw_keyframes:

@@ -1,0 +1,11 @@
+{
+  "visualFacts": "批次内以胸景口播为主，穿插产品 UI 特写与底部黄字关键词贴纸。",
+  "onScreenTextFacts": [
+    {
+      "timeSec": 1.2,
+      "keyframePath": "keyframes/shot-1.jpg",
+      "text": "限时优惠",
+      "confidence": 0.84
+    }
+  ]
+}

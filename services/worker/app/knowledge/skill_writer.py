@@ -31,6 +31,7 @@ def write_knowledge_draft(
     sample_id: str,
     structure: dict[str, Any],
     skill_output: dict[str, Any],
+    sample_analysis: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     target = draft_dir(storage_root, project_id, sample_id)
     target.mkdir(parents=True, exist_ok=True)
@@ -43,6 +44,7 @@ def write_knowledge_draft(
         style=str(frontmatter.get("style") or "标准结构"),
         summary=str(frontmatter.get("summary") or ""),
         hook_type=frontmatter.get("hookType"),
+        sample_analysis=sample_analysis,
     )
     frontmatter = {**meta, **frontmatter}
 

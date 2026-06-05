@@ -18,6 +18,31 @@ from app.gateway.providers.pluggable_video import (
 )
 
 
+def _parse_json_text(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        candidate = text[start : end + 1]
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    raise json.JSONDecodeError("Unable to parse JSON object from model output", text, 0)
+
+
 @dataclass
 class ModelGateway:
     config: GatewayConfig
@@ -104,7 +129,11 @@ class ModelGateway:
         else:
             user_message = {
                 "role": "user",
-                "content": json.dumps(user_inputs, ensure_ascii=False),
+                "content": (
+                    "Produce the requested JSON output from these inputs. "
+                    "Do not echo the inputs; return the output schema only.\n"
+                    f"{json.dumps(user_inputs, ensure_ascii=False)}"
+                ),
             }
 
         return [
@@ -195,18 +224,21 @@ class ModelGateway:
     ) -> dict[str, Any]:
         """Complete a chat request and parse the model response as JSON."""
         provider = self._chat_provider(profile)
+        response_format = (
+            {"type": "json_object"} if provider.config.supports_json_response_format() else None
+        )
         raw = provider.complete(
             messages,
             model=provider.config.model,
-            response_format={"type": "json_object"},
+            response_format=response_format,
         )
         self.last_latency_ms = provider.last_latency_ms
         try:
-            return json.loads(raw)
+            return _parse_json_text(raw)
         except json.JSONDecodeError as exc:
             raise GatewayError(
                 code="invalid_json",
-                message=f"Model output is not valid JSON: {raw}",
+                message=f"Model output is not valid JSON: {raw[:2000]}",
                 retryable=False,
             ) from exc
 
@@ -234,18 +266,21 @@ class ModelGateway:
         _ = schema_name
         provider = self._chat_provider(profile)
         messages = self._build_messages(task, inputs, json_only=True, profile=profile)
+        response_format = (
+            {"type": "json_object"} if provider.config.supports_json_response_format() else None
+        )
         raw = provider.complete(
             messages,
             model=provider.config.model,
-            response_format={"type": "json_object"},
+            response_format=response_format,
         )
         self.last_latency_ms = provider.last_latency_ms
         try:
-            return json.loads(raw)
+            return _parse_json_text(raw)
         except json.JSONDecodeError as exc:
             raise GatewayError(
                 code="invalid_json",
-                message=f"Model output is not valid JSON: {raw}",
+                message=f"Model output is not valid JSON: {raw[:2000]}",
                 retryable=False,
             ) from exc
 

@@ -9,6 +9,13 @@ class ProviderConfig:
     api_key: str
     model: str
 
+    def supports_json_response_format(self) -> bool:
+        """Some OpenAI-compatible hosts (e.g. Volcengine Ark) reject response_format=json_object."""
+        host = self.base_url.lower()
+        if "volces.com" in host or "volcengine" in host:
+            return False
+        return True
+
 
 class GatewayError(RuntimeError):
     """Raised when a gateway provider call fails."""

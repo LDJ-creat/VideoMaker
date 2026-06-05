@@ -51,3 +51,28 @@ def test_should_not_skip_without_resume(tmp_path: Path) -> None:
     (analysis_root / "metadata.json").write_text(json.dumps({"durationSec": 1}), encoding="utf-8")
     cp = AnalysisCheckpoint(completedStages=["extracting_metadata"])
     assert should_skip_analysis_stage("extracting_metadata", cp, analysis_root, resume=False) is False
+
+
+def test_visual_facts_stage_done_with_partial_batch_coverage(tmp_path: Path, monkeypatch) -> None:
+    analysis_root = tmp_path / "analysis"
+    analysis_root.mkdir()
+    digest_dir = analysis_root / "batch-digests"
+    digest_dir.mkdir()
+    (digest_dir / "batch-0.json").write_text(
+        json.dumps({"batchIndex": 0, "startSec": 0, "endSec": 8, "frames": [], "visualFacts": "x", "onScreenTextFacts": []}),
+        encoding="utf-8",
+    )
+    (digest_dir / "batch-1.json").write_text(
+        json.dumps({"batchIndex": 1, "startSec": 8, "endSec": 16, "frames": [], "visualFacts": "y", "onScreenTextFacts": []}),
+        encoding="utf-8",
+    )
+    (digest_dir / "batch-2.json").write_text(
+        json.dumps({"batchIndex": 2, "startSec": 16, "endSec": 24, "frames": [], "visualFacts": "z", "onScreenTextFacts": []}),
+        encoding="utf-8",
+    )
+    (analysis_root / "visual-facts-progress.json").write_text(
+        json.dumps({"totalBatches": 4, "completedIndices": [0, 1, 2], "failedIndices": [3]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIDEOMAKER_VISION_BATCH_MIN_COVERAGE", "0.67")
+    assert is_analysis_stage_done("extracting_visual_facts", analysis_root) is True

@@ -92,12 +92,42 @@ class LLMTool:
 
         raise LLMToolConfigError("No ModelGateway configured for live mode")
 
+    @staticmethod
+    def _unwrap_schema_payload(payload: dict[str, Any], schema_name: str) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return payload
+        current: dict[str, Any] = payload
+        for _ in range(4):
+            validation = validate_contract(schema_name, current)
+            if validation.valid:
+                return current
+            candidates = {
+                schema_name,
+                schema_name.replace("-", "_"),
+                schema_name.replace("_", "-"),
+            }
+            next_payload: dict[str, Any] | None = None
+            for key in candidates:
+                wrapped = current.get(key)
+                if isinstance(wrapped, dict):
+                    next_payload = wrapped
+                    break
+            if next_payload is None and len(current) == 1:
+                only_value = next(iter(current.values()))
+                if isinstance(only_value, dict):
+                    next_payload = only_value
+            if next_payload is None:
+                break
+            current = next_payload
+        return current
+
     def _validate_payload(
         self, *, payload: dict[str, Any], schema_name: str
     ) -> dict[str, Any]:
-        validation = validate_contract(schema_name, payload)
+        normalized = self._unwrap_schema_payload(payload, schema_name)
+        validation = validate_contract(schema_name, normalized)
         if validation.valid:
-            return payload
+            return normalized
         raise LLMToolValidationError(
             f"LLM output failed schema validation for '{schema_name}'",
             raw_output=self.last_raw_output,

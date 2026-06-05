@@ -440,6 +440,7 @@ def run_asset_understanding(
     context: TaskContext,
     generation_id: str | None = None,
     opencv: OpenCVTool | None = None,
+    video_structure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context.emit_event(
         stage="analyzing_assets",
@@ -453,6 +454,7 @@ def run_asset_understanding(
         context=context,
         progress=12,
         generation_id=generation_id,
+        video_structure=video_structure,
     )
 
     opencv_tool = opencv or OpenCVTool()

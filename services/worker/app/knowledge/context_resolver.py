@@ -106,6 +106,8 @@ def resolve_knowledge_context(
     project_id: str,
     level: int = 1,
     weak_slot_count: int = 0,
+    video_structure: dict[str, Any] | None = None,
+    sample_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if database_path is None:
         return build_knowledge_context_payload(
@@ -114,6 +116,8 @@ def resolve_knowledge_context(
             reference_entries=[],
             reference_skill_mds=[],
             level=level,
+            video_structure=video_structure,
+            sample_analysis=sample_analysis,
         )
 
     selection = load_selection_from_db(database_path, project_id)
@@ -124,6 +128,8 @@ def resolve_knowledge_context(
             reference_entries=[],
             reference_skill_mds=[],
             level=level,
+            video_structure=video_structure,
+            sample_analysis=sample_analysis,
         )
 
     effective_level = 2 if weak_slot_count >= 2 else level
@@ -135,6 +141,8 @@ def resolve_knowledge_context(
             reference_entries=[],
             reference_skill_mds=[],
             level=effective_level,
+            video_structure=video_structure,
+            sample_analysis=sample_analysis,
         )
 
     primary_md = None
@@ -168,6 +176,8 @@ def resolve_knowledge_context(
         reference_entries=references,
         reference_skill_mds=reference_mds,
         level=effective_level,
+        video_structure=video_structure,
+        sample_analysis=sample_analysis,
     )
 
 

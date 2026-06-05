@@ -237,6 +237,7 @@ def run_agent_generation(
     skip_slot_mapping: bool = False,
     knowledge_context: dict[str, Any] | None = None,
     database_path: Path | None = None,
+    sample_analysis: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     if inventory is None:
         if inventory_baseline is None:
@@ -246,6 +247,7 @@ def run_agent_generation(
             inventory=inventory_baseline,
             context=context,
             generation_id=generation_id,
+            video_structure=structure,
         )
 
     if skip_slot_mapping:
@@ -280,6 +282,8 @@ def run_agent_generation(
                 project_id=context.project_id,
                 level=1,
                 weak_slot_count=len(weak_ids),
+                video_structure=structure,
+                sample_analysis=sample_analysis,
             )
         context.emit_event(
             stage="planning_completion",

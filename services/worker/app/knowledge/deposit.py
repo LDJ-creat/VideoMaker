@@ -31,5 +31,6 @@ def deposit_knowledge_draft(
         sample_id=sample_id,
         structure=structure,
         skill_output=skill_output,
+        sample_analysis=sample_analysis,
     )
     return {"skillOutput": skill_output, "uris": uris}

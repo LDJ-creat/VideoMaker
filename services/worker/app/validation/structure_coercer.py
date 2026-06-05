@@ -145,29 +145,67 @@ def _ensure_segment_evidence(
     evidence: list[dict[str, Any]],
     *,
     segments: list[dict[str, Any]],
+    analysis: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     segments_by_id = {str(segment["id"]): segment for segment in segments if segment.get("id")}
     normalized: list[dict[str, Any]] = []
     for item in evidence:
-        segment = segments_by_id.get(str(item.get("targetId", "")), {})
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("targetId") or item.get("segmentId") or "").strip()
+        if not target_id:
+            time_range = item.get("timeRange")
+            if isinstance(time_range, dict):
+                midpoint = (
+                    float(time_range.get("startSec", 0.0))
+                    + float(time_range.get("endSec", 0.0))
+                ) / 2.0
+                for segment in segments:
+                    if segment.get("id") is None:
+                        continue
+                    start_sec = float(segment.get("startSec", 0.0))
+                    end_sec = float(segment.get("endSec", start_sec))
+                    if start_sec <= midpoint <= end_sec:
+                        target_id = str(segment["id"])
+                        break
+        if not target_id:
+            continue
+        segment = segments_by_id.get(target_id, {})
         source = str(item.get("source") or "shot_detection")
+        summary = str(item.get("summary") or item.get("excerpt") or "").strip()
+        if not summary:
+            continue
         normalized.append(
             {
-                "targetId": str(item["targetId"]),
+                "targetId": target_id,
                 "source": source,
                 "summary": _normalize_evidence_summary(
                     source=source,
-                    summary=str(item.get("summary") or ""),
+                    summary=summary,
                     segment=segment,
                 ),
                 "confidence": float(item.get("confidence", 0.75)),
             }
         )
 
-    covered = {str(item["targetId"]) for item in normalized if item["source"] in {"asr", "shot_detection"}}
+    audio_profile = analysis.get("audioProfile") if isinstance(analysis, dict) else None
+    has_voiceover = isinstance(audio_profile, dict) and bool(audio_profile.get("hasVoiceover"))
     for segment in segments:
         segment_id = str(segment["id"])
-        if segment_id in covered:
+        matches = [item for item in normalized if str(item.get("targetId")) == segment_id]
+        if has_voiceover and not any(item.get("source") in {"asr", "audio"} for item in matches):
+            excerpt = str(segment.get("transcriptExcerpt") or segment.get("scriptSummary") or "").strip()
+            normalized.append(
+                {
+                    "targetId": segment_id,
+                    "source": "asr",
+                    "summary": f"{segment.get('startSec', 0.0)}-{segment.get('endSec', 0.0)} sec",
+                    "confidence": 0.75,
+                    **({"excerpt": excerpt} if excerpt else {}),
+                }
+            )
+            continue
+        if matches:
             continue
         normalized.append(
             {
@@ -280,7 +318,7 @@ def _attach_keyframe_evidence(
 
 
 def _normalize_slot_role(role: str) -> str:
-    normalized = _SLOT_ROLE_ALIASES.get(role, role)
+    raw = str(role or "").strip()
     allowed = {
         "hook_visual",
         "hook_text",
@@ -292,6 +330,9 @@ def _normalize_slot_role(role: str) -> str:
         "transition",
         "cta",
     }
+    if raw in allowed:
+        return raw
+    normalized = _SLOT_ROLE_ALIASES.get(raw, raw)
     return normalized if normalized in allowed else "usage_scene"
 
 
@@ -317,6 +358,30 @@ def _normalize_segment_role(role: str) -> str:
     raw = str(role or "hook").strip().lower()
     if raw in _ALLOWED_SEGMENT_ROLES:
         return raw
+    slug = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    if slug in _SEGMENT_ROLE_ALIASES:
+        return _SEGMENT_ROLE_ALIASES[slug]
+    if slug in _ALLOWED_SEGMENT_ROLES:
+        return slug
+    if any(token in raw for token in ("hook", "opening", "intro", "开场", "钩子")):
+        return "hook"
+    if any(token in raw for token in ("problem", "pain", "challenge", "痛点", "问题")):
+        return "problem"
+    if any(token in raw for token in ("solution", "explain", "practice", "how to", "方案", "解决")):
+        return "solution"
+    if any(
+        token in raw
+        for token in ("proof", "evidence", "research", "anecdote", "analysis", "bias", "fail", "证言", "证据")
+    ):
+        return "proof"
+    if any(token in raw for token in ("benefit", "implication", "value", "利益", "好处")):
+        return "benefit"
+    if any(token in raw for token in ("comparison", "versus", " vs ", "对比")):
+        return "comparison"
+    if any(token in raw for token in ("cta", "call to action", "closing", "行动号召", "下单")):
+        return "cta"
+    if "transition" in raw or "转场" in raw:
+        return "transition"
     return _SEGMENT_ROLE_ALIASES.get(raw, "hook")
 
 
@@ -334,14 +399,24 @@ def _normalize_narrative_segment(segment: dict[str, Any], *, index: int) -> dict
     role = _normalize_segment_role(str(item.get("role") or "hook"))
     script = str(
         item.get("scriptSummary")
+        or item.get("transcriptExcerpt")
         or item.get("script")
         or item.get("narration")
         or item.get("text")
         or role
     ).strip()
-    visual = str(item.get("visualSummary") or item.get("visual") or script or role).strip()
+    visual_spec = item.get("visualSpec")
+    visual_from_spec = ""
+    if isinstance(visual_spec, dict):
+        parts = [
+            str(visual_spec.get("framing") or "").strip(),
+            str(visual_spec.get("subject") or "").strip(),
+            str(visual_spec.get("cameraMove") or "").strip(),
+        ]
+        visual_from_spec = "，".join(part for part in parts if part)
+    visual = str(item.get("visualSummary") or item.get("visual") or visual_from_spec or script or role).strip()
     intent = str(item.get("intent") or visual or role).strip()
-    return {
+    normalized = {
         "id": str(item.get("id") or f"segment-{index + 1}"),
         "role": role,
         "startSec": item.get("startSec"),
@@ -350,6 +425,17 @@ def _normalize_narrative_segment(segment: dict[str, Any], *, index: int) -> dict
         "visualSummary": visual,
         "intent": intent,
     }
+    for key in (
+        "transcriptExcerpt",
+        "rhetoricalDevices",
+        "emotionTone",
+        "retentionRole",
+        "voStyle",
+        "visualSpec",
+    ):
+        if item.get(key) is not None:
+            normalized[key] = item[key]
+    return normalized
 
 
 def _segment_times(
@@ -388,6 +474,21 @@ def _segment_times(
     return normalized
 
 
+_CHANGE_REASON_ALIASES = {
+    "histogram_cut": "visual_cut",
+    "hard_cut": "visual_cut",
+    "cut": "visual_cut",
+}
+
+
+def _normalize_change_reason(value: Any) -> str:
+    raw = str(value or "scene_change").strip()
+    mapped = _CHANGE_REASON_ALIASES.get(raw, raw)
+    if mapped in {"visual_cut", "scene_change", "caption_change", "beat", "unknown"}:
+        return mapped
+    return "unknown"
+
+
 def _normalize_shot_boundaries(
     shots: list[dict[str, Any]],
     *,
@@ -407,7 +508,7 @@ def _normalize_shot_boundaries(
                     "startSec": start,
                     "endSec": end,
                     "confidence": float(item.get("confidence", 0.75)),
-                    "changeReason": item.get("changeReason", "scene_change"),
+                    "changeReason": _normalize_change_reason(item.get("changeReason", "scene_change")),
                 }
             )
         return normalized
@@ -426,7 +527,7 @@ def _normalize_shot_boundaries(
                     "startSec": start,
                     "endSec": end,
                     "confidence": float(shot.get("confidence", 0.75)),
-                    "changeReason": shot.get("changeReason", "scene_change"),
+                    "changeReason": _normalize_change_reason(shot.get("changeReason", "scene_change")),
                 }
             )
             cursor = end
@@ -457,8 +558,7 @@ def _normalize_slots(
         segment = segments_by_id.get(segment_id, {})
         intent_text = str(slot.pop("intent", "") or slot.get("visualIntent") or segment.get("scriptSummary") or "slot")
         role = _normalize_slot_role(str(slot.get("role", "usage_scene")))
-        normalized.append(
-            {
+        slot_payload: dict[str, Any] = {
                 "id": str(slot.get("id") or f"{segment_id}-{role}"),
                 "segmentId": segment_id,
                 "role": role,
@@ -475,8 +575,64 @@ def _normalize_slots(
                     else {}
                 ),
             }
-        )
+        if slot.get("durationSharePct") is not None:
+            share = float(slot["durationSharePct"])
+            if share > 1.0:
+                share = share / 100.0
+            slot_payload["durationSharePct"] = max(0.0, min(1.0, share))
+        migration = str(slot.get("migrationTemplate") or "").strip()
+        if migration:
+            slot_payload["migrationTemplate"] = migration
+        packaging_requirements_raw = slot.get("packagingRequirements")
+        if isinstance(packaging_requirements_raw, str) and packaging_requirements_raw.strip():
+            packaging_requirements = [packaging_requirements_raw.strip()]
+        else:
+            packaging_requirements = list(packaging_requirements_raw or [])
+        if packaging_requirements:
+            slot_payload["packagingRequirements"] = packaging_requirements
+        anti_patterns_raw = slot.get("antiPatterns")
+        if isinstance(anti_patterns_raw, str) and anti_patterns_raw.strip():
+            anti_patterns = [anti_patterns_raw.strip()]
+        else:
+            anti_patterns = list(anti_patterns_raw or [])
+        if anti_patterns:
+            slot_payload["antiPatterns"] = anti_patterns
+        normalized.append(slot_payload)
     return normalized
+
+
+def _payload_has_v2_deep_fields(payload: dict[str, Any]) -> bool:
+    narrative = payload.get("narrative") if isinstance(payload.get("narrative"), dict) else {}
+    for segment in narrative.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        if any(
+            segment.get(key)
+            for key in (
+                "transcriptExcerpt",
+                "voStyle",
+                "visualSpec",
+                "rhetoricalDevices",
+                "emotionTone",
+            )
+        ):
+            return True
+    for slot in payload.get("slots") or []:
+        if not isinstance(slot, dict):
+            continue
+        if slot.get("migrationTemplate") or slot.get("packagingRequirements"):
+            return True
+    explicit = str(payload.get("version") or "").strip()
+    return explicit.startswith("p1-v2")
+
+
+def _resolve_structure_version(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("version") or "").strip()
+    if explicit:
+        return explicit
+    if _payload_has_v2_deep_fields(payload):
+        return "p1-v2"
+    return "p0-v1"
 
 
 def coerce_video_structure(
@@ -498,7 +654,7 @@ def coerce_video_structure(
     coerced["id"] = str(payload.get("id") or f"video-structure-{project_id}")
     coerced["projectId"] = project_id
     coerced["sourceVideoId"] = source_video_id
-    coerced["version"] = str(payload.get("version") or "p1-v1")
+    coerced["version"] = _resolve_structure_version(payload)
 
     clean_metadata = {
         key: metadata[key]
@@ -510,6 +666,9 @@ def coerce_video_structure(
     coerced["metadata"] = clean_metadata
 
     narrative = dict(payload.get("narrative") or {})
+    if not narrative.get("segments") and isinstance(payload.get("segments"), list):
+        narrative["segments"] = payload["segments"]
+    narrative.pop("intent", None)
     raw_segments = [
         _normalize_narrative_segment(segment, index=index)
         for index, segment in enumerate(list(narrative.get("segments") or []))
@@ -550,16 +709,6 @@ def coerce_video_structure(
         "stickers": list(packaging.get("stickers") or []),
         "transitions": list(packaging.get("transitions") or []),
         "visualDensity": str(packaging.get("visualDensity") or "medium"),
-        **(
-            {"subtitleStyle": dict(packaging["subtitleStyle"])}
-            if isinstance(packaging.get("subtitleStyle"), dict)
-            else {}
-        ),
-        **(
-            {"coverStyle": dict(packaging["coverStyle"])}
-            if isinstance(packaging.get("coverStyle"), dict)
-            else {}
-        ),
     }
 
     coerced["slots"] = _normalize_slots(list(payload.get("slots") or []), segments_by_id=segments_by_id)
@@ -568,6 +717,7 @@ def coerce_video_structure(
         _ensure_segment_evidence(
             list(payload.get("evidence") or []),
             segments=segments,
+            analysis=analysis,
         ),
         segments=segments,
         keyframes=list(analysis.get("keyframes") or []),

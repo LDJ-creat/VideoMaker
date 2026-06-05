@@ -1,0 +1,37 @@
+{
+  "segmentId": "seg-hook",
+  "transcriptExcerpt": "还在花冤枉钱？",
+  "rhetoricalDevices": ["反问", "痛点放大"],
+  "emotionTone": "焦虑转好奇",
+  "voStyle": {
+    "pace": "fast",
+    "energy": "high",
+    "persona": "博主口播"
+  },
+  "visualSpec": {
+    "framing": "9:16 胸景",
+    "subject": "博主直视镜头",
+    "cameraMove": "固定机位",
+    "onScreenText": ["限时优惠"],
+    "colorMood": "暖色高对比",
+    "density": "medium"
+  },
+  "onScreenTextFacts": [
+    {
+      "timeSec": 1.2,
+      "keyframePath": "keyframes/shot-1.jpg",
+      "text": "限时优惠",
+      "confidence": 0.86
+    }
+  ],
+  "localEvidence": [
+    {
+      "targetId": "seg-hook",
+      "source": "asr",
+      "summary": "0.0-1.5s 反问痛点",
+      "confidence": 0.9,
+      "timeRange": { "startSec": 0.0, "endSec": 1.5 },
+      "excerpt": "还在花冤枉钱？"
+    }
+  ]
+}

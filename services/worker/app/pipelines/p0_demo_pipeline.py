@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
-from app.agents.structure_analyst import run_structure_analyst
+from app.pipelines.structure_analysis_pipeline import run_structure_analysis_pipeline
+from app.perception.sample_facts import (
+    merge_visual_facts_into_sample_analysis,
+    persist_sample_analysis,
+    run_visual_facts_extraction,
+)
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.failure_debug import tool_error_from_agent_failure
 from app.config.variants import load_variant_gap_planner_overrides
@@ -63,7 +69,13 @@ _AGENT_FAILURES = (
 )
 
 
-def _load_sample_analysis(storage_root: Path, project_id: str, sample_id: str) -> dict[str, Any]:
+def _load_sample_analysis(
+    storage_root: Path,
+    project_id: str,
+    sample_id: str,
+    *,
+    required: bool = True,
+) -> dict[str, Any] | None:
     analysis_path = (
         storage_root
         / "projects"
@@ -73,6 +85,10 @@ def _load_sample_analysis(storage_root: Path, project_id: str, sample_id: str) -
         / "analysis"
         / "sample-analysis.json"
     )
+    if not analysis_path.is_file():
+        if required:
+            raise FileNotFoundError(str(analysis_path))
+        return None
     return json.loads(analysis_path.read_text(encoding="utf-8"))
 
 
@@ -174,6 +190,81 @@ class P0DemoPipeline:
         )
         runner = self._build_runner()
 
+        sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
+        if should_skip_analysis_stage("extracting_visual_facts", checkpoint, analysis_root, resume=resume):
+            emit(
+                status="running",
+                stage="extracting_visual_facts",
+                progress=88,
+                message="(resumed) visual facts already extracted",
+            )
+        else:
+            emit(
+                status="running",
+                stage="extracting_visual_facts",
+                progress=86,
+                message="Extracting batched visual facts from keyframes",
+            )
+            warnings: list[str] = []
+            try:
+                result = run_visual_facts_extraction(
+                    runner,
+                    sample_analysis=sample_analysis,
+                    analysis_root=analysis_root,
+                    context=context,
+                )
+                if result.warnings:
+                    warnings.extend(result.warnings)
+                if not result.stage_complete:
+                    emit(
+                        status="failed",
+                        stage="extracting_visual_facts",
+                        progress=86,
+                        message="Visual facts extraction incomplete",
+                        error={
+                            "code": "vision_batch_incomplete",
+                            "message": "Batch vision did not reach minimum coverage; retry to resume missing batches",
+                            "retryable": True,
+                        },
+                    )
+                    return {"ok": False, "error": "visual facts incomplete", "finalEvent": {
+                        "status": "failed",
+                        "stage": "extracting_visual_facts",
+                        "progress": 86,
+                        "message": "Visual facts extraction incomplete",
+                        "error": {
+                            "code": "vision_batch_incomplete",
+                            "message": "Batch vision did not reach minimum coverage",
+                            "retryable": True,
+                        },
+                    }}
+                sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
+                if warnings:
+                    sample_analysis = merge_visual_facts_into_sample_analysis(
+                        sample_analysis,
+                        batch_digests=list(sample_analysis.get("keyframeBatchDigests") or []),
+                        warnings=warnings,
+                    )
+                    persist_sample_analysis(analysis_root, sample_analysis)
+            except _AGENT_FAILURES as exc:
+                error = tool_error_from_agent_failure(exc)
+                emit(
+                    status="failed",
+                    stage="extracting_visual_facts",
+                    progress=86,
+                    message="Visual facts extraction failed",
+                    error=error,
+                )
+                return {"ok": False, "error": str(exc), "finalEvent": {
+                    "status": "failed",
+                    "stage": "extracting_visual_facts",
+                    "progress": 86,
+                    "message": "Visual facts extraction failed",
+                    "error": error,
+                }}
+            checkpoint.mark_stage_complete("extracting_visual_facts")
+            checkpoint.save(checkpoint_path)
+
         structure: dict[str, Any] | None = None
         if should_skip_analysis_stage("extracting_structure", checkpoint, analysis_root, resume=resume):
             structure_path = analysis_root / "video-structure.json"
@@ -193,13 +284,17 @@ class P0DemoPipeline:
             )
             sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
             try:
-                structure = run_structure_analyst(
+                structure = run_structure_analysis_pipeline(
                     runner,
                     analysis=sample_analysis,
                     context=context,
                     project_id=project_id,
                     source_video_id=sample_id,
                     analysis_root=analysis_root,
+                    emit=emit,
+                    checkpoint=checkpoint,
+                    checkpoint_path=checkpoint_path,
+                    resume=resume,
                 )
             except _AGENT_FAILURES as exc:
                 error = tool_error_from_agent_failure(exc)
@@ -319,11 +414,23 @@ class P0DemoPipeline:
         runner = self._build_runner()
         revise_context = load_revise_context(generation_root) if resume else None
 
+        sample_analysis_for_gen = (
+            _load_sample_analysis(
+                self._storage_root,
+                project_id,
+                str(structure.get("sourceVideoId") or ""),
+                required=False,
+            )
+            if structure.get("sourceVideoId")
+            else None
+        )
         knowledge_context = resolve_knowledge_context(
             storage_root=self._storage_root,
             database_path=self._database_path,
             project_id=project_id,
             level=1,
+            video_structure=structure,
+            sample_analysis=sample_analysis_for_gen,
         )
 
         reference_structures: list[dict[str, Any]] = []
@@ -495,6 +602,7 @@ class P0DemoPipeline:
                     revise_context=revise_context,
                     knowledge_context=knowledge_context,
                     database_path=self._database_path,
+                    sample_analysis=sample_analysis_for_gen,
                 )
                 slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:

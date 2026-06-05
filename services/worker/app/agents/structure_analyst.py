@@ -159,6 +159,7 @@ def run_structure_analyst(
     agent_inputs: dict[str, Any] = {
         "projectId": project_id,
         "sourceVideoId": source_video_id,
+        "locale": packaged.get("locale", "zh"),
         "analysis": packaged,
     }
 

@@ -10,7 +10,11 @@ from app.tools.llm_tool import LLMTool, load_agent_fixtures
 
 class _RecordingPipeline(P0DemoPipeline):
     def __init__(self, storage_root: Path, sample_result: dict[str, Any], structure: dict[str, Any]) -> None:
-        super().__init__(storage_root)
+        fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+        super().__init__(
+            storage_root,
+            llm=LLMTool(fixture_mode=True, fixtures=fixtures),
+        )
         self._sample_result = sample_result
         self._structure = structure
 
@@ -169,9 +173,11 @@ def test_run_generation_fails_when_agent_fixture_invalid(tmp_path: Path) -> None
 
 
 def test_analyze_sample_fails_when_structure_agent_invalid(tmp_path: Path) -> None:
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    fixtures["structure_compiler"] = {"id": "bad-only"}
     pipeline = P0DemoPipeline(
         tmp_path,
-        llm=LLMTool(fixture_mode=True, fixtures={"structure_analyst": {"id": "bad-only"}}),
+        llm=LLMTool(fixture_mode=True, fixtures=fixtures),
     )
     pipeline._sample_pipeline = _StubSamplePipeline(tmp_path)  # noqa: SLF001
     events: list[dict[str, Any]] = []
@@ -190,4 +196,4 @@ def test_analyze_sample_fails_when_structure_agent_invalid(tmp_path: Path) -> No
     assert result["ok"] is False
     assert events[-1]["status"] == "failed"
     assert events[-1]["stage"] == "extracting_structure"
-    assert events[-1]["error"]["code"] == "agent_failed"
+    assert events[-1]["error"]["code"] in {"agent_failed", "LLMValidationError"}

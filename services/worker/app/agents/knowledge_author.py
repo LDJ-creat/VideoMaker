@@ -15,6 +15,7 @@ def _merge_frontmatter(
     payload: dict[str, Any],
     *,
     structure: dict[str, Any],
+    sample_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     frontmatter = dict(payload.get("frontmatter") or {})
     rhythm = structure.get("rhythm") if isinstance(structure.get("rhythm"), dict) else {}
@@ -26,6 +27,7 @@ def _merge_frontmatter(
         style=str(frontmatter.get("style") or "标准结构"),
         summary=str(frontmatter.get("summary") or "可复用的短视频结构经验"),
         hook_type=frontmatter.get("hookType"),
+        sample_analysis=sample_analysis,
     )
     for key, value in defaults.items():
         if value is not None and not frontmatter.get(key):
@@ -52,7 +54,13 @@ def run_knowledge_author(
         inputs["sampleAnalysis"] = {
             "metadata": sample_analysis.get("metadata"),
             "warnings": sample_analysis.get("warnings"),
+            "audioProfile": sample_analysis.get("audioProfile"),
+            "onScreenTextFacts": sample_analysis.get("onScreenTextFacts"),
+            "keyframeBatchDigests": sample_analysis.get("keyframeBatchDigests"),
         }
+        analysis_quality = (structure.get("analysisQuality") or {})
+        if analysis_quality.get("warnings"):
+            inputs["analysisQuality"] = analysis_quality
     output = runner.run(
         "knowledge_author",
         task=TASK_KEY,
@@ -60,6 +68,10 @@ def run_knowledge_author(
         inputs=inputs,
         context=context,
         progress=progress,
-        post_validate=lambda payload: _merge_frontmatter(payload, structure=structure),
+        post_validate=lambda payload: _merge_frontmatter(
+            payload,
+            structure=structure,
+            sample_analysis=sample_analysis,
+        ),
     )
     return output

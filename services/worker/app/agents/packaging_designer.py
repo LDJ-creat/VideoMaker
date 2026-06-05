@@ -94,6 +94,23 @@ def _assert_packaging_plan(
     return {**payload, "packagingPlan": normalized_plan}
 
 
+def _collect_on_screen_text(structure: dict[str, Any]) -> list[str]:
+    texts: list[str] = []
+    narrative = structure.get("narrative")
+    if not isinstance(narrative, dict):
+        return texts
+    for segment in narrative.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        visual_spec = segment.get("visualSpec")
+        if isinstance(visual_spec, dict):
+            for item in visual_spec.get("onScreenText") or []:
+                text = str(item).strip()
+                if text and text not in texts:
+                    texts.append(text)
+    return texts
+
+
 def run_packaging_designer(
     runner: AgentRunner,
     *,
@@ -116,6 +133,13 @@ def run_packaging_designer(
             "structure": structure,
             "storyboard": storyboard,
             "variantOverrides": variant_overrides,
+            "onScreenTextStyles": _collect_on_screen_text(structure),
+            "packagingRequirements": [
+                requirement
+                for slot in structure.get("slots") or []
+                if isinstance(slot, dict)
+                for requirement in (slot.get("packagingRequirements") or [])
+            ],
         },
         context=context,
         progress=progress,
