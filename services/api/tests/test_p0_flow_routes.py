@@ -180,6 +180,40 @@ def test_list_projects(p0_client: TestClient):
     assert [project["name"] for project in listed] == ["Second", "First"]
 
 
+def test_delete_project_cascades_metadata_and_storage(
+    p0_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+):
+    project = p0_client.post("/api/projects", json={"name": "To Delete"}).json()
+    project_id = project["id"]
+
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fake-video")
+    p0_client.post(
+        f"/api/projects/{project_id}/samples/upload",
+        files={"file": ("sample.mp4", video.read_bytes(), "video/mp4")},
+    )
+    p0_client.post(
+        f"/api/projects/{project_id}/brief",
+        json={"topic": "delete me"},
+    )
+
+    storage_root = app_paths["storage_root"]
+    project_dir = storage_root / "projects" / project_id
+    assert project_dir.is_dir()
+
+    response = p0_client.delete(f"/api/projects/{project_id}")
+    assert response.status_code == 204
+
+    assert p0_client.get(f"/api/projects/{project_id}").status_code == 404
+    assert p0_client.get("/api/projects").json()["projects"] == []
+    assert not project_dir.exists()
+
+    missing = p0_client.delete(f"/api/projects/{project_id}")
+    assert missing.status_code == 404
+
+
 def test_list_project_samples(p0_client: TestClient, tmp_path: Path):
     project = p0_client.post("/api/projects", json={"name": "Samples"}).json()
     video = tmp_path / "sample.mp4"

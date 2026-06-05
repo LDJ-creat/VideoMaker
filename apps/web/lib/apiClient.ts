@@ -286,6 +286,12 @@ export async function getProject(
   return apiFetch(`/api/projects/${projectId}`);
 }
 
+export async function deleteProject(projectId: string): Promise<ApiResult<void>> {
+  return apiFetch(`/api/projects/${projectId}`, {
+    method: "DELETE",
+  });
+}
+
 export type ActiveSampleSummary = {
   id: string;
   status: string;

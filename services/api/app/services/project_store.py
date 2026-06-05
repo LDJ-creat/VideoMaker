@@ -63,6 +63,62 @@ class ProjectStore:
             "createdAt": row["created_at"],
         }
 
+    def delete_project(self, project_id: str, *, storage_root: Path) -> bool:
+        if self.get_project(project_id) is None:
+            return False
+
+        with self.database.connect() as connection:
+            task_rows = connection.execute(
+                "SELECT id FROM tasks WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+            task_ids = [str(row["id"]) for row in task_rows]
+            if task_ids:
+                placeholders = ",".join("?" * len(task_ids))
+                connection.execute(
+                    f"DELETE FROM task_events WHERE task_id IN ({placeholders})",
+                    task_ids,
+                )
+
+            connection.execute("DELETE FROM artifacts WHERE project_id = ?", (project_id,))
+            connection.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+            connection.execute("DELETE FROM samples WHERE project_id = ?", (project_id,))
+            connection.execute(
+                "DELETE FROM project_assets WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM project_briefs WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM generations WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM project_knowledge_selection WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM upload_batches WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM project_sample_selection WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute(
+                "DELETE FROM generation_runs WHERE project_id = ?",
+                (project_id,),
+            )
+            connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+        project_dir = storage_root / "projects" / project_id
+        if project_dir.is_dir():
+            shutil.rmtree(project_dir)
+
+        return True
+
     def create_sample(
         self,
         *,
