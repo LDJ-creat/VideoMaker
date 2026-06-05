@@ -66,11 +66,26 @@ def build_entry_meta(
     style: str,
     summary: str,
     hook_type: str | None = None,
+    sample_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata = structure.get("metadata") if isinstance(structure.get("metadata"), dict) else {}
     rhythm = structure.get("rhythm") if isinstance(structure.get("rhythm"), dict) else {}
     duration_sec = float(metadata.get("durationSec", 0.0) or 0.0)
     tempo = rhythm.get("tempo")
+    narrative = structure.get("narrative") if isinstance(structure.get("narrative"), dict) else {}
+    segments = narrative.get("segments") if isinstance(narrative.get("segments"), list) else []
+    hook_segment = next(
+        (segment for segment in segments if isinstance(segment, dict) and segment.get("role") == "hook"),
+        segments[0] if segments else {},
+    )
+    vo_style = hook_segment.get("voStyle") if isinstance(hook_segment, dict) else {}
+    visual_spec = hook_segment.get("visualSpec") if isinstance(hook_segment, dict) else {}
+    rhetorical = hook_segment.get("rhetoricalDevices") if isinstance(hook_segment, dict) else []
+    has_bgm = False
+    if isinstance(sample_analysis, dict):
+        audio_profile = sample_analysis.get("audioProfile")
+        if isinstance(audio_profile, dict):
+            has_bgm = bool(audio_profile.get("hasBgm"))
     return {
         "title": title,
         "category": category,
@@ -80,4 +95,8 @@ def build_entry_meta(
         "tempo": tempo if tempo in {"slow", "medium", "fast", "mixed"} else None,
         "durationBucket": duration_bucket(duration_sec) if duration_sec > 0 else None,
         "slotPattern": extract_slot_pattern(structure),
+        "visualStyle": visual_spec.get("colorMood") if isinstance(visual_spec, dict) else None,
+        "voPersona": vo_style.get("persona") if isinstance(vo_style, dict) else None,
+        "hasBgm": has_bgm,
+        "rhetoricalPattern": "、".join(str(item) for item in rhetorical[:3]) if rhetorical else None,
     }
