@@ -17,3 +17,14 @@ class ModelGatewayService:
 
     def update_providers(self, updates: dict[str, dict[str, Any]]) -> ModelGatewayStatusResponse:
         return self._store.update_providers(updates)
+
+    def update_settings(
+        self,
+        *,
+        provider_updates: dict[str, dict[str, Any]] | None = None,
+        preference_updates: dict[str, Any] | None = None,
+    ) -> ModelGatewayStatusResponse:
+        return self._store.update_settings(
+            provider_updates=provider_updates,
+            preference_updates=preference_updates,
+        )

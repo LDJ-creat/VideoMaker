@@ -104,6 +104,21 @@ def test_probe_text_inline_overrides(
     assert response.json()["replyPreview"] == "pong"
 
 
+def test_probe_video_understanding_fixture_mode(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_FIXTURE_MODE", "true")
+    response = client.post(
+        "/api/settings/model-gateway/test",
+        json={"provider": "videoUnderstanding"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["provider"] == "videoUnderstanding"
+
+
 def test_probe_rejects_invalid_provider(client: TestClient) -> None:
     response = client.post(
         "/api/settings/model-gateway/test",

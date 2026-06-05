@@ -56,6 +56,9 @@ def test_model_gateway_status_returns_provider_shape(
     assert payload["providers"]["video"]["configured"] is False
     assert payload["providers"]["video"]["model"] is None
     assert payload["providers"]["video"]["driver"] == "generic_job"
+    assert payload["providers"]["videoUnderstanding"]["configured"] is False
+    assert payload["preferences"]["directMultimodalAnalysisEnabled"] is True
+    assert payload["analysisRoutePreview"] == "map_reduce"
 
 
 def test_model_gateway_status_vision_uses_text_fallback_model(

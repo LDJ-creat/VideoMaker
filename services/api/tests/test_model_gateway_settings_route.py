@@ -81,3 +81,14 @@ def test_put_empty_body_returns_400(client: TestClient) -> None:
         json={"providers": {"text": {}}},
     )
     assert response.status_code == 400
+
+
+def test_put_preferences_only(client: TestClient) -> None:
+    response = client.put(
+        "/api/settings/model-gateway",
+        json={"preferences": {"directMultimodalAnalysisEnabled": False}},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preferences"]["directMultimodalAnalysisEnabled"] is False
+    assert body["analysisRoutePreview"] == "map_reduce"

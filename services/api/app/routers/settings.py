@@ -13,7 +13,7 @@ from app.services.model_gateway_status import get_model_gateway_status
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-_PROVIDER_NAMES = frozenset({"text", "vision", "tts", "image", "video"})
+_PROVIDER_NAMES = frozenset({"text", "vision", "videoUnderstanding", "tts", "image", "video"})
 
 
 class CookieStatusResponse(BaseModel):
@@ -56,7 +56,7 @@ class ProviderSettingsUpdate(BaseModel):
 class ModelGatewayProviderProbeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    provider: Literal["text"]
+    provider: Literal["text", "videoUnderstanding"]
     base_url: str | None = Field(default=None, alias="baseUrl")
     model: str | None = None
     api_key: str | None = Field(default=None, alias="apiKey")
@@ -74,14 +74,29 @@ class ModelGatewayProviderProbeRequest(BaseModel):
         return stripped
 
 
+class ModelGatewayPreferencesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    direct_multimodal_analysis_enabled: bool | None = Field(
+        default=None,
+        alias="directMultimodalAnalysisEnabled",
+    )
+
+
 class ModelGatewaySettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    providers: dict[str, ProviderSettingsUpdate]
+    providers: dict[str, ProviderSettingsUpdate] | None = None
+    preferences: ModelGatewayPreferencesUpdate | None = None
 
     @field_validator("providers")
     @classmethod
-    def validate_providers(cls, value: dict[str, ProviderSettingsUpdate]) -> dict[str, ProviderSettingsUpdate]:
+    def validate_providers(
+        cls,
+        value: dict[str, ProviderSettingsUpdate] | None,
+    ) -> dict[str, ProviderSettingsUpdate] | None:
+        if value is None:
+            return value
         unknown = set(value) - _PROVIDER_NAMES
         if unknown:
             raise ValueError(f"Unknown providers: {', '.join(sorted(unknown))}")
@@ -136,25 +151,36 @@ def put_model_gateway_settings(
     request: Request,
     body: ModelGatewaySettingsUpdate,
 ) -> dict[str, Any]:
-    """Persist provider base URL, model, and API key (encrypted). Does not accept fixtureMode."""
+    """Persist provider base URL, model, API key, and analysis preferences."""
     service = _model_gateway_service(request)
     updates: dict[str, dict[str, Any]] = {}
-    for provider, patch in body.providers.items():
-        entry: dict[str, Any] = {}
-        if patch.base_url is not None:
-            entry["baseUrl"] = patch.base_url
-        if patch.api_key is not None:
-            entry["apiKey"] = patch.api_key
-        if patch.model is not None:
-            entry["model"] = patch.model
-        if patch.driver is not None:
-            entry["driver"] = patch.driver
-        if entry:
-            updates[provider] = entry
-    if not updates:
-        raise HTTPException(status_code=400, detail="No provider fields to update")
+    if body.providers:
+        for provider, patch in body.providers.items():
+            entry: dict[str, Any] = {}
+            if patch.base_url is not None:
+                entry["baseUrl"] = patch.base_url
+            if patch.api_key is not None:
+                entry["apiKey"] = patch.api_key
+            if patch.model is not None:
+                entry["model"] = patch.model
+            if patch.driver is not None:
+                entry["driver"] = patch.driver
+            if entry:
+                updates[provider] = entry
+    preference_updates: dict[str, Any] | None = None
+    if body.preferences is not None:
+        preference_updates = {}
+        if body.preferences.direct_multimodal_analysis_enabled is not None:
+            preference_updates["directMultimodalAnalysisEnabled"] = (
+                body.preferences.direct_multimodal_analysis_enabled
+            )
+    if not updates and not preference_updates:
+        raise HTTPException(status_code=400, detail="No provider fields or preferences to update")
     try:
-        return service.update_providers(updates)
+        return service.update_settings(
+            provider_updates=updates or None,
+            preference_updates=preference_updates,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

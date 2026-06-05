@@ -6,10 +6,11 @@ from typing import Any, TypedDict
 from model_gateway.fixture import is_fixture_mode
 from model_gateway.store import ModelGatewayStore
 from model_gateway.text_probe import probe_text_chat
+from model_gateway.video_probe import probe_video_understanding_chat
 
 from app.db.session import Database
 
-_SUPPORTED_PROVIDERS = frozenset({"text"})
+_SUPPORTED_PROVIDERS = frozenset({"text", "videoUnderstanding"})
 
 
 class ProviderProbeResponse(TypedDict):
@@ -53,10 +54,18 @@ def probe_model_gateway_provider(
     else:
         resolved_api_key = credentials.api_key
 
-    result = probe_text_chat(
-        base_url=resolved_base_url,
-        api_key=resolved_api_key,
-        model=resolved_model,
+    result = (
+        probe_video_understanding_chat(
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
+            model=resolved_model,
+        )
+        if provider == "videoUnderstanding"
+        else probe_text_chat(
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
+            model=resolved_model,
+        )
     )
     return {
         "provider": provider,
