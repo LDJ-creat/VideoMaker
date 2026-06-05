@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -73,6 +75,8 @@ class ModelGateway:
         if profile not in self._chat_providers:
             if profile == "vision":
                 provider_config = self.config.vision
+            elif profile == "video_understanding":
+                provider_config = self.config.video_understanding
             else:
                 provider_config = self.config.text
             self._chat_providers[profile] = OpenAICompatibleChatProvider(
@@ -214,6 +218,42 @@ class ModelGateway:
         return [
             {"role": "system", "content": "\n\n".join(system_parts)},
             user_message,
+        ]
+
+    @staticmethod
+    def build_video_structure_messages(
+        *,
+        system_prompt: str,
+        text_payload: dict[str, Any],
+        text_message: dict[str, Any],
+        video_path: Path | str,
+        json_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Build chat messages for direct multimodal video structure analysis."""
+        system_parts = [system_prompt]
+        if json_only:
+            system_parts.append("Respond with valid JSON only.")
+
+        video_file = Path(video_path)
+        video_bytes = video_file.read_bytes()
+        video_b64 = base64.b64encode(video_bytes).decode("ascii")
+        user_content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": json.dumps(text_message, ensure_ascii=False),
+            },
+            {
+                "type": "text",
+                "text": json.dumps({"sampleFacts": text_payload}, ensure_ascii=False),
+            },
+            {
+                "type": "video_url",
+                "video_url": {"url": f"data:video/mp4;base64,{video_b64}"},
+            },
+        ]
+        return [
+            {"role": "system", "content": "\n\n".join(system_parts)},
+            {"role": "user", "content": user_content},
         ]
 
     def complete_json_messages(

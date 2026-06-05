@@ -10,6 +10,11 @@ from typing import Any
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
 from app.pipelines.structure_analysis_pipeline import run_structure_analysis_pipeline
+from app.pipelines.direct_video_structure_pipeline import (
+    resolve_sample_video_path,
+    run_direct_video_structure_pipeline,
+)
+from app.pipelines.analysis_route import resolve_structure_analysis_route
 from app.perception.sample_facts import (
     merge_visual_facts_into_sample_analysis,
     persist_sample_analysis,
@@ -191,7 +196,129 @@ class P0DemoPipeline:
         runner = self._build_runner()
 
         sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
-        if should_skip_analysis_stage("extracting_visual_facts", checkpoint, analysis_root, resume=resume):
+
+        route = "map_reduce"
+        if self._database_path is not None and not is_fixture_mode():
+            gateway_store = ModelGatewayStore(self._database_path, self._storage_root)
+            gateway_store.ensure_initialized()
+            route = resolve_structure_analysis_route(gateway_store)
+
+        stored_route = checkpoint.analysisRoute or sample_analysis.get("structureAnalysisRoute")
+        if resume and stored_route and stored_route != route:
+            emit(
+                status="failed",
+                stage="consolidating",
+                progress=85,
+                message="Analysis route changed; restart sample analysis",
+                error={
+                    "code": "analysis_route_mismatch",
+                    "message": (
+                        f"Checkpoint route {stored_route} differs from current route {route}; "
+                        "delete checkpoint or keep settings unchanged before retry"
+                    ),
+                    "retryable": False,
+                },
+            )
+            return {
+                "ok": False,
+                "error": "analysis route mismatch",
+                "finalEvent": {
+                    "status": "failed",
+                    "stage": "consolidating",
+                    "progress": 85,
+                    "message": "Analysis route changed; restart sample analysis",
+                    "error": {
+                        "code": "analysis_route_mismatch",
+                        "message": f"Checkpoint route {stored_route} differs from current route {route}",
+                        "retryable": False,
+                    },
+                },
+            }
+
+        sample_analysis["structureAnalysisRoute"] = route
+        persist_sample_analysis(analysis_root, sample_analysis)
+        checkpoint.analysisRoute = route
+        checkpoint.save(checkpoint_path)
+
+        structure: dict[str, Any] | None = None
+
+        if route == "direct_multimodal":
+            if should_skip_analysis_stage(
+                "extracting_structure_direct",
+                checkpoint,
+                analysis_root,
+                resume=resume,
+            ):
+                structure_path = analysis_root / "video-structure.json"
+                structure = json.loads(structure_path.read_text(encoding="utf-8"))
+                emit(
+                    status="running",
+                    stage="extracting_structure_direct",
+                    progress=91,
+                    message="(resumed) direct multimodal structure already extracted",
+                )
+            else:
+                try:
+                    video_file = resolve_sample_video_path(analysis_root, checkpoint)
+                    structure = run_direct_video_structure_pipeline(
+                        runner,
+                        analysis=sample_analysis,
+                        video_path=video_file,
+                        analysis_root=analysis_root,
+                        context=context,
+                        project_id=project_id,
+                        source_video_id=sample_id,
+                        checkpoint=checkpoint,
+                        checkpoint_path=checkpoint_path,
+                        emit=emit,
+                    )
+                except _AGENT_FAILURES as exc:
+                    error = tool_error_from_agent_failure(exc)
+                    error["code"] = "direct_multimodal_failed"
+                    error["retryable"] = True
+                    emit(
+                        status="failed",
+                        stage="extracting_structure_direct",
+                        progress=90,
+                        message="Direct multimodal structure extraction failed",
+                        error=error,
+                    )
+                    return {
+                        "ok": False,
+                        "error": str(exc),
+                        "finalEvent": {
+                            "status": "failed",
+                            "stage": "extracting_structure_direct",
+                            "progress": 90,
+                            "message": "Direct multimodal structure extraction failed",
+                            "error": error,
+                        },
+                    }
+                except OSError as exc:
+                    error = {
+                        "code": "direct_multimodal_failed",
+                        "message": str(exc),
+                        "retryable": True,
+                    }
+                    emit(
+                        status="failed",
+                        stage="extracting_structure_direct",
+                        progress=90,
+                        message="Direct multimodal structure extraction failed",
+                        error=error,
+                    )
+                    return {
+                        "ok": False,
+                        "error": str(exc),
+                        "finalEvent": {
+                            "status": "failed",
+                            "stage": "extracting_structure_direct",
+                            "progress": 90,
+                            "message": "Direct multimodal structure extraction failed",
+                            "error": error,
+                        },
+                    }
+        elif should_skip_analysis_stage("extracting_visual_facts", checkpoint, analysis_root, resume=resume):
             emit(
                 status="running",
                 stage="extracting_visual_facts",
@@ -265,61 +392,75 @@ class P0DemoPipeline:
             checkpoint.mark_stage_complete("extracting_visual_facts")
             checkpoint.save(checkpoint_path)
 
-        structure: dict[str, Any] | None = None
-        if should_skip_analysis_stage("extracting_structure", checkpoint, analysis_root, resume=resume):
-            structure_path = analysis_root / "video-structure.json"
-            structure = json.loads(structure_path.read_text(encoding="utf-8"))
-            emit(
-                status="running",
-                stage="extracting_structure",
-                progress=92,
-                message="(resumed) video structure already extracted",
-            )
-        else:
-            emit(
-                status="running",
-                stage="extracting_structure",
-                progress=92,
-                message="Extracting video structure",
-            )
-            sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
-            try:
-                structure = run_structure_analysis_pipeline(
-                    runner,
-                    analysis=sample_analysis,
-                    context=context,
-                    project_id=project_id,
-                    source_video_id=sample_id,
-                    analysis_root=analysis_root,
-                    emit=emit,
-                    checkpoint=checkpoint,
-                    checkpoint_path=checkpoint_path,
-                    resume=resume,
-                )
-            except _AGENT_FAILURES as exc:
-                error = tool_error_from_agent_failure(exc)
+        if route == "map_reduce":
+            if should_skip_analysis_stage("extracting_structure", checkpoint, analysis_root, resume=resume):
+                structure_path = analysis_root / "video-structure.json"
+                structure = json.loads(structure_path.read_text(encoding="utf-8"))
                 emit(
-                    status="failed",
+                    status="running",
                     stage="extracting_structure",
                     progress=92,
-                    message="Structure agent failed",
-                    error=error,
+                    message="(resumed) video structure already extracted",
                 )
-                return {"ok": False, "error": str(exc), "finalEvent": {
-                    "status": "failed",
-                    "stage": "extracting_structure",
-                    "progress": 92,
-                    "message": "Structure agent failed",
-                    "error": error,
-                }}
-            structure_path = analysis_root / "video-structure.json"
-            structure_path.parent.mkdir(parents=True, exist_ok=True)
-            structure_path.write_text(
-                json.dumps(structure, indent=2, ensure_ascii=False),
-                encoding="utf-8",
+            else:
+                emit(
+                    status="running",
+                    stage="extracting_structure",
+                    progress=92,
+                    message="Extracting video structure",
+                )
+                sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
+                try:
+                    structure = run_structure_analysis_pipeline(
+                        runner,
+                        analysis=sample_analysis,
+                        context=context,
+                        project_id=project_id,
+                        source_video_id=sample_id,
+                        analysis_root=analysis_root,
+                        emit=emit,
+                        checkpoint=checkpoint,
+                        checkpoint_path=checkpoint_path,
+                        resume=resume,
+                    )
+                except _AGENT_FAILURES as exc:
+                    error = tool_error_from_agent_failure(exc)
+                    emit(
+                        status="failed",
+                        stage="extracting_structure",
+                        progress=92,
+                        message="Structure agent failed",
+                        error=error,
+                    )
+                    return {"ok": False, "error": str(exc), "finalEvent": {
+                        "status": "failed",
+                        "stage": "extracting_structure",
+                        "progress": 92,
+                        "message": "Structure agent failed",
+                        "error": error,
+                    }}
+                structure_path = analysis_root / "video-structure.json"
+                structure_path.parent.mkdir(parents=True, exist_ok=True)
+                structure_path.write_text(
+                    json.dumps(structure, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                checkpoint.mark_stage_complete("extracting_structure")
+                checkpoint.save(checkpoint_path)
+
+        if structure is None:
+            emit(
+                status="failed",
+                stage="extracting_structure",
+                progress=92,
+                message="Video structure was not produced",
+                error={
+                    "code": "structure_missing",
+                    "message": "No structure artifact after analysis routing",
+                    "retryable": True,
+                },
             )
-            checkpoint.mark_stage_complete("extracting_structure")
-            checkpoint.save(checkpoint_path)
+            return {"ok": False, "error": "structure missing"}
 
         sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
 

@@ -18,6 +18,11 @@ def _gateway_config() -> GatewayConfig:
     return GatewayConfig(
         text=ProviderConfig("https://api.example/v1", "test-key", "gpt-test"),
         vision=ProviderConfig("https://api.example/v1", "test-key", "gpt-test"),
+        video_understanding=ProviderConfig(
+            "https://ark.example/v1",
+            "test-key",
+            "doubao-test",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",

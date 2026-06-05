@@ -18,6 +18,7 @@ ANALYSIS_STAGES = (
     "extracting_keyframes",
     "extracting_visual_facts",
     "consolidating",
+    "extracting_structure_direct",
     "extracting_structure",
     "proposing_segments",
     "analyzing_segments",
@@ -55,6 +56,7 @@ class AnalysisCheckpoint:
     completedStages: list[str] = field(default_factory=list)
     failedStage: str | None = None
     videoPath: str | None = None
+    analysisRoute: str | None = None
     updatedAt: str = field(default_factory=_utc_now_iso)
 
     @classmethod
@@ -70,6 +72,7 @@ class AnalysisCheckpoint:
             completedStages=list(data.get("completedStages", [])),
             failedStage=data.get("failedStage"),
             videoPath=data.get("videoPath"),
+            analysisRoute=data.get("analysisRoute"),
             updatedAt=str(data.get("updatedAt", _utc_now_iso())),
         )
 
@@ -194,6 +197,16 @@ def is_analysis_stage_done(stage: str, analysis_root: Path, *, metadata: dict[st
         data = _read_json(analysis_root / "sample-analysis.json")
         return isinstance(data, dict) and "metadata" in data
 
+    if stage == "extracting_structure_direct":
+        data = _read_json(analysis_root / "video-structure.json")
+        if not isinstance(data, dict) or "slots" not in data:
+            return False
+        quality = data.get("analysisQuality")
+        if not isinstance(quality, dict):
+            return False
+        warnings = list(quality.get("warnings") or [])
+        return "analysis_route:direct_multimodal" in warnings
+
     if stage == "extracting_structure":
         data = _read_json(analysis_root / "video-structure.json")
         if not isinstance(data, dict) or "slots" not in data:
@@ -235,6 +248,17 @@ def should_skip_analysis_stage(
         return False
     if stage not in checkpoint.completedStages:
         return False
+    if checkpoint.analysisRoute == "direct_multimodal" and stage in {
+        "extracting_visual_facts",
+        "extracting_structure",
+        "proposing_segments",
+        "analyzing_segments",
+        "compiling_structure",
+        "critiquing_structure",
+    }:
+        return True
+    if checkpoint.analysisRoute == "map_reduce" and stage == "extracting_structure_direct":
+        return True
     if stage == "extracting_visual_facts":
         from app.perception.visual_facts_progress import has_pending_visual_facts_batches
 

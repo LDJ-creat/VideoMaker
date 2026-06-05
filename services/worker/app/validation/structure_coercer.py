@@ -175,18 +175,23 @@ def _ensure_segment_evidence(
         summary = str(item.get("summary") or item.get("excerpt") or "").strip()
         if not summary:
             continue
-        normalized.append(
-            {
-                "targetId": target_id,
-                "source": source,
-                "summary": _normalize_evidence_summary(
-                    source=source,
-                    summary=summary,
-                    segment=segment,
-                ),
-                "confidence": float(item.get("confidence", 0.75)),
-            }
-        )
+        entry: dict[str, Any] = {
+            "targetId": target_id,
+            "source": source,
+            "summary": _normalize_evidence_summary(
+                source=source,
+                summary=summary,
+                segment=segment,
+            ),
+            "confidence": float(item.get("confidence", 0.75)),
+        }
+        excerpt = str(item.get("excerpt") or "").strip()
+        if excerpt:
+            entry["excerpt"] = excerpt
+        time_range = item.get("timeRange")
+        if isinstance(time_range, dict):
+            entry["timeRange"] = time_range
+        normalized.append(entry)
 
     audio_profile = analysis.get("audioProfile") if isinstance(analysis, dict) else None
     has_voiceover = isinstance(audio_profile, dict) and bool(audio_profile.get("hasVoiceover"))
@@ -626,6 +631,35 @@ def _payload_has_v2_deep_fields(payload: dict[str, Any]) -> bool:
     return explicit.startswith("p1-v2")
 
 
+def _ensure_transcript_excerpts(
+    segments: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+) -> None:
+    evidence_by_target: dict[str, list[dict[str, Any]]] = {}
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("targetId") or "")
+        if target_id:
+            evidence_by_target.setdefault(target_id, []).append(item)
+
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        if len(str(segment.get("transcriptExcerpt") or "").strip()) >= 4:
+            continue
+        segment_id = str(segment.get("id") or "")
+        excerpt = ""
+        for item in evidence_by_target.get(segment_id, []):
+            if item.get("source") == "asr" and item.get("excerpt"):
+                excerpt = str(item["excerpt"]).strip()
+                break
+        if len(excerpt) < 4:
+            excerpt = str(segment.get("scriptSummary") or "").strip()
+        if excerpt:
+            segment["transcriptExcerpt"] = excerpt[:120]
+
+
 def _resolve_structure_version(payload: dict[str, Any]) -> str:
     explicit = str(payload.get("version") or "").strip()
     if explicit:
@@ -666,6 +700,10 @@ def coerce_video_structure(
     coerced["metadata"] = clean_metadata
 
     narrative = dict(payload.get("narrative") or {})
+    nested_evidence = narrative.pop("evidence", None)
+    evidence_seed = list(payload.get("evidence") or [])
+    if isinstance(nested_evidence, list):
+        evidence_seed.extend(item for item in nested_evidence if isinstance(item, dict))
     if not narrative.get("segments") and isinstance(payload.get("segments"), list):
         narrative["segments"] = payload["segments"]
     narrative.pop("intent", None)
@@ -715,7 +753,7 @@ def coerce_video_structure(
 
     coerced["evidence"] = _attach_keyframe_evidence(
         _ensure_segment_evidence(
-            list(payload.get("evidence") or []),
+            evidence_seed,
             segments=segments,
             analysis=analysis,
         ),
@@ -723,5 +761,7 @@ def coerce_video_structure(
         keyframes=list(analysis.get("keyframes") or []),
         analysis_root=_analysis_root_from_keyframes(analysis),
     )
+    _ensure_transcript_excerpts(segments, coerced["evidence"])
+    coerced["narrative"]["segments"] = segments
     coerced["confidence"] = float(payload.get("confidence", 0.75))
     return coerced

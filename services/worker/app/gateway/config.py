@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - tests may construct GatewayConfig dire
 class GatewayConfig:
     text: ProviderConfig
     vision: ProviderConfig
+    video_understanding: ProviderConfig
     tts: ProviderConfig
     image: ProviderConfig
     video_driver: str
@@ -28,6 +29,7 @@ class GatewayConfig:
         return cls(
             text=_to_provider_config(credentials["text"]),
             vision=_to_provider_config(credentials["vision"]),
+            video_understanding=_to_provider_config(credentials["videoUnderstanding"]),
             tts=_to_provider_config(credentials["tts"]),
             image=_to_provider_config(credentials["image"]),
             video_driver=credentials["video"].driver,

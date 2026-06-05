@@ -66,6 +66,11 @@ def test_complete_json_with_mocked_httpx() -> None:
             api_key="test-key",
             model="gpt-test",
         ),
+        video_understanding=ProviderConfig(
+            base_url="https://ark.example/v1",
+            api_key="test-key",
+            model="doubao-test",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",
@@ -107,6 +112,11 @@ def test_complete_json_omits_response_format_for_volcengine() -> None:
             api_key="test-key",
             model="doubao-vision",
         ),
+        video_understanding=ProviderConfig(
+            base_url="https://ark.cn-beijing.volces.com/api/v3",
+            api_key="test-key",
+            model="doubao-vision",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",
@@ -135,6 +145,11 @@ def test_complete_text_routes_vision_profile() -> None:
     config = GatewayConfig(
         text=ProviderConfig("https://text.example/v1", "text-key", "text-model"),
         vision=ProviderConfig("https://vision.example/v1", "vision-key", "vision-model"),
+        video_understanding=ProviderConfig(
+            "https://ark.example/v1",
+            "video-key",
+            "doubao-test",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",
@@ -167,6 +182,11 @@ def test_complete_json_routes_vision_profile_with_image_parts() -> None:
     config = GatewayConfig(
         text=ProviderConfig("https://text.example/v1", "text-key", "text-model"),
         vision=ProviderConfig("https://vision.example/v1", "vision-key", "vision-model"),
+        video_understanding=ProviderConfig(
+            "https://ark.example/v1",
+            "video-key",
+            "doubao-test",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",
@@ -205,6 +225,11 @@ def test_complete_json_raises_gateway_error_on_invalid_json() -> None:
     config = GatewayConfig(
         text=ProviderConfig("https://api.example/v1", "test-key", "gpt-test"),
         vision=ProviderConfig("https://api.example/v1", "test-key", "gpt-test"),
+        video_understanding=ProviderConfig(
+            "https://ark.example/v1",
+            "test-key",
+            "doubao-test",
+        ),
         tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
         image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
         video_driver="generic_job",
@@ -326,6 +351,14 @@ def test_live_text_completion_skipped_by_default() -> None:
             base_url=os.getenv("VISION_API_BASE", "https://api.openai.com/v1"),
             api_key=os.getenv("VISION_API_KEY", api_key),
             model=os.getenv("VISION_MODEL", "gpt-4o-mini"),
+        ),
+        video_understanding=ProviderConfig(
+            base_url=os.getenv(
+                "VIDEO_UNDERSTANDING_API_BASE",
+                "https://ark.cn-beijing.volces.com/api/v3",
+            ),
+            api_key=os.getenv("VIDEO_UNDERSTANDING_API_KEY", api_key),
+            model=os.getenv("VIDEO_UNDERSTANDING_MODEL", "doubao-seed-1-6-250615"),
         ),
         tts=ProviderConfig(base_url="https://api.openai.com/v1", api_key="", model="tts-1"),
         image=ProviderConfig(base_url="https://api.openai.com/v1", api_key="", model="dall-e-3"),
