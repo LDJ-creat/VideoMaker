@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -8,9 +9,15 @@ from typing import Any, TypedDict
 
 from model_gateway.constants import (
     DEFAULT_BASE_URL,
+    DEFAULT_BASE_URLS,
     DEFAULT_DRIVERS,
     DEFAULT_MODELS,
     PROVIDERS,
+)
+from model_gateway.analysis_route import (
+    DEFAULT_PREFERENCES,
+    normalize_preferences,
+    resolve_analysis_route_preview,
 )
 from model_gateway.crypto import decrypt_api_key, encrypt_api_key
 from model_gateway.fixture import is_fixture_mode
@@ -28,7 +35,14 @@ CREATE TABLE IF NOT EXISTS model_gateway_providers (
   api_key_ciphertext BLOB,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS model_gateway_preferences (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
+_PREFERENCES_KEY = "analysis"
 
 
 class ProviderStatus(TypedDict):
@@ -42,6 +56,8 @@ class ProviderStatus(TypedDict):
 class ModelGatewayStatusResponse(TypedDict):
     fixtureMode: bool
     providers: dict[str, ProviderStatus]
+    preferences: dict[str, bool]
+    analysisRoutePreview: str
 
 
 @dataclass(frozen=True)
@@ -73,16 +89,62 @@ class ModelGatewayStore:
         now = _now_iso()
         with self._connect() as connection:
             for provider in PROVIDERS:
+                default_base = DEFAULT_BASE_URLS.get(provider, DEFAULT_BASE_URL)
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO model_gateway_providers (
                       provider, base_url, model, driver, api_key_ciphertext, updated_at
-                    ) VALUES (?, '', ?, ?, NULL, ?)
+                    ) VALUES (?, ?, ?, ?, NULL, ?)
                     """,
-                    (provider, DEFAULT_MODELS[provider], DEFAULT_DRIVERS[provider], now),
+                    (
+                        provider,
+                        default_base if provider in DEFAULT_BASE_URLS else "",
+                        DEFAULT_MODELS[provider],
+                        DEFAULT_DRIVERS[provider],
+                        now,
+                    ),
                 )
+            _ensure_default_preferences(connection, now)
             _repair_video_provider_rows(connection)
             connection.commit()
+
+    def get_preferences(self) -> dict[str, bool]:
+        self.ensure_initialized()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM model_gateway_preferences WHERE key = ?",
+                (_PREFERENCES_KEY,),
+            ).fetchone()
+        if row is None:
+            return dict(DEFAULT_PREFERENCES)
+        try:
+            payload = json.loads(str(row["value_json"]))
+        except json.JSONDecodeError:
+            return dict(DEFAULT_PREFERENCES)
+        return normalize_preferences(payload if isinstance(payload, dict) else None)
+
+    def update_preferences(self, patch: dict[str, Any]) -> dict[str, bool]:
+        self.ensure_initialized()
+        current = self.get_preferences()
+        if "directMultimodalAnalysisEnabled" in patch:
+            value = patch["directMultimodalAnalysisEnabled"]
+            if not isinstance(value, bool):
+                raise ValueError("directMultimodalAnalysisEnabled must be a boolean")
+            current["directMultimodalAnalysisEnabled"] = value
+        now = _now_iso()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO model_gateway_preferences (key, value_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                  value_json = excluded.value_json,
+                  updated_at = excluded.updated_at
+                """,
+                (_PREFERENCES_KEY, json.dumps(current, ensure_ascii=False), now),
+            )
+            connection.commit()
+        return current
 
     def get_status(self) -> ModelGatewayStatusResponse:
         self.ensure_initialized()
@@ -95,9 +157,15 @@ class ModelGatewayStore:
                 rows[provider],
                 credentials,
             )
+        preferences = self.get_preferences()
         return {
             "fixtureMode": is_fixture_mode(),
             "providers": providers,
+            "preferences": preferences,
+            "analysisRoutePreview": resolve_analysis_route_preview(
+                preferences=preferences,
+                video_understanding=providers["videoUnderstanding"],
+            ),
         }
 
     def get_credentials(self) -> dict[str, ProviderCredentials]:
@@ -160,6 +228,18 @@ class ModelGatewayStore:
             connection.commit()
         return self.get_status()
 
+    def update_settings(
+        self,
+        *,
+        provider_updates: dict[str, dict[str, Any]] | None = None,
+        preference_updates: dict[str, Any] | None = None,
+    ) -> ModelGatewayStatusResponse:
+        if provider_updates:
+            self.update_providers(provider_updates)
+        if preference_updates:
+            self.update_preferences(preference_updates)
+        return self.get_status()
+
     def _load_all_rows(self) -> dict[str, sqlite3.Row]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -213,6 +293,22 @@ class ModelGatewayStore:
             )
 
         return raw
+
+
+def _ensure_default_preferences(connection: sqlite3.Connection, now: str) -> None:
+    row = connection.execute(
+        "SELECT key FROM model_gateway_preferences WHERE key = ?",
+        (_PREFERENCES_KEY,),
+    ).fetchone()
+    if row is not None:
+        return
+    connection.execute(
+        """
+        INSERT INTO model_gateway_preferences (key, value_json, updated_at)
+        VALUES (?, ?, ?)
+        """,
+        (_PREFERENCES_KEY, json.dumps(DEFAULT_PREFERENCES, ensure_ascii=False), now),
+    )
 
 
 def _now_iso() -> str:
@@ -282,6 +378,16 @@ def _status_for_provider(
             "configured": configured,
             "hasApiKey": has_key,
             "model": display_model if configured else None,
+            "driver": driver,
+            "baseUrl": stored_base or cred.base_url,
+        }
+
+    if provider == "videoUnderstanding":
+        configured = bool(cred.api_key.strip())
+        return {
+            "configured": configured,
+            "hasApiKey": _row_has_ciphertext(row),
+            "model": stored_model or cred.model if configured else None,
             "driver": driver,
             "baseUrl": stored_base or cred.base_url,
         }
