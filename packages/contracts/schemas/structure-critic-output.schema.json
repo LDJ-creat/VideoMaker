@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/structure-critic-output.schema.json",
+  "title": "StructureCriticOutput",
+  "type": "object",
+  "required": ["approved", "warnings"],
+  "properties": {
+    "approved": { "type": "boolean" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "repairs": { "type": ["object", "null"], "additionalProperties": true }
+  },
+  "additionalProperties": false
+}

@@ -42,7 +42,32 @@
               "endSec": { "type": "number", "minimum": 0 },
               "scriptSummary": { "type": "string" },
               "visualSummary": { "type": "string" },
-              "intent": { "type": "string" }
+              "intent": { "type": "string" },
+              "transcriptExcerpt": { "type": "string", "maxLength": 120 },
+              "rhetoricalDevices": { "type": "array", "items": { "type": "string" } },
+              "emotionTone": { "type": "string" },
+              "retentionRole": { "type": "string" },
+              "voStyle": {
+                "type": "object",
+                "properties": {
+                  "pace": { "type": "string" },
+                  "energy": { "type": "string" },
+                  "persona": { "type": "string" }
+                },
+                "additionalProperties": false
+              },
+              "visualSpec": {
+                "type": "object",
+                "properties": {
+                  "framing": { "type": "string" },
+                  "subject": { "type": "string" },
+                  "cameraMove": { "type": "string" },
+                  "onScreenText": { "type": "array", "items": { "type": "string" } },
+                  "colorMood": { "type": "string" },
+                  "density": { "type": "string", "enum": ["low", "medium", "high"] }
+                },
+                "additionalProperties": false
+              }
             },
             "additionalProperties": false
           }
@@ -116,7 +141,11 @@
           "scriptIntent": { "type": "string" },
           "packagingHint": { "type": "string" },
           "importance": { "type": "string", "enum": ["must_have", "recommended", "optional"] },
-          "constraints": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          "constraints": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "durationSharePct": { "type": "number", "minimum": 0, "maximum": 1 },
+          "migrationTemplate": { "type": "string" },
+          "packagingRequirements": { "type": "array", "items": { "type": "string" } },
+          "antiPatterns": { "type": "array", "items": { "type": "string" } }
         },
         "additionalProperties": false
       }
@@ -130,10 +159,29 @@
           "targetId": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "enum": ["asr", "ocr", "keyframe", "shot_detection", "audio", "llm"] },
           "summary": { "type": "string" },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "timeRange": {
+            "type": "object",
+            "required": ["startSec", "endSec"],
+            "properties": {
+              "startSec": { "type": "number", "minimum": 0 },
+              "endSec": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "excerpt": { "type": "string" },
+          "artifactRef": { "type": "string" }
         },
         "additionalProperties": false
       }
+    },
+    "analysisQuality": {
+      "type": "object",
+      "properties": {
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "locale": { "type": "string" }
+      },
+      "additionalProperties": false
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
   },

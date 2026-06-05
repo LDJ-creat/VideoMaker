@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/keyframe-batch-output.schema.json",
+  "title": "KeyframeBatchOutput",
+  "type": "object",
+  "required": ["visualFacts", "onScreenTextFacts"],
+  "properties": {
+    "visualFacts": { "type": "string", "minLength": 8 },
+    "onScreenTextFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timeSec", "keyframePath", "text", "confidence"],
+        "properties": {
+          "timeSec": { "type": "number", "minimum": 0 },
+          "keyframePath": { "type": "string" },
+          "text": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

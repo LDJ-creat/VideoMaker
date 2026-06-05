@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/segment-analysis.schema.json",
+  "title": "SegmentAnalysis",
+  "type": "object",
+  "required": [
+    "segmentId",
+    "transcriptExcerpt",
+    "rhetoricalDevices",
+    "emotionTone",
+    "voStyle",
+    "visualSpec",
+    "onScreenTextFacts",
+    "localEvidence"
+  ],
+  "properties": {
+    "segmentId": { "type": "string", "minLength": 1 },
+    "transcriptExcerpt": { "type": "string", "minLength": 4, "maxLength": 120 },
+    "rhetoricalDevices": { "type": "array", "items": { "type": "string" } },
+    "emotionTone": { "type": "string", "minLength": 2 },
+    "voStyle": {
+      "type": "object",
+      "required": ["pace", "energy", "persona"],
+      "properties": {
+        "pace": { "type": "string" },
+        "energy": { "type": "string" },
+        "persona": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "visualSpec": {
+      "type": "object",
+      "required": ["framing", "subject", "cameraMove", "onScreenText", "colorMood", "density"],
+      "properties": {
+        "framing": { "type": "string" },
+        "subject": { "type": "string" },
+        "cameraMove": { "type": "string" },
+        "onScreenText": { "type": "array", "items": { "type": "string" } },
+        "colorMood": { "type": "string" },
+        "density": { "type": "string", "enum": ["low", "medium", "high"] }
+      },
+      "additionalProperties": false
+    },
+    "onScreenTextFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timeSec", "keyframePath", "text", "confidence"],
+        "properties": {
+          "timeSec": { "type": "number", "minimum": 0 },
+          "keyframePath": { "type": "string" },
+          "text": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "localEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetId", "source", "summary", "confidence"],
+        "properties": {
+          "targetId": { "type": "string" },
+          "source": { "type": "string", "enum": ["asr", "ocr", "keyframe", "shot_detection", "audio", "llm"] },
+          "summary": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "timeRange": {
+            "type": "object",
+            "required": ["startSec", "endSec"],
+            "properties": {
+              "startSec": { "type": "number", "minimum": 0 },
+              "endSec": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "excerpt": { "type": "string" },
+          "artifactRef": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

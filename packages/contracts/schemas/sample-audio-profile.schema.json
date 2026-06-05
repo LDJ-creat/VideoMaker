@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/sample-audio-profile.schema.json",
+  "title": "SampleAudioProfile",
+  "type": "object",
+  "required": [
+    "hasVoiceover",
+    "hasBgm",
+    "silenceRegions",
+    "speechRegions",
+    "bgmCandidateRegions",
+    "energyTimeline",
+    "onsetTimes",
+    "metrics"
+  ],
+  "properties": {
+    "hasVoiceover": { "type": "boolean" },
+    "hasBgm": { "type": "boolean" },
+    "silenceRegions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["startSec", "endSec"],
+        "properties": {
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "speechRegions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["startSec", "endSec"],
+        "properties": {
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 },
+          "textPreview": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "bgmCandidateRegions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["startSec", "endSec"],
+        "properties": {
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "energyTimeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timeSec", "rmsDb"],
+        "properties": {
+          "timeSec": { "type": "number", "minimum": 0 },
+          "rmsDb": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "onsetTimes": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 }
+    },
+    "tempoBpm": { "type": "number", "minimum": 0 },
+    "metrics": {
+      "type": "object",
+      "required": ["voiceoverCoveragePct", "silenceCoveragePct", "bgmBedLikely"],
+      "properties": {
+        "voiceoverCoveragePct": { "type": "number", "minimum": 0, "maximum": 1 },
+        "silenceCoveragePct": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bgmBedLikely": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

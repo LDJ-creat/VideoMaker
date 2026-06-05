@@ -11,9 +11,15 @@ export type TaskStage =
   | "extracting_metadata"
   | "extracting_audio"
   | "transcribing"
+  | "analyzing_audio"
   | "detecting_shots"
   | "extracting_keyframes"
+  | "extracting_visual_facts"
+  | "consolidating"
   | "extracting_structure"
+  | "analyzing_segments"
+  | "compiling_structure"
+  | "critiquing_structure"
   | "rendering_knowledge_draft"
   | "analyzing_assets"
   | "mapping_slots"
@@ -154,6 +160,19 @@ export type NarrativeSegment = {
   scriptSummary: string;
   visualSummary: string;
   intent: string;
+  transcriptExcerpt?: string;
+  rhetoricalDevices?: string[];
+  emotionTone?: string;
+  retentionRole?: string;
+  voStyle?: { pace: string; energy: string; persona: string };
+  visualSpec?: {
+    framing: string;
+    subject: string;
+    cameraMove: string;
+    onScreenText: string[];
+    colorMood: string;
+    density: "low" | "medium" | "high";
+  };
 };
 
 export type NarrativeStructure = {
@@ -231,6 +250,10 @@ export type StructureSlot = {
   packagingHint?: string;
   importance: SlotImportance;
   constraints: SlotConstraint[];
+  durationSharePct?: number;
+  migrationTemplate?: string;
+  packagingRequirements?: string[];
+  antiPatterns?: string[];
 };
 
 export type StructureEvidence = {
@@ -238,6 +261,14 @@ export type StructureEvidence = {
   source: "asr" | "ocr" | "keyframe" | "shot_detection" | "audio" | "llm";
   summary: string;
   confidence: number;
+  timeRange?: { startSec: number; endSec: number };
+  excerpt?: string;
+  artifactRef?: string;
+};
+
+export type AnalysisQuality = {
+  warnings?: string[];
+  locale?: string;
 };
 
 export type VideoStructure = {
@@ -252,6 +283,7 @@ export type VideoStructure = {
   slots: StructureSlot[];
   evidence: StructureEvidence[];
   confidence: number;
+  analysisQuality?: AnalysisQuality;
 };
 
 export type UserBrief = {
