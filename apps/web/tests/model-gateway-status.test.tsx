@@ -74,6 +74,10 @@ describe("ModelGatewayStatusPanel", () => {
     vi.mocked(apiClient.getModelGatewayStatus).mockResolvedValue({
       data: {
         fixtureMode: false,
+        preferences: {
+          directMultimodalAnalysisEnabled: true,
+        },
+        analysisRoutePreview: "map_reduce",
         providers: {
           ...fixtureModelGatewayStatus.providers,
           text: {
@@ -141,6 +145,52 @@ describe("ModelGatewayStatusPanel", () => {
     const call = vi.mocked(apiClient.updateModelGatewaySettings).mock.calls[0]![0];
     expect(call.providers?.text?.model).toBe("gpt-4o-new");
     expect(call.providers?.text?.apiKey).toBeUndefined();
+  });
+
+  it("shows direct multimodal toggle disabled when videoUnderstanding is missing", async () => {
+    render(<ModelGatewayStatusPanel defaultExpanded />);
+
+    const toggle = await screen.findByTestId("direct-multimodal-toggle");
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText(/当前样例分析将使用：/)).toBeInTheDocument();
+    expect(screen.getByText("传统 Map-Reduce")).toBeInTheDocument();
+  });
+
+  it("saves direct multimodal preference via PUT", async () => {
+    vi.mocked(apiClient.getModelGatewayStatus).mockResolvedValue({
+      data: {
+        ...fixtureModelGatewayStatus,
+        providers: {
+          ...fixtureModelGatewayStatus.providers,
+          videoUnderstanding: {
+            configured: true,
+            hasApiKey: true,
+            model: "doubao-seed-1-6-250615",
+            driver: "openai_compatible",
+            baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+          },
+        },
+        analysisRoutePreview: "direct_multimodal",
+      },
+      meta: { dataSource: "api" },
+    });
+
+    const user = userEvent.setup();
+    render(<ModelGatewayStatusPanel defaultExpanded />);
+
+    const toggle = await screen.findByTestId("direct-multimodal-toggle");
+    expect(toggle).not.toBeDisabled();
+    await user.click(toggle);
+
+    await user.click(screen.getByRole("button", { name: "保存全部配置" }));
+
+    await waitFor(() =>
+      expect(apiClient.updateModelGatewaySettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preferences: { directMultimodalAnalysisEnabled: false },
+        }),
+      ),
+    );
   });
 });
 

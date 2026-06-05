@@ -40,24 +40,31 @@ export type ProviderSettingsUpdate = {
   driver?: string;
 };
 
+export type ModelGatewayPreferences = {
+  directMultimodalAnalysisEnabled: boolean;
+};
+
+export type StructureAnalysisRoutePreview = "direct_multimodal" | "map_reduce";
+
 export type ModelGatewaySettingsUpdate = {
-  providers: Partial<
+  providers?: Partial<
     Record<
       keyof ModelGatewayStatusResponse["providers"],
       ProviderSettingsUpdate
     >
   >;
+  preferences?: Partial<ModelGatewayPreferences>;
 };
 
 export type ModelGatewayProviderProbeRequest = {
-  provider: "text";
+  provider: "text" | "videoUnderstanding";
   baseUrl?: string;
   model?: string;
   apiKey?: string;
 };
 
 export type ModelGatewayProviderProbeResponse = {
-  provider: "text";
+  provider: "text" | "videoUnderstanding";
   ok: boolean;
   latencyMs: number;
   message: string;
@@ -70,10 +77,13 @@ export type ModelGatewayStatusResponse = {
   providers: {
     text: ProviderStatus;
     vision: ProviderStatus;
+    videoUnderstanding: ProviderStatus;
     tts: ProviderStatus;
     image: ProviderStatus;
     video: ProviderStatus;
   };
+  preferences: ModelGatewayPreferences;
+  analysisRoutePreview: StructureAnalysisRoutePreview;
 };
 
 export type GenerationPlanEntry = {

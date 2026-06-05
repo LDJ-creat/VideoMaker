@@ -166,14 +166,14 @@ export function SampleAnalysisPanel({
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
-      <Card className="h-fit xl:sticky xl:top-4">
-        <CardHeader className="pb-3">
+      <Card className="flex h-fit flex-col xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)]">
+        <CardHeader className="shrink-0 pb-3">
           <CardTitle>已分析样例</CardTitle>
           <CardDescription>
             共 {analyzed.length} 个。结构证据、叙事分段与知识草稿均属于单个样例，请在此切换。
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain">
           {analyzed.map((sample) => (
             <AnalyzedSampleListItem
               key={sample.id}
@@ -187,7 +187,7 @@ export function SampleAnalysisPanel({
       </Card>
 
       <div className="min-w-0 space-y-4">
-        {displayedSample && (
+            {displayedSample && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">当前详情所属样例</p>
@@ -197,6 +197,11 @@ export function SampleAnalysisPanel({
               <p className="font-mono text-[10px] text-muted-foreground">
                 {displayedSample.id}
               </p>
+              {sampleAnalysisFacts?.structureAnalysisRoute === "direct_multimodal" ? (
+                <div className="mt-1">
+                  <Badge variant="secondary">直连多模态分析</Badge>
+                </div>
+              ) : null}
               {isSwitching && pendingSample && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   正在切换到 {sampleDisplayName(pendingSample)}…

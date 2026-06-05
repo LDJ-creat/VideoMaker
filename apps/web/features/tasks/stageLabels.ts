@@ -10,6 +10,7 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
   extracting_keyframes: "提取关键帧",
   extracting_visual_facts: "视觉事实提取",
   consolidating: "样例事实汇总",
+  extracting_structure_direct: "直连多模态结构分析",
   extracting_structure: "结构拆解",
   analyzing_segments: "叙事段落分析",
   compiling_structure: "结构编译",

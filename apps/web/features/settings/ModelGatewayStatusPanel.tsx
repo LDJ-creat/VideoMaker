@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Mic,
   Save,
+  ScanEye,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -64,6 +65,11 @@ const PROVIDER_META: Record<
     description: "样本关键帧理解、结构证据与多模态分析",
     icon: Eye,
   },
+  videoUnderstanding: {
+    label: "视频理解",
+    description: "样例视频直连多模态结构分析（Doubao/Ark）",
+    icon: ScanEye,
+  },
   image: {
     label: "生图",
     description: "缺口补全时的图片生成",
@@ -92,7 +98,7 @@ const PROVIDER_GROUPS: Array<{
     id: "analysis",
     title: "分析与推理",
     description: "用于样本结构分析、证据提取与 Agent 编排",
-    providers: ["text", "vision"],
+    providers: ["text", "vision", "videoUnderstanding"],
   },
   {
     id: "generation",
@@ -111,14 +117,30 @@ const PROVIDER_GROUPS: Array<{
 const PROVIDER_ORDER: ProviderKey[] = [
   "text",
   "vision",
+  "videoUnderstanding",
   "image",
   "video",
   "tts",
 ];
 
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_VIDEO_UNDERSTANDING_BASE_URL =
+  "https://ark.cn-beijing.volces.com/api/v3";
+
 const REQUIRED_PROVIDERS: ProviderKey[] = ["text", "image"];
 
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+function defaultBaseUrlForProvider(key: ProviderKey): string {
+  if (key === "videoUnderstanding") {
+    return DEFAULT_VIDEO_UNDERSTANDING_BASE_URL;
+  }
+  return DEFAULT_BASE_URL;
+}
+
+function analysisRoutePreviewLabel(
+  route: ModelGatewayStatusResponse["analysisRoutePreview"],
+): string {
+  return route === "direct_multimodal" ? "直连多模态" : "传统 Map-Reduce";
+}
 
 type ProviderFormState = {
   baseUrl: string;
@@ -137,7 +159,7 @@ function formFromStatus(
   provider: ProviderStatus,
 ): ProviderFormState {
   return {
-    baseUrl: provider.baseUrl ?? DEFAULT_BASE_URL,
+    baseUrl: provider.baseUrl ?? defaultBaseUrlForProvider(key),
     model: provider.model ?? "",
     apiKey: "",
     driver:
@@ -150,7 +172,7 @@ function isProviderDirty(
   form: ProviderFormState,
   provider: ProviderStatus,
 ): boolean {
-  const savedBase = provider.baseUrl ?? DEFAULT_BASE_URL;
+  const savedBase = provider.baseUrl ?? defaultBaseUrlForProvider(key);
   const savedModel = provider.model ?? "";
   const savedDriver =
     provider.driver ?? (key === "video" ? "generic_job" : "openai_compatible");
@@ -427,11 +449,15 @@ export function ModelGatewayStatusPanel({
   const [probeResults, setProbeResults] = useState<
     Partial<Record<ProviderKey, ModelGatewayProviderProbeResponse>>
   >({});
+  const [directMultimodalEnabled, setDirectMultimodalEnabled] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
       const { data } = await getModelGatewayStatus();
       setStatus(data);
+      setDirectMultimodalEnabled(
+        data.preferences?.directMultimodalAnalysisEnabled ?? true,
+      );
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
         next[key] = formFromStatus(key, data.providers[key]);
@@ -496,7 +522,9 @@ export function ModelGatewayStatusPanel({
   };
 
   const handleTestConnection = async (provider: ProviderKey) => {
-    if (!forms || provider !== "text") return;
+    if (!forms || (provider !== "text" && provider !== "videoUnderstanding")) {
+      return;
+    }
     const form = forms[provider];
     setProbingProvider(provider);
     setProbeResults((prev) => {
@@ -506,7 +534,7 @@ export function ModelGatewayStatusPanel({
     });
     try {
       const { data } = await testModelGatewayProvider({
-        provider: "text",
+        provider,
         baseUrl: form.baseUrl.trim() || undefined,
         model: form.model.trim() || undefined,
         ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
@@ -516,7 +544,7 @@ export function ModelGatewayStatusPanel({
       setProbeResults((prev) => ({
         ...prev,
         [provider]: {
-          provider: "text",
+          provider,
           ok: false,
           latencyMs: 0,
           message: getErrorMessage(err),
@@ -554,13 +582,25 @@ export function ModelGatewayStatusPanel({
           providers[key] = entry;
         }
       }
-      if (Object.keys(providers).length === 0) {
+      if (Object.keys(providers).length === 0 && !preferencesDirty) {
         setSaveError("请至少填写一个提供方的 Base URL、Model 或 API Key");
         setBusy(false);
         return;
       }
-      const { data } = await updateModelGatewaySettings({ providers });
+      const body: ModelGatewaySettingsUpdate = {};
+      if (Object.keys(providers).length > 0) {
+        body.providers = providers;
+      }
+      if (preferencesDirty) {
+        body.preferences = {
+          directMultimodalAnalysisEnabled: directMultimodalEnabled,
+        };
+      }
+      const { data } = await updateModelGatewaySettings(body);
       setStatus(data);
+      setDirectMultimodalEnabled(
+        data.preferences?.directMultimodalAnalysisEnabled ?? true,
+      );
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
         next[key] = formFromStatus(key, data.providers[key]);
@@ -585,6 +625,15 @@ export function ModelGatewayStatusPanel({
 
   const hasDirtyChanges = dirtyProviders.size > 0;
 
+  const preferencesDirty =
+    status != null &&
+    directMultimodalEnabled !==
+      (status.preferences?.directMultimodalAnalysisEnabled ?? true);
+
+  const videoUnderstandingConfigured =
+    status?.providers.videoUnderstanding.configured === true &&
+    status?.providers.videoUnderstanding.hasApiKey === true;
+
   const renderProviderForm = (key: ProviderKey) => (
     <ProviderFormFields
       providerKey={key}
@@ -595,7 +644,9 @@ export function ModelGatewayStatusPanel({
       probeResult={probeResults[key] ?? null}
       onFieldChange={(field, value) => updateField(key, field, value)}
       onTestConnection={
-        key === "text" ? () => void handleTestConnection(key) : undefined
+        key === "text" || key === "videoUnderstanding"
+          ? () => void handleTestConnection(key)
+          : undefined
       }
     />
   );
@@ -651,6 +702,12 @@ export function ModelGatewayStatusPanel({
                   有未保存修改
                 </Badge>
               )}
+              {status?.analysisRoutePreview ? (
+                <Badge variant="outline">
+                  样例分析：
+                  {analysisRoutePreviewLabel(status.analysisRoutePreview)}
+                </Badge>
+              ) : null}
             </div>
             <CardDescription className="text-left">
               全局模型凭据（本机 SQLite，密钥不回显）。点击标签可快速跳转；默认走真实模型，无
@@ -726,6 +783,56 @@ export function ModelGatewayStatusPanel({
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {group.description}
                   </p>
+                  {group.id === "analysis" ? (
+                    <div className="mt-4 space-y-3 rounded-md border border-border/60 bg-background/80 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">
+                            启用直连多模态样例分析
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            配置视频理解模型后，优先单次多模态输出结构；关闭则走传统
+                            Map-Reduce。
+                          </p>
+                        </div>
+                        <label
+                          className={cn(
+                            "inline-flex items-center gap-2 text-sm",
+                            !videoUnderstandingConfigured &&
+                              "cursor-not-allowed opacity-60",
+                          )}
+                          title={
+                            videoUnderstandingConfigured
+                              ? undefined
+                              : "请先配置视频理解模型"
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-border"
+                            checked={directMultimodalEnabled}
+                            disabled={
+                              busy || !videoUnderstandingConfigured
+                            }
+                            onChange={(event) =>
+                              setDirectMultimodalEnabled(event.target.checked)
+                            }
+                            data-testid="direct-multimodal-toggle"
+                          />
+                          {directMultimodalEnabled ? "已开启" : "已关闭"}
+                        </label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        当前样例分析将使用：
+                        <span className="font-medium text-foreground">
+                          {analysisRoutePreviewLabel(
+                            status?.analysisRoutePreview ?? "map_reduce",
+                          )}
+                        </span>
+                        {preferencesDirty ? "（保存后生效）" : null}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="px-5 py-5">
@@ -803,11 +910,13 @@ export function ModelGatewayStatusPanel({
               <Save className="mr-2 h-4 w-4" />
               {busy ? "保存中…" : "保存全部配置"}
             </Button>
-            {hasDirtyChanges && (
+            {hasDirtyChanges || preferencesDirty ? (
               <p className="text-xs text-muted-foreground">
-                {dirtyProviders.size} 项有未保存修改
+                {dirtyProviders.size > 0
+                  ? `${dirtyProviders.size} 项有未保存修改`
+                  : "分析偏好有未保存修改"}
               </p>
-            )}
+            ) : null}
           </div>
 
           {saveError && (

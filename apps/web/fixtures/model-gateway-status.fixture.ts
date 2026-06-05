@@ -17,6 +17,13 @@ export const fixtureModelGatewayStatus: ModelGatewayStatusResponse = {
       driver: "openai_compatible",
       baseUrl: "https://api.openai.com/v1",
     },
+    videoUnderstanding: {
+      configured: false,
+      hasApiKey: false,
+      model: undefined,
+      driver: "openai_compatible",
+      baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    },
     tts: {
       configured: false,
       hasApiKey: false,
@@ -39,4 +46,8 @@ export const fixtureModelGatewayStatus: ModelGatewayStatusResponse = {
       baseUrl: "",
     },
   },
+  preferences: {
+    directMultimodalAnalysisEnabled: true,
+  },
+  analysisRoutePreview: "map_reduce",
 };
