@@ -4,10 +4,24 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  Eye,
+  Film,
+  ImageIcon,
   Info,
+  Loader2,
+  MessageSquare,
+  Mic,
   Save,
+  type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,9 +34,12 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   getModelGatewayStatus,
+  testModelGatewayProvider,
   updateModelGatewaySettings,
+  type ModelGatewayProviderProbeResponse,
   type ModelGatewaySettingsUpdate,
   type ModelGatewayStatusResponse,
   type ProviderStatus,
@@ -30,35 +47,76 @@ import {
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
-const PROVIDER_LABELS: Record<
-  keyof ModelGatewayStatusResponse["providers"],
-  string
+type ProviderKey = keyof ModelGatewayStatusResponse["providers"];
+
+const PROVIDER_META: Record<
+  ProviderKey,
+  { label: string; description: string; icon: LucideIcon; required?: boolean }
 > = {
-  text: "文本",
-  vision: "视觉",
-  tts: "配音",
-  image: "生图",
-  video: "生视频",
+  text: {
+    label: "文本",
+    description: "结构分析 Agent、语义映射与故事板编排",
+    icon: MessageSquare,
+    required: true,
+  },
+  vision: {
+    label: "视觉",
+    description: "样本关键帧理解、结构证据与多模态分析",
+    icon: Eye,
+  },
+  image: {
+    label: "生图",
+    description: "缺口补全时的图片生成",
+    icon: ImageIcon,
+    required: true,
+  },
+  video: {
+    label: "生视频",
+    description: "视觉槽位的视频素材生成",
+    icon: Film,
+  },
+  tts: {
+    label: "配音",
+    description: "旁白与口播语音合成",
+    icon: Mic,
+  },
 };
 
-const PROVIDER_ORDER: Array<keyof ModelGatewayStatusResponse["providers"]> = [
-  "text",
-  "vision",
-  "tts",
-  "image",
-  "video",
+const PROVIDER_GROUPS: Array<{
+  id: string;
+  title: string;
+  description: string;
+  providers: ProviderKey[];
+}> = [
+  {
+    id: "analysis",
+    title: "分析与推理",
+    description: "用于样本结构分析、证据提取与 Agent 编排",
+    providers: ["text", "vision"],
+  },
+  {
+    id: "generation",
+    title: "内容生成",
+    description: "用于缺口补全时的图片与视频素材生成",
+    providers: ["image", "video"],
+  },
+  {
+    id: "tts",
+    title: "配音",
+    description: "用于全片旁白与口播（可选）",
+    providers: ["tts"],
+  },
 ];
 
-const SUMMARY_PROVIDERS: Array<keyof ModelGatewayStatusResponse["providers"]> = [
+const PROVIDER_ORDER: ProviderKey[] = [
   "text",
-  "image",
   "vision",
-  "tts",
+  "image",
   "video",
+  "tts",
 ];
 
-const REQUIRED_PROVIDERS: Array<keyof ModelGatewayStatusResponse["providers"]> =
-  ["text", "image"];
+const REQUIRED_PROVIDERS: ProviderKey[] = ["text", "image"];
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -75,7 +133,7 @@ type ModelGatewayStatusPanelProps = {
 };
 
 function formFromStatus(
-  key: keyof ModelGatewayStatusResponse["providers"],
+  key: ProviderKey,
   provider: ProviderStatus,
 ): ProviderFormState {
   return {
@@ -87,34 +145,82 @@ function formFromStatus(
   };
 }
 
+function isProviderDirty(
+  key: ProviderKey,
+  form: ProviderFormState,
+  provider: ProviderStatus,
+): boolean {
+  const savedBase = provider.baseUrl ?? DEFAULT_BASE_URL;
+  const savedModel = provider.model ?? "";
+  const savedDriver =
+    provider.driver ?? (key === "video" ? "generic_job" : "openai_compatible");
+  return (
+    form.baseUrl.trim() !== savedBase.trim() ||
+    form.model.trim() !== savedModel.trim() ||
+    form.apiKey.trim().length > 0 ||
+    (key === "video" && form.driver.trim() !== savedDriver.trim())
+  );
+}
+
 function ProviderChip({
   name,
   status,
+  dirty,
+  active,
+  onNavigate,
 }: {
-  name: keyof ModelGatewayStatusResponse["providers"];
+  name: ProviderKey;
   status: ProviderStatus;
+  dirty?: boolean;
+  active?: boolean;
+  onNavigate: (name: ProviderKey) => void;
 }) {
+  const meta = PROVIDER_META[name];
+  const Icon = meta.icon;
+
   return (
-    <span
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onNavigate(name);
+      }}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs",
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors",
+        "hover:ring-1 hover:ring-ring/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active && "ring-1 ring-ring/60",
         status.configured
           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
           : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
       )}
+      aria-label={`跳转到${meta.label}配置`}
+      aria-current={active ? "true" : undefined}
     >
+      <Icon className="h-3 w-3 shrink-0" aria-hidden />
       {status.configured ? (
         <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
       ) : (
         <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
       )}
-      <span>{PROVIDER_LABELS[name]}</span>
+      <span>
+        {meta.label}
+        {meta.required ? (
+          <span className="text-amber-600 dark:text-amber-400">*</span>
+        ) : null}
+      </span>
       {status.model && (
         <span className="max-w-[8rem] truncate text-muted-foreground">
           {status.model}
         </span>
       )}
-    </span>
+      {dirty ? (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+          title="有未保存的修改"
+          aria-hidden
+        />
+      ) : null}
+    </button>
   );
 }
 
@@ -137,18 +243,190 @@ function ProviderStatusLine({ status }: { status: ProviderStatus }) {
   );
 }
 
+function ProviderProbeResultBanner({
+  result,
+}: {
+  result: ModelGatewayProviderProbeResponse;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2 text-xs",
+        result.ok
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+          : "border-destructive/40 bg-destructive/10 text-destructive",
+      )}
+      role="status"
+    >
+      <p className="font-medium">
+        {result.ok ? "测试通过" : "测试失败"} · {result.message}
+        {result.latencyMs > 0 ? ` · ${result.latencyMs}ms` : ""}
+      </p>
+      {result.replyPreview ? (
+        <p className="mt-1 text-muted-foreground">
+          模型回复：{result.replyPreview}
+        </p>
+      ) : null}
+      {!result.ok && result.detail ? (
+        <p className="mt-1 break-all opacity-90">{result.detail}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function ProviderFormFields({
+  providerKey,
+  form,
+  status,
+  busy,
+  probing,
+  probeResult,
+  onFieldChange,
+  onTestConnection,
+}: {
+  providerKey: ProviderKey;
+  form: ProviderFormState;
+  status: ProviderStatus;
+  busy: boolean;
+  probing?: boolean;
+  probeResult?: ModelGatewayProviderProbeResponse | null;
+  onFieldChange: (
+    field: keyof ProviderFormState,
+    value: string,
+  ) => void;
+  onTestConnection?: () => void;
+}) {
+  const meta = PROVIDER_META[providerKey];
+  const Icon = meta.icon;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+          </span>
+          <div>
+            <p className="text-sm font-medium">
+              {meta.label}
+              {meta.required ? (
+                <span className="ml-0.5 text-amber-600 dark:text-amber-400">
+                  *
+                </span>
+              ) : null}
+            </p>
+            <p className="text-xs text-muted-foreground">{meta.description}</p>
+          </div>
+        </div>
+        <ProviderStatusLine status={status} />
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1 sm:col-span-2">
+          <Label htmlFor={`${providerKey}-base-url`}>Base URL</Label>
+          <Input
+            id={`${providerKey}-base-url`}
+            value={form.baseUrl}
+            onChange={(e) => onFieldChange("baseUrl", e.target.value)}
+            placeholder={DEFAULT_BASE_URL}
+            disabled={busy}
+          />
+          {providerKey === "text" ? (
+            <p className="text-xs text-muted-foreground">
+              支持 OpenAI 风格根路径（如 https://api.openai.com/v1）或已含
+              /chat/completions 的完整 endpoint（如火山方舟）。
+            </p>
+          ) : null}
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`${providerKey}-model`}>Model</Label>
+          <Input
+            id={`${providerKey}-model`}
+            value={form.model}
+            onChange={(e) => onFieldChange("model", e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`${providerKey}-api-key`}>API Key</Label>
+          <Input
+            id={`${providerKey}-api-key`}
+            type="password"
+            value={form.apiKey}
+            onChange={(e) => onFieldChange("apiKey", e.target.value)}
+            placeholder={
+              status.hasApiKey ? "留空则不修改" : "输入 API Key"
+            }
+            disabled={busy}
+            autoComplete="off"
+          />
+        </div>
+        {providerKey === "video" && (
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor={`${providerKey}-driver`}>Driver（高级）</Label>
+            <Input
+              id={`${providerKey}-driver`}
+              value={form.driver}
+              onChange={(e) => onFieldChange("driver", e.target.value)}
+              disabled={busy}
+              placeholder="generic_job 或 dashscope_wan"
+            />
+          </div>
+        )}
+      </div>
+
+      {onTestConnection ? (
+        <div className="space-y-2 border-t border-border/50 pt-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || probing}
+            onClick={onTestConnection}
+          >
+            {probing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+            ) : null}
+            {probing ? "测试中…" : "测试连接"}
+          </Button>
+          {probeResult ? <ProviderProbeResultBanner result={probeResult} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function initialGroupTabs(): Record<string, ProviderKey> {
+  return Object.fromEntries(
+    PROVIDER_GROUPS.map((group) => [group.id, group.providers[0]!]),
+  );
+}
+
 export function ModelGatewayStatusPanel({
   defaultExpanded = false,
 }: ModelGatewayStatusPanelProps = {}) {
   const detailsId = useId();
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [status, setStatus] = useState<ModelGatewayStatusResponse | null>(null);
   const [forms, setForms] = useState<Record<string, ProviderFormState> | null>(
     null,
   );
+  const [groupTabs, setGroupTabs] = useState<Record<string, ProviderKey>>(
+    initialGroupTabs,
+  );
+  const [focusedProvider, setFocusedProvider] = useState<ProviderKey | null>(
+    null,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [probingProvider, setProbingProvider] = useState<ProviderKey | null>(
+    null,
+  );
+  const [probeResults, setProbeResults] = useState<
+    Partial<Record<ProviderKey, ModelGatewayProviderProbeResponse>>
+  >({});
 
   const refresh = useCallback(async () => {
     try {
@@ -171,8 +449,34 @@ export function ModelGatewayStatusPanel({
     void refresh();
   }, [refresh]);
 
+  const dirtyProviders = useMemo(() => {
+    if (!status || !forms) return new Set<ProviderKey>();
+    const dirty = new Set<ProviderKey>();
+    for (const key of PROVIDER_ORDER) {
+      if (isProviderDirty(key, forms[key], status.providers[key])) {
+        dirty.add(key);
+      }
+    }
+    return dirty;
+  }, [forms, status]);
+
+  const focusProvider = useCallback((key: ProviderKey) => {
+    setExpanded(true);
+    setFocusedProvider(key);
+    const group = PROVIDER_GROUPS.find((item) => item.providers.includes(key));
+    if (group) {
+      setGroupTabs((prev) => ({ ...prev, [group.id]: key }));
+      requestAnimationFrame(() => {
+        groupRefs.current[group.id]?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      });
+    }
+  }, []);
+
   const updateField = (
-    provider: keyof ModelGatewayStatusResponse["providers"],
+    provider: ProviderKey,
     field: keyof ProviderFormState,
     value: string,
   ) => {
@@ -183,6 +487,46 @@ export function ModelGatewayStatusPanel({
         [provider]: { ...prev[provider], [field]: value },
       };
     });
+    setProbeResults((prev) => {
+      if (!prev[provider]) return prev;
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
+  };
+
+  const handleTestConnection = async (provider: ProviderKey) => {
+    if (!forms || provider !== "text") return;
+    const form = forms[provider];
+    setProbingProvider(provider);
+    setProbeResults((prev) => {
+      const next = { ...prev };
+      delete next[provider];
+      return next;
+    });
+    try {
+      const { data } = await testModelGatewayProvider({
+        provider: "text",
+        baseUrl: form.baseUrl.trim() || undefined,
+        model: form.model.trim() || undefined,
+        ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+      });
+      setProbeResults((prev) => ({ ...prev, [provider]: data }));
+    } catch (err) {
+      setProbeResults((prev) => ({
+        ...prev,
+        [provider]: {
+          provider: "text",
+          ok: false,
+          latencyMs: 0,
+          message: getErrorMessage(err),
+          detail: null,
+          replyPreview: null,
+        },
+      }));
+    } finally {
+      setProbingProvider(null);
+    }
   };
 
   const handleSave = async () => {
@@ -239,17 +583,32 @@ export function ModelGatewayStatusPanel({
     !status.fixtureMode &&
     REQUIRED_PROVIDERS.every((key) => status.providers[key].configured);
 
+  const hasDirtyChanges = dirtyProviders.size > 0;
+
+  const renderProviderForm = (key: ProviderKey) => (
+    <ProviderFormFields
+      providerKey={key}
+      form={forms![key]}
+      status={status!.providers[key]}
+      busy={busy}
+      probing={probingProvider === key}
+      probeResult={probeResults[key] ?? null}
+      onFieldChange={(field, value) => updateField(key, field, value)}
+      onTestConnection={
+        key === "text" ? () => void handleTestConnection(key) : undefined
+      }
+    />
+  );
+
   return (
     <Card className="border-dashed" data-testid="model-gateway-status-panel">
-      <CardHeader className="pb-3">
+      <CardHeader className="space-y-3 pb-3">
         <button
           type="button"
           className="flex w-full items-start gap-3 text-left"
           aria-expanded={expanded}
           aria-controls={detailsId}
-          aria-label={
-            expanded ? "收起模型服务配置" : "展开模型服务配置"
-          }
+          aria-label={expanded ? "收起模型服务配置" : "展开模型服务配置"}
           onClick={() => setExpanded((value) => !value)}
         >
           <ChevronDown
@@ -284,24 +643,35 @@ export function ModelGatewayStatusPanel({
                   需配置
                 </Badge>
               )}
+              {hasDirtyChanges && expanded && (
+                <Badge
+                  variant="secondary"
+                  className="border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+                >
+                  有未保存修改
+                </Badge>
+              )}
             </div>
             <CardDescription className="text-left">
-              全局模型凭据（本机 SQLite，密钥不回显）。展开可编辑；默认走真实模型，无
+              全局模型凭据（本机 SQLite，密钥不回显）。点击标签可快速跳转；默认走真实模型，无
               Key 冒烟时可设 VIDEOMAKER_FIXTURE_MODE=true
             </CardDescription>
-            {status && !loadError && (
-              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                {SUMMARY_PROVIDERS.map((key) => (
-                  <ProviderChip
-                    key={key}
-                    name={key}
-                    status={status.providers[key]}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         </button>
+        {status && !loadError && (
+          <div className="flex flex-wrap gap-1.5 pl-8">
+            {PROVIDER_ORDER.map((key) => (
+              <ProviderChip
+                key={key}
+                name={key}
+                status={status.providers[key]}
+                dirty={dirtyProviders.has(key)}
+                active={focusedProvider === key}
+                onNavigate={focusProvider}
+              />
+            ))}
+          </div>
+        )}
       </CardHeader>
 
       {loadError && (
@@ -313,7 +683,7 @@ export function ModelGatewayStatusPanel({
       )}
 
       {expanded && status && forms && (
-        <CardContent id={detailsId} className="space-y-4 border-t pt-4">
+        <CardContent id={detailsId} className="space-y-6 border-t pt-6">
           {missingRequired && (
             <div
               className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
@@ -324,93 +694,121 @@ export function ModelGatewayStatusPanel({
                 {REQUIRED_PROVIDERS.filter(
                   (key) => !status.providers[key].configured,
                 ).map((key) => (
-                  <li key={key}>{PROVIDER_LABELS[key]}</li>
+                  <li key={key}>
+                    {PROVIDER_META[key].label}
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {" "}
+                      (必需)
+                    </span>
+                  </li>
                 ))}
               </ul>
             </div>
           )}
 
-          <div className="space-y-4">
-            {PROVIDER_ORDER.map((key) => (
-              <div
-                key={key}
-                className="space-y-2 rounded-md border border-border/60 p-3"
+          <div className="space-y-8">
+            {PROVIDER_GROUPS.map((group, index) => (
+              <section
+                key={group.id}
+                ref={(node: HTMLDivElement | null) => {
+                  groupRefs.current[group.id] = node;
+                }}
+                className={cn(
+                  "overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+                  index > 0 && "mt-2",
+                )}
+                data-testid={`provider-group-${group.id}`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium">
-                    {PROVIDER_LABELS[key]}
-                  </span>
-                  <ProviderStatusLine status={status.providers[key]} />
+                <div className="border-b border-border/60 bg-muted/30 px-5 py-4">
+                  <h3 className="text-sm font-semibold tracking-tight">
+                    {group.title}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {group.description}
+                  </p>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1 sm:col-span-2">
-                    <Label htmlFor={`${key}-base-url`}>Base URL</Label>
-                    <Input
-                      id={`${key}-base-url`}
-                      value={forms[key].baseUrl}
-                      onChange={(e) =>
-                        updateField(key, "baseUrl", e.target.value)
-                      }
-                      placeholder={DEFAULT_BASE_URL}
-                      disabled={busy}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`${key}-model`}>Model</Label>
-                    <Input
-                      id={`${key}-model`}
-                      value={forms[key].model}
-                      onChange={(e) =>
-                        updateField(key, "model", e.target.value)
-                      }
-                      disabled={busy}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor={`${key}-api-key`}>API Key</Label>
-                    <Input
-                      id={`${key}-api-key`}
-                      type="password"
-                      value={forms[key].apiKey}
-                      onChange={(e) =>
-                        updateField(key, "apiKey", e.target.value)
-                      }
-                      placeholder={
-                        status.providers[key].hasApiKey
-                          ? "留空则不修改"
-                          : "输入 API Key"
-                      }
-                      disabled={busy}
-                      autoComplete="off"
-                    />
-                  </div>
-                  {key === "video" && (
-                    <div className="space-y-1 sm:col-span-2">
-                      <Label htmlFor={`${key}-driver`}>Driver</Label>
-                      <Input
-                        id={`${key}-driver`}
-                        value={forms[key].driver}
-                        onChange={(e) =>
-                          updateField(key, "driver", e.target.value)
-                        }
-                        disabled={busy}
-                      />
-                    </div>
+
+                <div className="px-5 py-5">
+                  {group.providers.length === 1 ? (
+                    renderProviderForm(group.providers[0]!)
+                  ) : (
+                    <Tabs
+                      value={groupTabs[group.id]}
+                      onValueChange={(value) => {
+                        const key = value as ProviderKey;
+                        setGroupTabs((prev) => ({ ...prev, [group.id]: key }));
+                        setFocusedProvider(key);
+                      }}
+                    >
+                      <TabsList
+                        className={cn(
+                          "grid w-full",
+                          group.providers.length === 2
+                            ? "grid-cols-2"
+                            : "grid-cols-3",
+                        )}
+                      >
+                        {group.providers.map((key) => {
+                          const meta = PROVIDER_META[key];
+                          const Icon = meta.icon;
+                          const providerStatus = status.providers[key];
+                          return (
+                            <TabsTrigger
+                              key={key}
+                              value={key}
+                              className="gap-1.5"
+                            >
+                              <Icon className="h-3.5 w-3.5" aria-hidden />
+                              {meta.label}
+                              {meta.required ? (
+                                <span className="text-amber-600 dark:text-amber-400">
+                                  *
+                                </span>
+                              ) : null}
+                              {!providerStatus.configured && (
+                                <AlertTriangle
+                                  className="h-3 w-3 text-amber-500"
+                                  aria-hidden
+                                />
+                              )}
+                              {dirtyProviders.has(key) && (
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full bg-amber-500"
+                                  aria-hidden
+                                />
+                              )}
+                            </TabsTrigger>
+                          );
+                        })}
+                      </TabsList>
+                      {group.providers.map((key) => (
+                        <TabsContent key={key} value={key}>
+                          {renderProviderForm(key)}
+                        </TabsContent>
+                      ))}
+                    </Tabs>
                   )}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
 
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            onClick={() => void handleSave()}
-          >
-            <Save className="mr-2 h-4 w-4" />
-            {busy ? "保存中…" : "保存配置"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-3 border-t border-border/50 pt-4">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() => void handleSave()}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {busy ? "保存中…" : "保存全部配置"}
+            </Button>
+            {hasDirtyChanges && (
+              <p className="text-xs text-muted-foreground">
+                {dirtyProviders.size} 项有未保存修改
+              </p>
+            )}
+          </div>
 
           {saveError && (
             <p className="text-sm text-destructive" role="alert">

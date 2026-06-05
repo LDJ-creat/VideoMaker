@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { Loader2 } from "lucide-react";
 
-import type { TaskStage, VideoStructure } from "@videomaker/contracts";
+import type { SampleAnalysisFacts, TaskStage, VideoStructure } from "@videomaker/contracts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ type SampleAnalysisPanelProps = {
   pendingSampleId?: string | null;
   onSelectSample: (sampleId: string) => void;
   structure: VideoStructure | null;
+  sampleAnalysisFacts?: SampleAnalysisFacts | null;
   sampleKeyframes: SampleKeyframeRecord[];
   error?: string | null;
   highlightedSlotIds?: string[];
@@ -134,6 +135,7 @@ export function SampleAnalysisPanel({
   pendingSampleId = null,
   onSelectSample,
   structure,
+  sampleAnalysisFacts = null,
   sampleKeyframes,
   error = null,
   highlightedSlotIds = [],
@@ -249,6 +251,37 @@ export function SampleAnalysisPanel({
                 onHighlightSlot={onHighlightSlot}
                 analysisStage={analysisStage}
               />
+              {sampleAnalysisFacts?.audioProfile ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">音频事实</CardTitle>
+                    <CardDescription>
+                      来自 sample-analysis.json 的确定性音频画像
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+                    <Badge variant="secondary">
+                      口播 {sampleAnalysisFacts.audioProfile.hasVoiceover ? "有" : "无"}
+                    </Badge>
+                    <Badge variant="secondary">
+                      BGM {sampleAnalysisFacts.audioProfile.hasBgm ? "疑似有" : "无"}
+                    </Badge>
+                    {sampleAnalysisFacts.audioProfile.tempoBpm != null ? (
+                      <Badge variant="outline">
+                        节奏约 {sampleAnalysisFacts.audioProfile.tempoBpm} BPM
+                      </Badge>
+                    ) : null}
+                    <Badge variant="outline">
+                      口播覆盖{" "}
+                      {(
+                        sampleAnalysisFacts.audioProfile.metrics.voiceoverCoveragePct *
+                        100
+                      ).toFixed(0)}
+                      %
+                    </Badge>
+                  </CardContent>
+                </Card>
+              ) : null}
               <SampleAnalysisView structure={structure} />
               <KnowledgeDraftPanel
                 projectId={projectId}

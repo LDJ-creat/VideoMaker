@@ -20,7 +20,7 @@ type EvidenceCardProps = {
 
 export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const { segment, transcriptExcerpt, keyframeLabel, keyframePreviewUrl, shotRanges } =
+  const { segment, transcriptExcerpt, ocrExcerpts, audioSummary, keyframeLabel, keyframePreviewUrl, shotRanges } =
     view;
   const showIntent =
     segment.intent.trim().length > 0 &&
@@ -100,6 +100,18 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
             ) : (
               <p className="text-xs text-muted-foreground">暂无转写摘录</p>
             )}
+            {ocrExcerpts && ocrExcerpts.length > 0 ? (
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">屏上文字：</span>
+                {ocrExcerpts.join(" · ")}
+              </p>
+            ) : null}
+            {audioSummary ? (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">音频区间：</span>
+                {audioSummary}
+              </p>
+            ) : null}
             {keyframeLabel && !keyframePreviewUrl ? (
               <p className="text-xs text-muted-foreground">关键帧：{keyframeLabel}</p>
             ) : null}

@@ -53,9 +53,19 @@ export function StructureSlotBoard({
               </span>
             </div>
             <p className="text-sm font-medium">{slot.visualIntent}</p>
-            {showScriptIntent ? (
+            {slot.durationSharePct != null ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                口播意图：{slot.scriptIntent}
+                时长占比 {(slot.durationSharePct * 100).toFixed(0)}%
+              </p>
+            ) : null}
+            {slot.migrationTemplate ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                迁移模板：{slot.migrationTemplate}
+              </p>
+            ) : null}
+            {slot.packagingRequirements?.length ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                包装：{slot.packagingRequirements.join("、")}
               </p>
             ) : null}
             <div className="mt-2 flex flex-wrap gap-1">

@@ -23,6 +23,8 @@ import { EvidenceCard } from "./EvidenceCard";
 export type SegmentEvidenceView = {
   segment: NarrativeSegment;
   transcriptExcerpt?: string;
+  ocrExcerpts?: string[];
+  audioSummary?: string;
   keyframeLabel?: string;
   keyframePreviewUrl?: string | null;
   shotRanges: Array<{ startSec: number; endSec: number }>;
@@ -61,9 +63,21 @@ export function buildSegmentEvidenceViews(
         item.targetId === segment.id || relatedSlotIds.includes(item.targetId),
     );
 
-    const transcriptExcerpt = segmentEvidence.find(
-      (item) => item.source === "asr",
-    )?.summary;
+    const asrEvidence = segmentEvidence.find((item) => item.source === "asr");
+    const transcriptExcerpt =
+      asrEvidence?.excerpt?.trim() ||
+      asrEvidence?.summary;
+
+    const ocrExcerpts = segmentEvidence
+      .filter((item) => item.source === "ocr")
+      .map((item) => item.excerpt?.trim() || item.summary)
+      .filter(Boolean);
+    if (ocrExcerpts.length === 0 && segment.visualSpec?.onScreenText?.length) {
+      ocrExcerpts.push(...segment.visualSpec.onScreenText);
+    }
+
+    const audioEvidence = segmentEvidence.find((item) => item.source === "audio");
+    const audioSummary = audioEvidence?.summary;
 
     const keyframeEvidence = segmentEvidence.find(
       (item) => item.source === "keyframe",
@@ -87,6 +101,8 @@ export function buildSegmentEvidenceViews(
     return {
       segment,
       transcriptExcerpt,
+      ocrExcerpts,
+      audioSummary,
       keyframeLabel,
       keyframePreviewUrl,
       shotRanges,

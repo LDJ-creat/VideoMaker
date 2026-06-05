@@ -8,6 +8,7 @@ import type {
   ProjectKnowledgeSelection,
   TaskEvent,
   UserBrief,
+  SampleAnalysisFacts,
   VariantDefinition,
   VideoStructure,
 } from "@videomaker/contracts";
@@ -22,7 +23,7 @@ import {
   loadVariantRegistry as loadWebVariantRegistry,
 } from "@/lib/variantRegistry";
 
-export type { VariantDefinition };
+export type { SampleAnalysisFacts, VariantDefinition };
 
 export type ProviderStatus = {
   configured: boolean;
@@ -46,6 +47,22 @@ export type ModelGatewaySettingsUpdate = {
       ProviderSettingsUpdate
     >
   >;
+};
+
+export type ModelGatewayProviderProbeRequest = {
+  provider: "text";
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+};
+
+export type ModelGatewayProviderProbeResponse = {
+  provider: "text";
+  ok: boolean;
+  latencyMs: number;
+  message: string;
+  detail?: string | null;
+  replyPreview?: string | null;
 };
 
 export type ModelGatewayStatusResponse = {
@@ -531,6 +548,16 @@ export async function updateModelGatewaySettings(
   });
 }
 
+export async function testModelGatewayProvider(
+  body: ModelGatewayProviderProbeRequest,
+): Promise<ApiResult<ModelGatewayProviderProbeResponse>> {
+  return apiFetch("/api/settings/model-gateway/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getGenerationAgentRuns(
   generationId: string,
 ): Promise<ApiResult<{ runs: AgentRunLog[] }>> {
@@ -577,8 +604,8 @@ export async function getSampleStructure(
 
 export async function getSampleAnalysis(
   sampleId: string,
-): Promise<ApiResult<VideoStructure>> {
-  return apiFetch(`/api/samples/${sampleId}/analysis`);
+): Promise<ApiResult<SampleAnalysisFacts>> {
+  return apiFetch(`/api/samples/${sampleId}/sample-analysis`);
 }
 
 export type SampleKeyframeRecord = {

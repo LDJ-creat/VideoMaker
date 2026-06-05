@@ -13,6 +13,16 @@ describe("ModelGatewayStatusPanel", () => {
       data: fixtureModelGatewayStatus,
       meta: { dataSource: "fixture" },
     });
+    vi.spyOn(apiClient, "testModelGatewayProvider").mockResolvedValue({
+      data: {
+        provider: "text",
+        ok: true,
+        latencyMs: 42,
+        message: "Fixture 模式：已跳过真实请求",
+        replyPreview: "OK",
+      },
+      meta: { dataSource: "fixture" },
+    });
     vi.spyOn(apiClient, "updateModelGatewaySettings").mockResolvedValue({
       data: fixtureModelGatewayStatus,
       meta: { dataSource: "fixture" },
@@ -38,7 +48,9 @@ describe("ModelGatewayStatusPanel", () => {
     expect(screen.getByText("Fixture 模式")).toBeInTheDocument();
     expect(screen.getByText("文本")).toBeInTheDocument();
     expect(screen.getByText("生图")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "保存配置" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "保存全部配置" }),
+    ).not.toBeInTheDocument();
   });
 
   it("expands to show configuration form", async () => {
@@ -51,7 +63,10 @@ describe("ModelGatewayStatusPanel", () => {
       screen.getByRole("button", { name: "展开模型服务配置" }),
     );
 
-    expect(await screen.findByRole("button", { name: "保存配置" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "保存全部配置" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("provider-group-analysis")).toBeInTheDocument();
     expect(screen.getByLabelText("Model", { selector: "#text-model" })).toBeInTheDocument();
   });
 
@@ -87,6 +102,23 @@ describe("ModelGatewayStatusPanel", () => {
     );
   });
 
+  it("runs text provider connectivity test when expanded", async () => {
+    const user = userEvent.setup();
+    render(<ModelGatewayStatusPanel defaultExpanded />);
+
+    const panel = await screen.findByTestId("model-gateway-status-panel");
+    await user.click(
+      within(panel).getByRole("button", { name: "测试连接" }),
+    );
+
+    await waitFor(() =>
+      expect(apiClient.testModelGatewayProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "text" }),
+      ),
+    );
+    expect(await screen.findByText(/测试通过/)).toBeInTheDocument();
+  });
+
   it("saves provider settings via PUT when expanded", async () => {
     const user = userEvent.setup();
     render(<ModelGatewayStatusPanel defaultExpanded />);
@@ -98,7 +130,9 @@ describe("ModelGatewayStatusPanel", () => {
     await user.type(textModel, "gpt-4o-new");
 
     const panel = screen.getByTestId("model-gateway-status-panel");
-    await user.click(within(panel).getByRole("button", { name: "保存配置" }));
+    await user.click(
+      within(panel).getByRole("button", { name: "保存全部配置" }),
+    );
 
     await waitFor(() =>
       expect(apiClient.updateModelGatewaySettings).toHaveBeenCalled(),
@@ -112,10 +146,6 @@ describe("ModelGatewayStatusPanel", () => {
 
 describe("ProjectsPage model settings entry", () => {
   beforeEach(() => {
-    vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
-      data: fixtureModelGatewayStatus,
-      meta: { dataSource: "fixture" },
-    });
     vi.spyOn(apiClient, "listProjects").mockResolvedValue({
       data: { projects: [] },
       meta: { dataSource: "fixture" },
@@ -127,12 +157,12 @@ describe("ProjectsPage model settings entry", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders model gateway panel on projects list page", async () => {
+  it("does not embed model gateway panel on projects list page", async () => {
     render(<ProjectsPage />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("model-gateway-status-panel")).toBeInTheDocument(),
+      expect(screen.getByText("暂无视频项目")).toBeInTheDocument(),
     );
-    expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
+    expect(screen.queryByTestId("model-gateway-status-panel")).not.toBeInTheDocument();
   });
 });

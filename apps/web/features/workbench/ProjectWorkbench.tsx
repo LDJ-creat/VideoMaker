@@ -72,6 +72,7 @@ import {
   getGenerationRun,
   getLatestGenerations,
   getSampleKeyframes,
+  getSampleAnalysis,
   getSampleSelection,
   getSampleStructure,
   getTask,
@@ -83,6 +84,7 @@ import {
   saveBrief,
   startSampleAnalysis,
   updateKnowledgeSelection,
+  type SampleAnalysisFacts,
   type SampleKeyframeRecord,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
@@ -202,6 +204,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [sampleKeyframes, setSampleKeyframes] = useState<SampleKeyframeRecord[]>(
     [],
   );
+  const [sampleAnalysisFacts, setSampleAnalysisFacts] =
+    useState<SampleAnalysisFacts | null>(null);
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [renderVideoByGenerationId, setRenderVideoByGenerationId] = useState<
     Record<string, string>
@@ -252,12 +256,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       }
       setDataError(null);
       try {
-        const [structureResult, keyframesResult] = await Promise.all([
+        const [structureResult, keyframesResult, sampleFactsResult] =
+          await Promise.all([
           getSampleStructure(currentSampleId),
           getSampleKeyframes(currentSampleId),
+          getSampleAnalysis(currentSampleId),
         ]);
         setStructure(structureResult.data);
         setSampleKeyframes(keyframesResult.data.keyframes ?? []);
+        setSampleAnalysisFacts(sampleFactsResult.data);
         setAnalysisSampleId(currentSampleId);
         setDataSource(structureResult.meta.dataSource);
       } catch (err) {
@@ -1045,6 +1052,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               pendingSampleId={pendingAnalysisSampleId}
               onSelectSample={handleSelectAnalysisSample}
               structure={structure}
+              sampleAnalysisFacts={sampleAnalysisFacts}
               sampleKeyframes={sampleKeyframes}
               error={dataError}
               highlightedSlotIds={highlightedSlotIds}
