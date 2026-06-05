@@ -10,7 +10,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "Inter", "system-ui", "sans-serif"],
+        sans: ["var(--font-noto-sans)", "system-ui", "sans-serif"],
+        serif: ["var(--font-noto-serif)", "serif"],
         mono: ["var(--font-geist-mono)", "JetBrains Mono", "monospace"],
       },
       colors: {
@@ -46,6 +47,11 @@ const config: Config = {
         ai: {
           DEFAULT: "hsl(var(--ai))",
           foreground: "hsl(var(--ai-foreground))",
+        },
+        studio: {
+          cream: "#FFFBF5",
+          wheat: "#FEF3C7",
+          amber: "#E07A3A",
         },
       },
       borderRadius: {

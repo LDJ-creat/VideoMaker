@@ -1,14 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Noto_Sans_SC, Noto_Serif_SC } from "next/font/google";
 
 import { AppHeader } from "@/components/app-header";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const notoSans = Noto_Sans_SC({
+  variable: "--font-noto-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const notoSerif = Noto_Serif_SC({
+  variable: "--font-noto-serif",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -29,11 +36,13 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen font-sans`}
+        className={`${notoSans.variable} ${notoSerif.variable} ${geistMono.variable} min-h-screen font-sans`}
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <AppHeader />
-          <main className="mx-auto max-w-7xl px-4 py-6 md:px-6">{children}</main>
+          <main className="mx-auto max-w-7xl px-4 pb-6 pt-20 md:px-6 md:pt-24">
+            {children}
+          </main>
         </ThemeProvider>
       </body>
     </html>
