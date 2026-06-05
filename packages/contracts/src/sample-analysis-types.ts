@@ -32,6 +32,8 @@ export type KeyframeBatchDigest = {
   onScreenTextFacts: OnScreenTextFact[];
 };
 
+export type StructureAnalysisRoute = "map_reduce" | "direct_multimodal";
+
 export type SampleAnalysisFacts = {
   metadata: VideoMetadata;
   transcript: unknown;
@@ -41,6 +43,7 @@ export type SampleAnalysisFacts = {
   keyframeBatchDigests?: KeyframeBatchDigest[];
   onScreenTextFacts?: OnScreenTextFact[];
   analysisDepth?: "fast" | "standard" | "deep";
+  structureAnalysisRoute?: StructureAnalysisRoute;
   locale?: string;
   warnings?: string[];
 };

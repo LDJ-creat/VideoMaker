@@ -17,6 +17,7 @@ export type TaskStage =
   | "extracting_visual_facts"
   | "consolidating"
   | "extracting_structure"
+  | "extracting_structure_direct"
   | "analyzing_segments"
   | "compiling_structure"
   | "critiquing_structure"
