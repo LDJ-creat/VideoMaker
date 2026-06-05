@@ -71,6 +71,7 @@ import {
   getGeneration,
   getGenerationRun,
   getLatestGenerations,
+  getProject,
   getSampleKeyframes,
   getSampleAnalysis,
   getSampleSelection,
@@ -216,6 +217,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<DataSource | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
   const [gapApiPending, setGapApiPending] = useState(false);
   const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>(
     getDefaultSelectedVariantIds(),
@@ -309,13 +311,20 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const loadProjectInput = useCallback(async () => {
-    const [briefResult, assetsResult, samplesResult, sampleResult] =
+    const [briefResult, assetsResult, samplesResult, sampleResult, projectResult] =
       await Promise.allSettled([
       getBrief(projectId),
       listProjectAssets(projectId),
       listProjectSamples(projectId),
       getActiveSample(projectId),
+      getProject(projectId),
     ]);
+
+    if (projectResult.status === "fulfilled") {
+      setProjectName(projectResult.value.data.name);
+    } else {
+      setProjectName(null);
+    }
 
     if (briefResult.status === "fulfilled") {
       setSavedBrief(briefResult.value.data.brief ?? null);
@@ -859,8 +868,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">项目工作台</h1>
-          <p className="font-mono text-sm text-muted-foreground">{projectId}</p>
+          <h1 className="font-serif text-2xl font-semibold tracking-tight">
+            {projectName ?? "项目工作台"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            可解释结构迁移
+            <span className="mx-2 text-border">·</span>
+            <span className="font-mono text-xs">{projectId}</span>
+          </p>
           {sampleId && (
             <p className="font-mono text-xs text-muted-foreground">
               当前样例：{sampleId}
