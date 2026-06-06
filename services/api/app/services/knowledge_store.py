@@ -296,7 +296,19 @@ class KnowledgeStore:
             raise FileNotFoundError("Knowledge draft not found for sample")
 
         structure = json.loads(structure_path.read_text(encoding="utf-8"))
-        quality_warnings = list((structure.get("analysisQuality") or {}).get("warnings") or [])
+        version = str(structure.get("version") or "")
+        if version != "p1-v3":
+            raise ValueError(
+                "Knowledge promote requires p1-v3 video structure. "
+                "Delete analysis artifacts or run migrate-video-structure-v2-to-v3, then analyze manually."
+            )
+        quality = structure.get("analysisQuality") if isinstance(structure.get("analysisQuality"), dict) else {}
+        if quality.get("promoteReady") is not True:
+            raise ValueError(
+                "Cannot promote: structure analysisQuality.promoteReady is not true. "
+                "Fix warnings or re-analyze manually."
+            )
+        quality_warnings = list(quality.get("warnings") or [])
         if any(str(item).startswith("critical:") for item in quality_warnings):
             raise ValueError(
                 "Cannot promote knowledge draft while critical structure quality warnings remain"

@@ -32,21 +32,87 @@ def _sample_structure(project_id: str, sample_id: str, *, marker: str) -> dict:
         "id": f"video-structure-{marker}",
         "projectId": project_id,
         "sourceVideoId": sample_id,
-        "version": "p0-v1",
-        "metadata": {"durationSec": 30.0},
-        "narrative": {"summary": marker, "segments": [{"role": "hook"}]},
+        "version": "p1-v3",
+        "metadata": {"durationSec": 30.0, "hasAudio": True},
+        "context": {
+            "contentCategory": "general",
+            "platformFormat": "9:16_short",
+            "primaryIntent": "exposure",
+            "successHypothesis": marker,
+            "applicability": {"suitableFor": ["短视频"], "unsuitableFor": []},
+        },
+        "verbal": {
+            "hookTemplate": f"{marker} 反问开场",
+            "outlineTimeline": [
+                {"phase": "hook", "startSec": 0.0, "endSec": 30.0, "sharePct": 1.0},
+            ],
+            "ctaMechanism": "结尾行动号召",
+        },
+        "visual": {
+            "cutRateProfile": {"avgShotSec": 2.0, "openingCutRate": "fast", "fastCutRanges": []},
+            "packagingSpec": {"visualDensity": "medium", "summary": "中等字幕密度"},
+        },
+        "audio": {"voProfile": {"pace": "medium", "energy": "medium", "persona": "口播"}},
+        "transfer": {
+            "structureFamily": "short_form_segmented",
+            "differentiationLever": marker,
+            "emotionTriggers": [
+                {
+                    "timeSec": 0.0,
+                    "triggerType": "hook",
+                    "segmentId": "seg-hook",
+                    "mechanism": "停滑",
+                }
+            ],
+            "scalabilityRules": "段级槽位一一映射",
+            "nonTransferableElements": ["品牌名"],
+        },
+        "narrative": {
+            "summary": marker,
+            "segments": [
+                {
+                    "id": "seg-hook",
+                    "role": "hook",
+                    "startSec": 0.0,
+                    "endSec": 30.0,
+                    "scriptSummary": "反问式痛点开场建立停滑与共鸣",
+                    "visualSummary": "胸景口播快切产品 UI 特写",
+                    "intent": "停滑",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                }
+            ],
+        },
         "rhythm": {
             "totalDurationSec": 30.0,
             "shotCount": 4,
             "avgShotDurationSec": 7.5,
             "tempo": "fast",
-            "beatPoints": [],
-            "shotBoundaries": [],
+            "beatPoints": [0.0, 30.0],
+            "shotBoundaries": [
+                {
+                    "startSec": 0.0,
+                    "endSec": 30.0,
+                    "confidence": 0.8,
+                    "changeReason": "scene_change",
+                }
+            ],
         },
-        "packaging": {"visualDensity": "medium"},
         "slots": [],
-        "evidence": [],
+        "evidence": [
+            {
+                "targetId": "seg-hook",
+                "source": "asr",
+                "summary": "0-30 sec",
+                "excerpt": "还在花冤枉钱？",
+                "confidence": 0.8,
+            }
+        ],
         "confidence": 0.8,
+        "analysisQuality": {
+            "warnings": [],
+            "locale": "zh",
+            "promoteReady": True,
+        },
     }
 
 
@@ -107,6 +173,7 @@ def test_promote_blocked_by_critical_warnings(
     structure["analysisQuality"] = {
         "locale": "zh",
         "warnings": ["critical: slot_roles_uniform:usage_scene"],
+        "promoteReady": True,
     }
     structure_path.write_text(json.dumps(structure), encoding="utf-8")
 
@@ -120,6 +187,76 @@ def test_promote_blocked_by_critical_warnings(
     )
     assert promote.status_code == 422
     assert "critical" in promote.json()["detail"].lower()
+
+
+def test_promote_blocked_when_not_p1_v3(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    structure_path = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / project_id
+        / "knowledge"
+        / "drafts"
+        / sample_id
+        / "video-structure.json"
+    )
+    structure = json.loads(structure_path.read_text(encoding="utf-8"))
+    structure["version"] = "p1-v2"
+    structure_path.write_text(json.dumps(structure), encoding="utf-8")
+
+    promote = client.post(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge/promote",
+        json={
+            "title": "电商促销",
+            "category": "电商带货",
+            "style": "快节奏促销",
+        },
+    )
+    assert promote.status_code == 422
+    assert "p1-v3" in promote.json()["detail"]
+
+
+def test_promote_blocked_when_promote_ready_false(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    structure_path = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / project_id
+        / "knowledge"
+        / "drafts"
+        / sample_id
+        / "video-structure.json"
+    )
+    structure = json.loads(structure_path.read_text(encoding="utf-8"))
+    structure["analysisQuality"] = {
+        "locale": "zh",
+        "warnings": ["segment_intent_short:seg-hook"],
+        "promoteReady": False,
+    }
+    structure_path.write_text(json.dumps(structure), encoding="utf-8")
+
+    promote = client.post(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge/promote",
+        json={
+            "title": "电商促销",
+            "category": "电商带货",
+            "style": "快节奏促销",
+        },
+    )
+    assert promote.status_code == 422
+    assert "promoteready" in promote.json()["detail"].lower()
 
 
 def test_promote_uses_sample_analysis_for_has_bgm(
