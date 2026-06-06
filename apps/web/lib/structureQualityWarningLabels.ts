@@ -48,6 +48,16 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     };
   }
 
+  if (text === "direct_route_partial_v3") {
+    return {
+      raw,
+      code: text,
+      severity: "info",
+      hidden: true,
+      message: "直连多模态路由未走完整感知流水线（开发者诊断项）。",
+    };
+  }
+
   if (text === "narrative_summary_repeats_segments") {
     return {
       raw,
@@ -127,9 +137,9 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     return {
       raw,
       code: "vision_skipped_digest_coverage",
-      severity: "warn",
+      severity: "info",
+      hidden: true,
       message: `${segmentLabel(segmentId)} 跳过了分段视觉分析（批次 digest 已覆盖该时段）。`,
-      hint: "这是成本优化行为，通常不影响整体结构，但段级画面细节可能较薄。",
     };
   }
 
@@ -137,7 +147,8 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     return {
       raw,
       code: "critic_repair_failed",
-      severity: "warn",
+      severity: "info",
+      hidden: true,
       message: "结构质检 Agent 未能自动修复校验问题。",
     };
   }
@@ -146,7 +157,8 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     return {
       raw,
       code: "critic_skipped",
-      severity: "warn",
+      severity: "info",
+      hidden: true,
       message: "结构质检 Agent 已跳过（模型不可用或超时）。",
     };
   }
@@ -156,6 +168,7 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
       raw,
       code: "keyframe_sampling_applied",
       severity: "info",
+      hidden: true,
       message: "关键帧已抽样压缩以控制分析成本。",
     };
   }
@@ -164,9 +177,9 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     return {
       raw,
       code: text,
-      severity: "warn",
-      message: "节拍点与镜头切点高度重合，可能把物理切镜误当成叙事节拍。",
-      hint: "叙事 beat 应来自口播/音乐节奏，不必与每个 shot 边界对齐。",
+      severity: "info",
+      hidden: true,
+      message: "节拍点与镜头切点高度重合（开发者诊断项）。",
     };
   }
 
@@ -215,8 +228,8 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     raw,
     code: text.split(":")[0] ?? text,
     severity,
+    hidden: true,
     message: text,
-    hint: "此为系统内部质量码，如需排查请联系开发。",
   };
 }
 
@@ -230,6 +243,30 @@ export function formatStructureQualityWarnings(
 
 export function hasCriticalStructureQualityWarnings(warnings: string[]): boolean {
   return warnings.some((raw) => parseStructureQualityWarning(raw).severity === "critical");
+}
+
+export function summarizeStructureQuality(analysisQuality?: {
+  promoteReady?: boolean;
+  warnings?: string[];
+}): string {
+  const rawWarnings = analysisQuality?.warnings ?? [];
+  const visible = formatStructureQualityWarnings(rawWarnings);
+  const critical = visible.filter((item) => item.severity === "critical");
+  const promoteReady = analysisQuality?.promoteReady === true;
+
+  if (critical.length > 0) {
+    return `发现 ${critical.length} 项需优先处理的问题，暂无法加入知识库。`;
+  }
+  if (promoteReady) {
+    if (visible.length === 0) {
+      return "结构质量良好，可以加入知识库。";
+    }
+    return `结构可入库；另有 ${visible.length} 条优化建议（可展开查看）。`;
+  }
+  if (visible.length > 0) {
+    return `结构存在 ${visible.length} 条提示，入库前建议核对。`;
+  }
+  return "结构质量校验完成。";
 }
 
 export function structureQualitySeverityLabel(

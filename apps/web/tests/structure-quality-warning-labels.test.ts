@@ -28,6 +28,17 @@ describe("structureQualityWarningLabels", () => {
     expect(visible[0]?.code).toBe("narrative_summary_repeats_segments");
   });
 
+  it("hides developer-only diagnostics from user-facing panel", () => {
+    const visible = formatStructureQualityWarnings([
+      "direct_route_partial_v3",
+      "beat_points_mirror_shots",
+      "keyframe_sampling_applied:12",
+      "critical: slot_roles_uniform:usage_scene",
+    ]);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.severity).toBe("critical");
+  });
+
   it("detects critical warnings for promote gate messaging", () => {
     expect(
       hasCriticalStructureQualityWarnings([
