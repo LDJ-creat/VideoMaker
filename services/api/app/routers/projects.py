@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import threading
 import uuid
 from pathlib import Path
@@ -663,6 +664,29 @@ def get_latest_generation(project_id: str, request: Request) -> dict[str, Any]:
     )
 
 
+@router.get("/{project_id}/duration-recommendation")
+def get_duration_recommendation(project_id: str, request: Request) -> dict[str, Any]:
+    from app.services.duration_recommendation import build_duration_recommendation
+
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    sample_recommender = _sample_recommender(request)
+    primary_structure: dict[str, Any] | None = None
+    primary_sample: dict[str, Any] | None = None
+    try:
+        selection = sample_recommender.resolve_effective_selection(project_id)
+        primary_sample, primary_structure, _refs = sample_recommender.load_structures_for_selection(
+            selection
+        )
+    except ValueError:
+        primary_structure = store.get_latest_sample_structure(project_id)
+        primary_sample = store.get_latest_analyzed_sample(project_id)
+    return build_duration_recommendation(
+        structure=primary_structure,
+        sample_id=str(primary_sample.get("id")) if isinstance(primary_sample, dict) else None,
+    )
+
+
 @router.post(
     "/{project_id}/generation-plan",
     status_code=status.HTTP_201_CREATED,
@@ -743,22 +767,33 @@ def create_generation_plan(
     assets = store.list_assets(project_id)
 
     completion_lock = threading.Lock()
-    completion_state = {"done": 0, "total": len(variant_ids), "failed": 0, "succeeded": 0}
+    completion_state: dict[str, Any] = {
+        "total": len(variant_ids),
+        "by_generation": {},
+    }
     has_references = bool(reference_structures)
     storage_root: Path = request.app.state.storage_root
 
-    def on_generation_complete(_generation_id: str, result: dict[str, Any]) -> None:
+    def on_generation_complete(generation_id: str, result: dict[str, Any]) -> None:
         with completion_lock:
-            completion_state["done"] = int(completion_state["done"]) + 1
-            if result.get("ok"):
-                completion_state["succeeded"] = int(completion_state["succeeded"]) + 1
+            if result.get("paused"):
+                completion_state["by_generation"][generation_id] = "paused"
+            elif result.get("ok"):
+                completion_state["by_generation"][generation_id] = "succeeded"
             else:
-                completion_state["failed"] = int(completion_state["failed"]) + 1
-            if int(completion_state["done"]) < int(completion_state["total"]):
+                completion_state["by_generation"][generation_id] = "failed"
+
+            by_generation: dict[str, str] = completion_state["by_generation"]
+            if len(by_generation) < int(completion_state["total"]):
                 return
-            failed_count = int(completion_state["failed"])
-            succeeded_count = int(completion_state["succeeded"])
-            if failed_count == 0:
+
+            statuses = list(by_generation.values())
+            failed_count = sum(1 for status in statuses if status == "failed")
+            succeeded_count = sum(1 for status in statuses if status == "succeeded")
+            paused_count = sum(1 for status in statuses if status == "paused")
+            if paused_count == len(statuses) and failed_count == 0:
+                run_status = "awaiting_review"
+            elif failed_count == 0 and succeeded_count == len(statuses):
                 run_status = "completed"
             elif succeeded_count == 0:
                 run_status = "partial_failed"
@@ -807,6 +842,8 @@ def create_generation_plan(
             sample_selection=sample_selection_payload,
             generation_run_id=run_id,
             on_generation_complete=on_generation_complete,
+            human_review_mode=os.getenv("VIDEOMAKER_HUMAN_REVIEW_MODE", "true").strip().lower()
+            in {"1", "true", "yes", "on"},
         )
         generations.append(
             {

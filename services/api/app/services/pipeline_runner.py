@@ -274,6 +274,8 @@ class SubprocessDemoPipeline:
             payload["sampleSelection"] = sample_selection
         if generation_run_id is not None:
             payload["generationRunId"] = generation_run_id
+        if human_review_mode is not None:
+            payload["humanReviewMode"] = human_review_mode
         return self._invoke(payload)
 
     def run_revise(
@@ -700,9 +702,11 @@ class PipelineRunner:
         variant: str = "default",
         sample_selection: dict[str, Any] | None = None,
         generation_run_id: str | None = None,
+        human_review_mode: bool | None = None,
         on_generation_complete: Any | None = None,
     ) -> None:
         def job() -> None:
+            result: dict[str, Any] = {"ok": False}
             try:
                 self.project_store.update_generation(generation_id, status="running", task_id=task_id)
                 if resume:
@@ -713,7 +717,7 @@ class PipelineRunner:
                         progress=5,
                         message="Resuming generation from checkpoint",
                     )
-                result = self._get_pipeline().run_generation(
+                worker_result = self._get_pipeline().run_generation(
                     project_id=project_id,
                     task_id=task_id,
                     generation_id=generation_id,
@@ -725,8 +729,13 @@ class PipelineRunner:
                     variant=variant,
                     sample_selection=sample_selection,
                     generation_run_id=generation_run_id,
+                    human_review_mode=human_review_mode,
                 )
-                if result.get("ok"):
+                result = worker_result
+                if worker_result.get("paused"):
+                    self.project_store.update_generation(generation_id, status="awaiting_review")
+                    return
+                if worker_result.get("ok"):
                     self.project_store.update_generation(
                         generation_id,
                         status="succeeded",
@@ -912,16 +921,35 @@ class PipelineRunner:
 
         self._run_task(task_id, job)
 
+    def _human_review_mode_for_generation(self, generation: dict[str, Any]) -> bool | None:
+        generation_root = (
+            self.storage_root
+            / "projects"
+            / str(generation["projectId"])
+            / "generations"
+            / str(generation["id"])
+        )
+        checkpoint_path = generation_root / "checkpoint.json"
+        if not checkpoint_path.is_file():
+            return None
+        try:
+            data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        if isinstance(data, dict) and "humanReviewMode" in data:
+            return bool(data["humanReviewMode"])
+        return None
+
     def retry_task(self, task_id: str) -> dict[str, Any]:
         current = self.task_events.get_task(task_id)
         if current is None:
             raise KeyError(task_id)
 
         status = current.get("status")
-        if status not in {"failed", "retrying", "running"}:
+        if status not in {"failed", "retrying", "running", "awaiting_review"}:
             raise ValueError(
                 f"Task cannot be retried from status '{status}' "
-                "(expected failed, retrying, or stale running)"
+                "(expected failed, retrying, awaiting_review, or stale running)"
             )
         if self._is_task_active(task_id):
             raise ValueError(
@@ -1011,6 +1039,7 @@ class PipelineRunner:
                 assets=assets,
                 resume=True,
                 variant=variant,
+                human_review_mode=self._human_review_mode_for_generation(generation),
             )
             return updated
 

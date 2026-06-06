@@ -22,6 +22,15 @@ class ReviseGenerationRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
+class ScriptDraftUpdateRequest(BaseModel):
+    masterNarration: str | None = None
+    storyboard: list[dict[str, Any]] | None = None
+
+
+def _generation_root(storage_root: Path, project_id: str, generation_id: str) -> Path:
+    return storage_root / "projects" / project_id / "generations" / generation_id
+
+
 def _project_store(request: Request) -> ProjectStore:
     return ProjectStore(request.app.state.db)
 
@@ -103,6 +112,143 @@ def get_generation(generation_id: str, request: Request) -> dict[str, Any]:
         record,
         storage_root=request.app.state.storage_root,
     )
+
+
+@router.get("/{generation_id}/script-draft")
+def get_script_draft(generation_id: str, request: Request) -> dict[str, Any]:
+    from app.services.script_draft_service import load_script_draft
+
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    try:
+        draft = load_script_draft(storage_root, project_id, generation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Script draft not found") from exc
+    task = _task_events(request).get_task(str(record["taskId"]))
+    return {
+        "draft": draft,
+        "taskStatus": task.get("status") if task else None,
+        "taskStage": task.get("stage") if task else None,
+    }
+
+
+@router.put("/{generation_id}/script-draft")
+def update_script_draft(
+    generation_id: str,
+    payload: ScriptDraftUpdateRequest,
+    request: Request,
+) -> dict[str, Any]:
+    from app.services.script_draft_service import load_script_draft, save_script_draft
+
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    try:
+        draft = load_script_draft(storage_root, project_id, generation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Script draft not found") from exc
+
+    if payload.masterNarration is not None:
+        if draft.get("masterNarrationStatus") == "approved":
+            raise HTTPException(status_code=400, detail="Master narration already approved")
+        draft["masterNarration"] = payload.masterNarration
+    if payload.storyboard is not None:
+        if draft.get("storyboardStatus") == "approved":
+            raise HTTPException(status_code=400, detail="Storyboard already approved")
+        draft["storyboard"] = payload.storyboard
+
+    try:
+        saved = save_script_draft(storage_root, project_id, generation_id, draft)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"draft": saved}
+
+
+@router.post("/{generation_id}/approve-master", status_code=status.HTTP_202_ACCEPTED)
+def approve_master_script(generation_id: str, request: Request) -> dict[str, Any]:
+    from app.services.script_draft_service import (
+        approve_master_draft,
+        load_script_draft,
+        save_script_draft,
+    )
+
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+    try:
+        draft = load_script_draft(storage_root, project_id, generation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Script draft not found") from exc
+    try:
+        approved = approve_master_draft(draft)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_script_draft(storage_root, project_id, generation_id, approved)
+    checkpoint_path = _generation_root(storage_root, project_id, generation_id) / "checkpoint.json"
+    if checkpoint_path.is_file():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if isinstance(checkpoint, dict):
+            checkpoint["awaitingGate"] = None
+            checkpoint_path.write_text(
+                json.dumps(checkpoint, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+    try:
+        _pipeline_runner(request).retry_task(task_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"generationId": generation_id, "taskId": task_id, "draft": approved}
+
+
+@router.post("/{generation_id}/approve-storyboard", status_code=status.HTTP_202_ACCEPTED)
+def approve_storyboard_script(generation_id: str, request: Request) -> dict[str, Any]:
+    from app.services.script_draft_service import (
+        approve_storyboard_draft,
+        load_script_draft,
+        save_script_draft,
+    )
+
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+    try:
+        draft = load_script_draft(storage_root, project_id, generation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Script draft not found") from exc
+    try:
+        approved = approve_storyboard_draft(draft)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    save_script_draft(storage_root, project_id, generation_id, approved)
+    checkpoint_path = _generation_root(storage_root, project_id, generation_id) / "checkpoint.json"
+    if checkpoint_path.is_file():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if isinstance(checkpoint, dict):
+            checkpoint["awaitingGate"] = None
+            checkpoint_path.write_text(
+                json.dumps(checkpoint, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+    try:
+        _pipeline_runner(request).retry_task(task_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"generationId": generation_id, "taskId": task_id, "draft": approved}
 
 
 @router.post("/{generation_id}/revise", status_code=status.HTTP_202_ACCEPTED)

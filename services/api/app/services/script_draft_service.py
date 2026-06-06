@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def script_draft_path(storage_root: Path, project_id: str, generation_id: str) -> Path:
+    return (
+        storage_root
+        / "projects"
+        / project_id
+        / "generations"
+        / generation_id
+        / "script-draft.json"
+    )
+
+
+def load_script_draft(storage_root: Path, project_id: str, generation_id: str) -> dict[str, Any]:
+    path = script_draft_path(storage_root, project_id, generation_id)
+    if not path.is_file():
+        raise FileNotFoundError("script-draft.json not found")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid script draft payload")
+    return payload
+
+
+def save_script_draft(
+    storage_root: Path,
+    project_id: str,
+    generation_id: str,
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.contract_validation import validate_script_draft
+
+    validation = validate_script_draft(draft)
+    if not validation.valid:
+        details = "; ".join(f"{item.path}: {item.message}" for item in validation.errors[:5])
+        raise ValueError(f"Invalid ScriptDraft payload: {details}")
+    path = script_draft_path(storage_root, project_id, generation_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+    return draft
+
+
+def approve_master_draft(draft: dict[str, Any], *, approved_by: str = "user") -> dict[str, Any]:
+    merged = dict(draft)
+    master = str(merged.get("masterNarration") or "").strip()
+    if not master:
+        raise ValueError("masterNarration must not be empty before approval")
+    merged["masterNarration"] = master
+    merged["masterNarrationStatus"] = "approved"
+    merged["masterApprovedAt"] = _utc_now_iso()
+    merged["approvedBy"] = approved_by
+    return merged
+
+
+def approve_storyboard_draft(draft: dict[str, Any], *, approved_by: str = "user") -> dict[str, Any]:
+    merged = dict(draft)
+    storyboard = merged.get("storyboard")
+    if not isinstance(storyboard, list) or not storyboard:
+        raise ValueError("storyboard must not be empty before approval")
+    if merged.get("masterNarrationStatus") != "approved":
+        raise ValueError("Master narration must be approved before storyboard approval")
+    merged["storyboardStatus"] = "approved"
+    merged["storyboardApprovedAt"] = _utc_now_iso()
+    merged["approvedBy"] = approved_by
+    return merged
