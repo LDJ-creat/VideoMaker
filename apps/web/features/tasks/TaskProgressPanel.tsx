@@ -16,6 +16,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { TaskArtifactPreview } from "@/features/tasks/TaskArtifactPreview";
 import { getTaskStageLabel } from "@/features/tasks/stageLabels";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
+import {
+  assetUnderstandingRouteLabel,
+  inferAssetUnderstandingRouteFromEvent,
+} from "@/lib/assetUnderstandingRouteLabels";
 import { formatTaskError } from "@/lib/formatTaskError";
 
 type TaskProgressPanelProps = {
@@ -47,6 +51,7 @@ export function TaskProgressPanel({
   retryLabel = "重试任务",
 }: TaskProgressPanelProps) {
   const formattedError = formatTaskError(event?.error);
+  const assetRoute = inferAssetUnderstandingRouteFromEvent(event);
 
   if (!event) {
     return (
@@ -77,6 +82,14 @@ export function TaskProgressPanel({
             <span className="font-mono text-xs">{event.taskId}</span>
             <span className="mx-1">·</span>
             <span>{stageLabel}</span>
+            {assetRoute && (
+              <>
+                <span className="mx-1">·</span>
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {assetUnderstandingRouteLabel(assetRoute)}
+                </Badge>
+              </>
+            )}
           </CardDescription>
         </div>
         <Badge variant="outline">{modeLabel}</Badge>

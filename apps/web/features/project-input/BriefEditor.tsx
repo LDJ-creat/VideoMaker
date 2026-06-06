@@ -1,9 +1,11 @@
 "use client";
 
+import type { ContentCategory } from "@videomaker/contracts";
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useState,
 } from "react";
 
@@ -20,7 +22,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { UserBriefRequest } from "@/lib/apiClient";
 import { saveBrief } from "@/lib/apiClient";
+import {
+  briefFieldLabels,
+  CONTENT_CATEGORY_OPTIONS,
+  defaultContentCategory,
+} from "@/lib/briefFieldLabels";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 function splitLines(value: string): string[] {
   return value
@@ -45,44 +53,75 @@ type BriefEditorProps = {
 
 export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
   function BriefEditor({ projectId, initialBrief, onSaved }, ref) {
+    const [contentCategory, setContentCategory] = useState<ContentCategory>("general");
     const [topic, setTopic] = useState("");
-    const [productName, setProductName] = useState("");
-    const [sellingPoints, setSellingPoints] = useState("");
+    const [creativeGoal, setCreativeGoal] = useState("");
+    const [subjectName, setSubjectName] = useState("");
+    const [keyPoints, setKeyPoints] = useState("");
     const [targetAudience, setTargetAudience] = useState("");
     const [tone, setTone] = useState("");
     const [mustMention, setMustMention] = useState("");
     const [avoidMention, setAvoidMention] = useState("");
+    const [supplementalNotes, setSupplementalNotes] = useState("");
     const [status, setStatus] = useState<string | null>(null);
 
     useEffect(() => {
       if (initialBrief === undefined) return;
+      setContentCategory(defaultContentCategory(initialBrief));
       setTopic(initialBrief?.topic ?? "");
-      setProductName(initialBrief?.productName ?? "");
-      setSellingPoints(linesFromList(initialBrief?.sellingPoints));
+      setCreativeGoal(initialBrief?.creativeGoal ?? "");
+      setSubjectName(
+        initialBrief?.subjectName ?? initialBrief?.productName ?? "",
+      );
+      setKeyPoints(
+        linesFromList(initialBrief?.keyPoints ?? initialBrief?.sellingPoints),
+      );
       setTargetAudience(initialBrief?.targetAudience ?? "");
       setTone(initialBrief?.tone ?? "");
       setMustMention(linesFromList(initialBrief?.mustMention));
       setAvoidMention(linesFromList(initialBrief?.avoidMention));
+      setSupplementalNotes(initialBrief?.supplementalNotes ?? "");
     }, [initialBrief]);
 
-    const buildBrief = (): UserBriefRequest => ({
-      topic: topic || undefined,
-      productName: productName || undefined,
-      sellingPoints: splitLines(sellingPoints),
-      targetAudience: targetAudience || undefined,
-      tone: tone || undefined,
-      mustMention: splitLines(mustMention),
-      avoidMention: splitLines(avoidMention),
-    });
+    const labels = useMemo(
+      () => briefFieldLabels(contentCategory),
+      [contentCategory],
+    );
+
+    const buildBrief = (): UserBriefRequest => {
+      const points = splitLines(keyPoints);
+      const brief: UserBriefRequest = {
+        contentCategory,
+        sellingPoints: points,
+        mustMention: splitLines(mustMention),
+        avoidMention: splitLines(avoidMention),
+      };
+      if (topic.trim()) brief.topic = topic.trim();
+      if (creativeGoal.trim()) brief.creativeGoal = creativeGoal.trim();
+      if (subjectName.trim()) {
+        brief.subjectName = subjectName.trim();
+        brief.productName = subjectName.trim();
+      }
+      if (points.length) brief.keyPoints = points;
+      if (targetAudience.trim()) brief.targetAudience = targetAudience.trim();
+      if (tone.trim()) brief.tone = tone.trim();
+      if (supplementalNotes.trim()) {
+        brief.supplementalNotes = supplementalNotes.trim();
+      }
+      return brief;
+    };
 
     useImperativeHandle(ref, () => ({ getBrief: buildBrief }), [
+      contentCategory,
       topic,
-      productName,
-      sellingPoints,
+      creativeGoal,
+      subjectName,
+      keyPoints,
       targetAudience,
       tone,
       mustMention,
       avoidMention,
+      supplementalNotes,
     ]);
 
     const handleSave = async () => {
@@ -102,67 +141,126 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
         <CardHeader>
           <CardTitle>创作 Brief</CardTitle>
           <CardDescription>
-            结构化输入，驱动素材分析与槽位映射；生成计划前会自动保存
+            描述创作意图与约束；上传素材后，系统会结合样例结构统一理解
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid gap-4">
           <div className="space-y-2">
-            <Label htmlFor="brief-topic">主题</Label>
-            <Input
-              id="brief-topic"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
+            <Label>内容类型</Label>
+            <div className="flex flex-wrap gap-2">
+              {CONTENT_CATEGORY_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cn(
+                    "rounded-md border px-3 py-1.5 text-left text-sm transition-colors",
+                    contentCategory === option.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border hover:bg-muted/50",
+                  )}
+                  onClick={() => setContentCategory(option.value)}
+                >
+                  <span className="font-medium">{option.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {
+                CONTENT_CATEGORY_OPTIONS.find(
+                  (item) => item.value === contentCategory,
+                )?.description
+              }
+            </p>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="brief-product">产品名</Label>
-            <Input
-              id="brief-product"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-            />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="brief-topic">主题</Label>
+              <Input
+                id="brief-topic"
+                value={topic}
+                placeholder={labels.topicPlaceholder}
+                onChange={(e) => setTopic(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="brief-subject">{labels.subjectName}</Label>
+              <Input
+                id="brief-subject"
+                value={subjectName}
+                onChange={(e) => setSubjectName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="brief-goal">创作目标</Label>
+              <Input
+                id="brief-goal"
+                value={creativeGoal}
+                placeholder={labels.creativeGoalPlaceholder}
+                onChange={(e) => setCreativeGoal(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="brief-key-points">{labels.keyPoints}</Label>
+              <Textarea
+                id="brief-key-points"
+                value={keyPoints}
+                onChange={(e) => setKeyPoints(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="brief-audience">目标受众</Label>
+              <Input
+                id="brief-audience"
+                value={targetAudience}
+                onChange={(e) => setTargetAudience(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="brief-tone">语气</Label>
+              <Input
+                id="brief-tone"
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="brief-notes">补充说明</Label>
+              <Textarea
+                id="brief-notes"
+                value={supplementalNotes}
+                maxLength={500}
+                placeholder="可选：补充背景、素材使用说明、禁忌场景等"
+                onChange={(e) => setSupplementalNotes(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="brief-selling">卖点（每行一条）</Label>
-            <Textarea
-              id="brief-selling"
-              value={sellingPoints}
-              onChange={(e) => setSellingPoints(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="brief-audience">目标受众</Label>
-            <Input
-              id="brief-audience"
-              value={targetAudience}
-              onChange={(e) => setTargetAudience(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="brief-tone">语气</Label>
-            <Input
-              id="brief-tone"
-              value={tone}
-              onChange={(e) => setTone(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="brief-must">必须提及（每行一条）</Label>
-            <Textarea
-              id="brief-must"
-              value={mustMention}
-              onChange={(e) => setMustMention(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
-            <Textarea
-              id="brief-avoid"
-              value={avoidMention}
-              onChange={(e) => setAvoidMention(e.target.value)}
-            />
-          </div>
-          <div className="md:col-span-2 flex items-center gap-3">
+
+          <details className="rounded-md border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              高级约束（必须 / 禁止提及）
+            </summary>
+            <div className="mt-3 grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="brief-must">必须提及（每行一条）</Label>
+                <Textarea
+                  id="brief-must"
+                  value={mustMention}
+                  onChange={(e) => setMustMention(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
+                <Textarea
+                  id="brief-avoid"
+                  value={avoidMention}
+                  onChange={(e) => setAvoidMention(e.target.value)}
+                />
+              </div>
+            </div>
+          </details>
+
+          <div className="flex items-center gap-3">
             <Button type="button" onClick={() => void handleSave()}>
               保存 Brief
             </Button>

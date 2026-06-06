@@ -67,7 +67,7 @@ const PROVIDER_META: Record<
   },
   videoUnderstanding: {
     label: "视频理解",
-    description: "样例视频直连多模态结构分析（Doubao/Ark）",
+    description: "样例视频直连多模态结构分析 + 用户素材统一理解（Doubao/Ark）",
     icon: ScanEye,
   },
   image: {

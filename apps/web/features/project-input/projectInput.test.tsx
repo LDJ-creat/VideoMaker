@@ -96,14 +96,16 @@ describe("project input panels", () => {
     expect(screen.getAllByRole("status")[0]).toHaveTextContent(/链接/);
   });
 
-  it("uploads assets with image/video accept types", () => {
+  it("uploads assets with image/video/text accept types", () => {
     render(<AssetInputPanel projectId="proj-1" assets={[]} />);
     const input = screen.getByLabelText(/上传用户素材/i);
-    expect(input).toHaveAttribute("accept", "image/*,video/*");
+    expect(input.getAttribute("accept")).toContain("image/*");
+    expect(input.getAttribute("accept")).toContain("video/*");
+    expect(input.getAttribute("accept")).toContain(".txt");
     expect(input).toHaveAttribute("multiple");
   });
 
-  it("submits structured brief matching UserBriefRequest", async () => {
+  it("submits structured brief matching UserBriefRequest v2", async () => {
     const save = vi.spyOn(apiClient, "saveBrief").mockResolvedValue({
       data: { ok: true },
       meta: { dataSource: "api" },
@@ -112,15 +114,21 @@ describe("project input panels", () => {
 
     render(<BriefEditor projectId="proj-1" />);
 
-    await user.type(screen.getByLabelText(/主题/i), "夏季防晒");
-    await user.type(screen.getByLabelText(/产品名/i), "清爽喷雾");
-    await user.type(screen.getByLabelText(/卖点/i), "轻薄不黏\n12小时防护");
+    await user.click(screen.getByRole("button", { name: "带货种草" }));
+    await user.type(screen.getByLabelText(/^主题$/i), "夏季防晒");
+    await user.type(screen.getByLabelText(/^产品名$/i), "清爽喷雾");
+    await user.type(screen.getByLabelText(/^创作目标$/i), "促进转化");
+    await user.type(screen.getByLabelText(/^卖点/i), "轻薄不黏\n12小时防护");
     await user.click(screen.getByRole("button", { name: /保存 Brief/i }));
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("proj-1", {
+        contentCategory: "product_commerce",
         topic: "夏季防晒",
+        creativeGoal: "促进转化",
+        subjectName: "清爽喷雾",
         productName: "清爽喷雾",
+        keyPoints: ["轻薄不黏", "12小时防护"],
         sellingPoints: ["轻薄不黏", "12小时防护"],
         mustMention: [],
         avoidMention: [],

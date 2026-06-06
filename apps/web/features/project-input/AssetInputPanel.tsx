@@ -17,11 +17,11 @@ import type { ProjectAsset } from "@/lib/apiClient";
 import { uploadAsset } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
-import { validateUploadSize } from "@/lib/validation";
+import { validateAssetUploadSize } from "@/lib/validation";
 
 const ASSET_PAGE_SIZE = 4;
 
-type AssetFilter = "all" | "image" | "video";
+type AssetFilter = "all" | "image" | "video" | "text";
 
 type AssetInputPanelProps = {
   projectId: string;
@@ -31,6 +31,13 @@ type AssetInputPanelProps = {
 };
 
 function AssetPreview({ asset }: { asset: ProjectAsset }) {
+  if (asset.type === "text") {
+    return (
+      <p className="line-clamp-5 whitespace-pre-wrap text-xs text-muted-foreground">
+        {asset.description ?? asset.uri}
+      </p>
+    );
+  }
   if (!asset.previewUrl) {
     return (
       <p className="text-xs text-muted-foreground truncate">
@@ -70,7 +77,7 @@ function AssetCard({ asset }: { asset: ProjectAsset }) {
         </span>
       </div>
       <AssetPreview asset={asset} />
-      {asset.description && (
+      {asset.description && asset.type !== "text" && (
         <p className="text-xs text-muted-foreground truncate">
           {asset.description}
         </p>
@@ -97,6 +104,10 @@ export function AssetInputPanel({
     () => assets.filter((asset) => asset.type === "video").length,
     [assets],
   );
+  const textCount = useMemo(
+    () => assets.filter((asset) => asset.type === "text").length,
+    [assets],
+  );
 
   const filteredAssets = useMemo(() => {
     if (assetFilter === "all") return assets;
@@ -109,7 +120,7 @@ export function AssetInputPanel({
     const names: string[] = [];
     try {
       for (const file of files) {
-        const sizeError = validateUploadSize(file);
+        const sizeError = validateAssetUploadSize(file);
         if (sizeError) {
           setStatus(sizeError);
           return;
@@ -130,15 +141,17 @@ export function AssetInputPanel({
     <Card className={cn("flex h-full flex-col", className)}>
       <CardHeader className="shrink-0">
         <CardTitle>用户素材</CardTitle>
-        <CardDescription>支持图片与视频，用于结构槽匹配</CardDescription>
+        <CardDescription>
+          Brief 描述创作意图，图片/视频/文案素材将一起用于统一理解
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
         <FileDropzone
-          accept="image/*,video/*"
+          accept="image/*,video/*,.txt,.md,text/plain,text/markdown"
           multiple
           disabled={busy}
           title="上传用户素材"
-          hint="点击选择或拖拽一个或多个图片/视频文件到此处，支持批量上传"
+          hint="点击选择或拖拽图片、视频或文案（.txt / .md）到此处，支持批量上传"
           onFiles={(files) => void handleUpload(files)}
         />
 
@@ -148,10 +161,11 @@ export function AssetInputPanel({
             onValueChange={(value) => setAssetFilter(value as AssetFilter)}
             className="shrink-0"
           >
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="all">全部 ({assets.length})</TabsTrigger>
               <TabsTrigger value="image">图片 ({imageCount})</TabsTrigger>
               <TabsTrigger value="video">视频 ({videoCount})</TabsTrigger>
+              <TabsTrigger value="text">文案 ({textCount})</TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -163,10 +177,12 @@ export function AssetInputPanel({
             renderItem={(asset) => <AssetCard asset={asset} />}
             emptyMessage={
               assetFilter === "all"
-                ? "暂无素材，请上传图片或视频。"
+                ? "暂无素材，请上传图片、视频或文案。"
                 : assetFilter === "image"
                   ? "暂无图片素材。"
-                  : "暂无视频素材。"
+                  : assetFilter === "video"
+                    ? "暂无视频素材。"
+                    : "暂无文案素材。"
             }
           />
         </div>
