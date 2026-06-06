@@ -39,6 +39,7 @@ type SampleInputPanelProps = {
   onTaskStarted: (taskId: string, sampleId: string) => void;
   onBatchAnalysisStarted?: (
     tasks: Array<{ sampleId: string; taskId: string }>,
+    maxConcurrent: number,
   ) => void;
   onSampleReady: (sampleId: string) => void;
   onSampleChanged?: () => void;
@@ -101,7 +102,7 @@ export function SampleInputPanel({
         setStatus("当前批次没有待分析样例。");
         return;
       }
-      onBatchAnalysisStarted?.(data.tasks);
+      onBatchAnalysisStarted?.(data.tasks, data.maxConcurrent);
       setStatus(`已提交 ${data.tasks.length} 个分析任务`);
     } catch (err) {
       setStatus(getErrorMessage(err));

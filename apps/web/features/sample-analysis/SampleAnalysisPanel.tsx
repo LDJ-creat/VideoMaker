@@ -18,6 +18,7 @@ import {
 import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
+import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
 import type { ActiveSampleSummary, SampleKeyframeRecord } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 
@@ -169,7 +170,7 @@ export function SampleAnalysisPanel({
         <CardHeader className="shrink-0 pb-3">
           <CardTitle>已分析样例</CardTitle>
           <CardDescription>
-            共 {analyzed.length} 个。结构证据、叙事分段与知识草稿均属于单个样例，请在此切换。
+            共 {analyzed.length} 个。结构证据、结构槽、叙事分段与知识草稿均属于单个样例，请在此切换。
           </CardDescription>
         </CardHeader>
         <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain">
@@ -254,6 +255,10 @@ export function SampleAnalysisPanel({
                 highlightedSlotIds={highlightedSlotIds}
                 onHighlightSlot={onHighlightSlot}
                 analysisStage={analysisStage}
+              />
+              <StructureSlotBoard
+                structure={structure}
+                highlightedSlotIds={highlightedSlotIds}
               />
               {sampleAnalysisFacts?.audioProfile ? (
                 <Card>

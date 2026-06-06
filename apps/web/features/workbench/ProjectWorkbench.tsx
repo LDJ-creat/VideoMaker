@@ -44,7 +44,8 @@ import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatc
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
 import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
-import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
+import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
+import { buildRecentSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
 import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
@@ -103,7 +104,6 @@ export type WorkbenchPanel =
   | "progress"
   | "script-review"
   | "analysis"
-  | "structure"
   | "gap"
   | "timeline"
   | "narration"
@@ -115,7 +115,6 @@ const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   progress: "进度",
   "script-review": "脚本审核",
   analysis: "样例分析",
-  structure: "结构槽",
   gap: "缺口",
   timeline: "时间线",
   narration: "全片口播",
@@ -239,9 +238,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [activeGenerations, setActiveGenerations] = useState<ActiveGeneration[]>(
     [],
   );
-  const [analysisBatchTasks, setAnalysisBatchTasks] = useState<
-    Array<{ sampleId: string; taskId: string }>
-  >([]);
+  const [analysisBatch, setAnalysisBatch] = useState<{
+    tasks: Array<{ sampleId: string; taskId: string }>;
+    maxConcurrent: number;
+  } | null>(null);
   const [activeGenerationRunId, setActiveGenerationRunId] = useState<
     string | null
   >(null);
@@ -450,6 +450,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
     if (saved?.taskId) {
       setTaskId(saved.taskId);
+    }
+    if (saved?.analysisBatch?.tasks?.length) {
+      setAnalysisBatch(saved.analysisBatch);
+    }
+    if (saved?.taskId || saved?.analysisBatch?.tasks?.length) {
       setPanel("progress");
     }
     void loadProjectInput();
@@ -467,6 +472,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       activeVariantGenerationId,
       reviseIntents,
       preReviseGenerationId: preRevisePlan?.id ?? null,
+      analysisBatch,
     });
   }, [
     projectId,
@@ -479,6 +485,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     activeVariantGenerationId,
     reviseIntents,
     preRevisePlan,
+    analysisBatch,
   ]);
 
   const loadGenerationIntoVariants = useCallback(
@@ -611,12 +618,50 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   const [progressWatchKey, setProgressWatchKey] = useState(0);
 
+  const progressSampleLabel = useMemo(() => {
+    if (!sampleId) return undefined;
+    const sample = projectSamples.find((entry) => entry.id === sampleId);
+    return sample ? sampleDisplayName(sample) : `样例 ${sampleId.slice(0, 8)}`;
+  }, [projectSamples, sampleId]);
+
+  const progressAnalysisBatch = useMemo(() => {
+    if (lastAction === "generation" || lastAction === "revise") {
+      return null;
+    }
+    if (analysisBatch?.tasks.length) {
+      return analysisBatch;
+    }
+    const recent = buildRecentSampleAnalysisTasks(projectSamples);
+    if (recent.length >= 2) {
+      return { tasks: recent, maxConcurrent: 2 };
+    }
+    return null;
+  }, [analysisBatch, lastAction, projectSamples]);
+
+  const singleProgressTaskId = useMemo(() => {
+    if (lastAction === "generation" || progressAnalysisBatch) {
+      return null;
+    }
+    if (taskId) {
+      return taskId;
+    }
+    const recent = buildRecentSampleAnalysisTasks(projectSamples);
+    return recent.length === 1 ? recent[0]!.taskId : null;
+  }, [lastAction, progressAnalysisBatch, projectSamples, taskId]);
+
+  const isBatchAnalysisProgress =
+    progressAnalysisBatch != null && progressAnalysisBatch.tasks.length > 0;
+
   const isGenerationProgress =
     lastAction === "generation" && activeGenerations.length > 0;
 
   const { event, mode, sseFailureCount, error } = useTaskProgress({
-    taskId: isGenerationProgress ? null : taskId,
-    enabled: !isGenerationProgress && Boolean(taskId),
+    taskId:
+      isGenerationProgress || isBatchAnalysisProgress ? null : singleProgressTaskId,
+    enabled:
+      !isGenerationProgress &&
+      !isBatchAnalysisProgress &&
+      Boolean(singleProgressTaskId),
     watchKey: progressWatchKey,
     onTerminal: handleTerminal,
   });
@@ -657,6 +702,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     (nextTaskId: string, nextSampleId: string) => {
       setLastAction("analysis");
       setActiveGenerations([]);
+      setAnalysisBatch(null);
       setTaskId(nextTaskId);
       setSampleId(nextSampleId);
       setPanel("progress");
@@ -675,7 +721,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setSampleId(targetSampleId);
       const { data } = await startSampleAnalysis(targetSampleId);
       setTaskId(data.taskId);
-      setAnalysisBatchTasks([]);
+      setAnalysisBatch(null);
       setPanel("progress");
     } catch (err) {
       setDataError(getErrorMessage(err));
@@ -905,7 +951,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     "progress",
     "script-review",
     "analysis",
-    "structure",
     "gap",
     "timeline",
     "narration",
@@ -980,11 +1025,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             {PANEL_LABELS[key]}
           </Button>
         ))}
-        {taskId && !isGenerationProgress && (
-          <Badge variant="ai" className="ml-auto">
-            任务 {taskId}
+        {taskId && !isGenerationProgress && !isBatchAnalysisProgress && (
+          <Badge variant="outline" className="ml-auto font-normal">
+            单任务进度
           </Badge>
         )}
+        {isBatchAnalysisProgress && progressAnalysisBatch ? (
+          <Badge variant="ai" className="ml-auto">
+            批量分析 {progressAnalysisBatch.tasks.length} 个
+          </Badge>
+        ) : null}
         {isGenerationProgress && (
           <Badge variant="ai" className="ml-auto">
             {activeGenerations.length} 个变体任务
@@ -1001,8 +1051,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               activeSample={activeSample}
               selectedSampleId={sampleId}
               onTaskStarted={handleTaskStarted}
-              onBatchAnalysisStarted={(tasks) => {
-                setAnalysisBatchTasks(tasks);
+              onBatchAnalysisStarted={(tasks, maxConcurrent) => {
+                setAnalysisBatch({ tasks, maxConcurrent });
                 setLastAction("analysis");
                 setPanel("progress");
               }}
@@ -1062,10 +1112,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
         {panel === "progress" && (
           <div className="lg:col-span-2 space-y-4">
-            {analysisBatchTasks.length > 0 && lastAction === "analysis" && (
+            {isBatchAnalysisProgress && progressAnalysisBatch ? (
               <SampleBatchAnalysisProgress
                 projectId={projectId}
-                tasks={analysisBatchTasks}
+                samples={projectSamples}
+                tasks={progressAnalysisBatch.tasks}
+                maxConcurrent={progressAnalysisBatch.maxConcurrent}
                 onAllComplete={() => {
                   void loadProjectInput();
                   if (sampleId) {
@@ -1073,10 +1125,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   }
                 }}
               />
-            )}
-            {isGenerationProgress ? (
+            ) : isGenerationProgress ? (
               <MultiTaskProgressPanel
                 projectId={projectId}
+                title="生成计划"
                 tasks={activeGenerations.map((entry) => ({
                   taskId: entry.taskId,
                   label: entry.label,
@@ -1097,6 +1149,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 mode={mode}
                 sseFailureCount={sseFailureCount}
                 error={error}
+                title={
+                  lastAction === "revise"
+                    ? "改片任务"
+                    : lastAction === "analysis"
+                      ? "样例分析"
+                      : "任务进度"
+                }
+                subtitle={lastAction === "analysis" ? progressSampleLabel : undefined}
                 retryBusy={busy}
                 retryLabel={
                   lastAction === "revise"
@@ -1155,19 +1215,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 lastAction === "analysis" ? event?.stage : undefined
               }
             />
-          </div>
-        )}
-
-        {panel === "structure" && (
-          <div className="lg:col-span-2">
-            {structure ? (
-              <StructureSlotBoard
-                structure={structure}
-                highlightedSlotIds={highlightedSlotIds}
-              />
-            ) : (
-              <EmptyPanel message="暂无结构槽数据。" />
-            )}
           </div>
         )}
 

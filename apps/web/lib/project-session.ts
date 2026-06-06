@@ -14,6 +14,10 @@ export type ProjectSessionState = {
   activeVariantGenerationId?: string | null;
   reviseIntents?: EditIntentItem[] | null;
   preReviseGenerationId?: string | null;
+  analysisBatch?: {
+    tasks: Array<{ sampleId: string; taskId: string }>;
+    maxConcurrent: number;
+  } | null;
 };
 
 export function loadProjectSession(projectId: string): ProjectSessionState | null {
