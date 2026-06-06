@@ -480,6 +480,28 @@ def test_promote_draft_is_idempotent(client: TestClient, tmp_path: Path) -> None
     assert len(matching) == 1
 
 
+def test_knowledge_draft_reports_published_entry(client: TestClient, tmp_path: Path) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+
+    draft_before = client.get(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge-draft",
+    )
+    assert draft_before.status_code == 200
+    assert draft_before.json().get("publishedEntry") is None
+
+    entry_id = _promote_entry(client, project_id, sample_id)
+
+    draft_after = client.get(
+        f"/api/projects/{project_id}/samples/{sample_id}/knowledge-draft",
+    )
+    assert draft_after.status_code == 200
+    published = draft_after.json()["publishedEntry"]
+    assert published["id"] == entry_id
+    assert published["title"]
+
+
 def test_generation_plan_uses_payload_brief(client: TestClient, tmp_path: Path) -> None:
     project_id = _create_project(client)
     sample_id = str(uuid.uuid4())

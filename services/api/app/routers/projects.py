@@ -164,6 +164,7 @@ def _sample_summary(
         "previewUrl": sample_media_path(project_id, sample["id"]) if video_uri else None,
         "uploadBatchId": upload_batch_id,
         "batchCreatedAt": batch_created_at,
+        "taskId": sample.get("taskId"),
     }
 
 

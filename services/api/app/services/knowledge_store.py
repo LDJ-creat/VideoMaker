@@ -264,7 +264,7 @@ class KnowledgeStore:
             return None
         meta_path = root / "entry-meta.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
-        return {
+        draft: dict[str, Any] = {
             "projectId": project_id,
             "sampleId": sample_id,
             "skillMarkdown": skill_path.read_text(encoding="utf-8"),
@@ -272,6 +272,16 @@ class KnowledgeStore:
             "skillMdUri": rel_uri(self.storage_root, skill_path),
             "structureJsonUri": rel_uri(self.storage_root, root / "video-structure.json"),
         }
+        published = self.find_published_by_source(project_id, sample_id)
+        if published is not None:
+            draft["publishedEntry"] = {
+                "id": published["id"],
+                "title": published.get("title"),
+                "category": published.get("category"),
+                "style": published.get("style"),
+                "updatedAt": published.get("updatedAt"),
+            }
+        return draft
 
     def promote_draft(
         self,
