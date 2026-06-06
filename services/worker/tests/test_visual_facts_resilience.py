@@ -123,7 +123,10 @@ def test_batch_failure_persists_completed_digest_and_warning(
 
     sample_path = analysis_root / "sample-analysis.json"
     persisted = json.loads(sample_path.read_text(encoding="utf-8"))
-    assert len(persisted.get("keyframeBatchDigests") or []) == 1
+    digests = persisted.get("keyframeBatchDigests") or []
+    assert len(digests) == 1
+    assert digests[0].get("digestRef") == "batch-digests/batch-0.json"
+    assert "visualFacts" not in digests[0]
     assert any("vision_batch_1_failed" in item for item in persisted.get("warnings") or [])
 
 

@@ -118,7 +118,7 @@ def run_structure_compiler(
         "onScreenTextFacts": list(analysis.get("onScreenTextFacts") or [])[:24],
         "proposal": proposal,
         "segmentAnalyses": _slim_segment_analyses(segment_analyses),
-        "version": "p1-v2",
+        "version": "p1-v3",
     }
     if validation_errors:
         inputs["validationErrors"] = validation_errors

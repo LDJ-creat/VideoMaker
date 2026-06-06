@@ -21,6 +21,7 @@ from app.perception.sample_facts import (
     persist_sample_analysis,
     run_visual_facts_extraction,
 )
+from app.perception.visual_facts_progress import load_existing_digests, load_visual_facts_progress
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.failure_debug import tool_error_from_agent_failure
 from app.config.variants import load_variant_gap_planner_overrides
@@ -452,9 +453,16 @@ class P0DemoPipeline:
                     }}
                 sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
                 if warnings:
+                    progress = load_visual_facts_progress(analysis_root) or {}
+                    total_batches = int(progress.get("totalBatches") or 0)
+                    batch_digests = (
+                        load_existing_digests(analysis_root, total_batches)
+                        if total_batches > 0
+                        else []
+                    )
                     sample_analysis = merge_visual_facts_into_sample_analysis(
                         sample_analysis,
-                        batch_digests=list(sample_analysis.get("keyframeBatchDigests") or []),
+                        batch_digests=batch_digests,
                         warnings=warnings,
                     )
                     persist_sample_analysis(analysis_root, sample_analysis)

@@ -126,10 +126,12 @@ def _post_validate(
 ) -> dict[str, Any]:
     route = str((analysis or {}).get("structureAnalysisRoute") or "")
     refs = None if route == "direct_multimodal" else reference_shots
+    anti_template = route != "direct_multimodal"
     return validate_video_structure(
         structure,
         reference_shots=refs,
         analysis=analysis,
+        anti_template=anti_template,
     )
 
 
@@ -282,7 +284,7 @@ def run_video_structure_analyst(
                 )
             structure.setdefault("projectId", project_id)
             structure.setdefault("sourceVideoId", source_video_id)
-            structure.setdefault("version", "p1-v2")
+            structure.setdefault("version", "p1-v3")
             return structure
         except LLMToolValidationError as exc:
             if attempt >= _MAX_REPAIR_ATTEMPTS:

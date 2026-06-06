@@ -373,10 +373,11 @@ def run_structure_analysis_pipeline(
             if warning not in existing_warnings:
                 existing_warnings.append(warning)
         analysis_quality["warnings"] = existing_warnings
+        analysis_quality["promoteReady"] = bool(quality.get("promoteReady"))
         structure["analysisQuality"] = analysis_quality
         structure.setdefault("projectId", project_id)
         structure.setdefault("sourceVideoId", source_video_id)
-        structure.setdefault("version", "p1-v2")
+        structure.setdefault("version", "p1-v3")
         _persist_json(root / "video-structure.json", structure)
         checkpoint.mark_stage_complete("critiquing_structure")
         checkpoint.save(checkpoint_path)
@@ -385,6 +386,7 @@ def run_structure_analysis_pipeline(
         analysis_quality = dict(structure.get("analysisQuality") or {})
         if not analysis_quality.get("warnings"):
             analysis_quality["warnings"] = list(quality.get("warnings") or []) + segment_vision_warnings
+            analysis_quality["promoteReady"] = bool(quality.get("promoteReady"))
             structure["analysisQuality"] = analysis_quality
 
     return structure

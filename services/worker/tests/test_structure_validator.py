@@ -5,15 +5,72 @@ from pathlib import Path
 
 import pytest
 
+from app.validation.structure_coercer import coerce_video_structure
 from app.validation.structure_validator import (
     StructureValidationError,
     validate_video_structure,
 )
 
 
+def _coerce_fixture(raw: dict) -> dict:
+    analysis_path = Path(__file__).parent / "fixtures" / "sample_analysis.json"
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    return coerce_video_structure(
+        raw,
+        project_id=str(raw.get("projectId") or "project-1"),
+        source_video_id=str(raw.get("sourceVideoId") or "sample-1"),
+        analysis=analysis,
+    )
+
+
+def _minimal_hook_payload(**overrides: object) -> dict:
+    base = {
+        "confidence": 0.8,
+        "metadata": {"durationSec": 10.0},
+        "narrative": {
+            "summary": "中文摘要足够长用于测试",
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "hook",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "scriptSummary": "反问式痛点开场建立停滑",
+                    "visualSummary": "胸景口播快切产品 UI 特写",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                    "intent": "停滑",
+                }
+            ],
+        },
+        "rhythm": {
+            "totalDurationSec": 10.0,
+            "shotCount": 1,
+            "avgShotDurationSec": 10.0,
+            "tempo": "fast",
+            "beatPoints": [0.0, 10.0],
+            "shotBoundaries": [
+                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
+            ],
+        },
+        "slots": [],
+        "evidence": [
+            {
+                "targetId": "seg-1",
+                "source": "asr",
+                "summary": "0-2s 反问",
+                "excerpt": "还在花冤枉钱？",
+                "confidence": 0.8,
+            }
+        ],
+    }
+    for key, value in overrides.items():
+        base[key] = value
+    return _coerce_fixture(base)
+
+
 def _valid_structure() -> dict:
     path = Path(__file__).parent / "fixtures" / "agents" / "structure_analyst.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _coerce_fixture(json.loads(path.read_text(encoding="utf-8")))
 
 
 def test_validate_accepts_fixture_structure() -> None:
@@ -132,92 +189,22 @@ def test_validate_skips_shot_alignment_when_reference_shots_none() -> None:
 
 
 def test_validate_accepts_keyframe_evidence_with_timestamp_without_path() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "transcriptExcerpt": "还在花冤枉钱？",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [0.0, 10.0],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
+    structure = _minimal_hook_payload(
+        evidence=[
             {
                 "targetId": "seg-1",
                 "source": "keyframe",
                 "summary": "0.8s 快切至产品 UI 特写，底部黄字关键词",
                 "confidence": 0.8,
             }
-        ],
-    }
+        ]
+    )
     assert validate_video_structure(structure, reference_shots=None, anti_template=False) == structure
 
 
 def test_validate_accepts_keyframe_evidence_with_time_range_without_path() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "transcriptExcerpt": "还在花冤枉钱？",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [0.0, 10.0],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
+    structure = _minimal_hook_payload(
+        evidence=[
             {
                 "targetId": "seg-1",
                 "source": "keyframe",
@@ -225,158 +212,45 @@ def test_validate_accepts_keyframe_evidence_with_time_range_without_path() -> No
                 "timeRange": {"startSec": 0.0, "endSec": 0.8},
                 "confidence": 0.8,
             }
-        ],
-    }
+        ]
+    )
     assert validate_video_structure(structure, reference_shots=None, anti_template=False) == structure
 
 
 def test_validate_rejects_keyframe_evidence_without_path_or_timestamp() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "transcriptExcerpt": "还在花冤枉钱？",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [0.0, 10.0],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
+    structure = _minimal_hook_payload(
+        evidence=[
             {
                 "targetId": "seg-1",
                 "source": "keyframe",
                 "summary": "胸景口播",
                 "confidence": 0.8,
             }
-        ],
-    }
+        ]
+    )
     with pytest.raises(StructureValidationError, match="segment evidence"):
         validate_video_structure(structure, reference_shots=None, anti_template=False)
 
 
-def test_validate_v2_requires_transcript_excerpt() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [0.0, 10.0],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
-            {
-                "targetId": "seg-1",
-                "source": "asr",
-                "summary": "0-2s 反问",
-                "excerpt": "还在花冤枉钱",
-                "confidence": 0.8,
-            }
-        ],
-    }
+def test_validate_v3_requires_transcript_excerpt() -> None:
+    structure = _minimal_hook_payload()
+    structure["narrative"]["segments"][0].pop("transcriptExcerpt", None)
     with pytest.raises(StructureValidationError) as exc:
         validate_video_structure(structure, anti_template=False)
     assert any("transcriptExcerpt" in item for item in exc.value.errors)
 
 
-def test_validate_v2_requires_audio_evidence_when_voiceover_present() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "transcriptExcerpt": "还在花冤枉钱？",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [0.0, 10.0],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
+def test_validate_v3_requires_audio_evidence_when_voiceover_present() -> None:
+    structure = _minimal_hook_payload(
+        evidence=[
             {
                 "targetId": "seg-1",
                 "source": "keyframe",
-                "summary": "胸景口播",
+                "summary": "0.5-1.2 sec",
                 "confidence": 0.8,
             }
-        ],
-    }
+        ]
+    )
     analysis = {
         "audioProfile": {
             "hasVoiceover": True,
@@ -390,53 +264,9 @@ def test_validate_v2_requires_audio_evidence_when_voiceover_present() -> None:
     assert any("audio or asr evidence" in item for item in exc.value.errors)
 
 
-def test_validate_v2_rejects_misaligned_beat_points() -> None:
-    structure = {
-        "version": "p1-v2",
-        "confidence": 0.8,
-        "metadata": {"durationSec": 10.0},
-        "narrative": {
-            "summary": "中文摘要足够长用于测试",
-            "segments": [
-                {
-                    "id": "seg-1",
-                    "role": "hook",
-                    "startSec": 0.0,
-                    "endSec": 3.0,
-                    "scriptSummary": "反问式痛点开场建立停滑",
-                    "visualSummary": "胸景口播快切产品 UI 特写",
-                    "transcriptExcerpt": "还在花冤枉钱？",
-                    "intent": "停滑",
-                }
-            ],
-        },
-        "rhythm": {
-            "totalDurationSec": 10.0,
-            "shotCount": 1,
-            "avgShotDurationSec": 10.0,
-            "tempo": "fast",
-            "beatPoints": [1.0, 4.0, 7.0, 9.5],
-            "shotBoundaries": [
-                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
-            ],
-        },
-        "packaging": {
-            "titleCards": [],
-            "stickers": [],
-            "transitions": [],
-            "visualDensity": "medium",
-        },
-        "slots": [],
-        "evidence": [
-            {
-                "targetId": "seg-1",
-                "source": "asr",
-                "summary": "反问",
-                "excerpt": "还在花冤枉钱？",
-                "confidence": 0.8,
-            }
-        ],
-    }
+def test_validate_v3_rejects_misaligned_beat_points() -> None:
+    structure = _minimal_hook_payload()
+    structure["rhythm"]["beatPoints"] = [1.0, 4.0, 7.0, 9.5]
     analysis = {
         "audioProfile": {
             "hasVoiceover": True,
@@ -448,3 +278,12 @@ def test_validate_v2_rejects_misaligned_beat_points() -> None:
     with pytest.raises(StructureValidationError) as exc:
         validate_video_structure(structure, analysis=analysis, anti_template=False)
     assert any("beatPoints not aligned" in item for item in exc.value.errors)
+
+
+def test_validate_rejects_duplicate_transcript_and_script_summary() -> None:
+    structure = _minimal_hook_payload()
+    duplicate = "反问式痛点开场建立停滑，完整口播与摘要相同"
+    structure["narrative"]["segments"][0]["scriptSummary"] = duplicate
+    structure["narrative"]["segments"][0]["transcriptExcerpt"] = duplicate
+    with pytest.raises(StructureValidationError, match="transcriptExcerpt duplicates"):
+        validate_video_structure(structure, anti_template=False)

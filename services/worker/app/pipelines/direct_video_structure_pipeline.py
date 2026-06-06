@@ -74,10 +74,11 @@ def run_direct_video_structure_pipeline(
         if warning not in warnings:
             warnings.append(warning)
     analysis_quality["warnings"] = warnings
+    analysis_quality["promoteReady"] = bool(quality.get("promoteReady"))
     structure["analysisQuality"] = analysis_quality
     structure.setdefault("projectId", project_id)
     structure.setdefault("sourceVideoId", source_video_id)
-    structure.setdefault("version", "p1-v2")
+    structure.setdefault("version", "p1-v3")
 
     structure_path = analysis_root / "video-structure.json"
     structure_path.parent.mkdir(parents=True, exist_ok=True)

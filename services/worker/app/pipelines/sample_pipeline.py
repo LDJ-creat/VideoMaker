@@ -14,6 +14,7 @@ from app.tools.opencv_tool import (
     relaxed_fast_cut_min_shot_duration_sec,
     should_relax_fast_cut_shot_detection,
 )
+from app.perception.sample_facts import slim_audio_profile
 from app.tools.whisper_tool import WHISPER_SOFT_FAIL_CODES, WhisperTool
 from app.tools.ytdlp_tool import YtDlpTool
 
@@ -381,16 +382,7 @@ class SampleAnalysisPipeline:
             context.emit_event("completed", 95, "(resumed) sample analysis artifacts ready")
         else:
             executed_stages.append("consolidating")
-            metadata_path = analysis_root / "metadata.json"
-            transcript_path = analysis_root / "transcript.json"
-            shots_path = analysis_root / "shots.json"
-            keyframes_path = analysis_root / "keyframes.json"
             sample_analysis = {
-                "metadataPath": str(metadata_path),
-                "audioPath": str(audio_path) if audio_path is not None else None,
-                "transcriptPath": str(transcript_path),
-                "shotsPath": str(shots_path),
-                "keyframesPath": str(keyframes_path),
                 "metadata": metadata,
                 "transcript": transcript,
                 "shots": shots,
@@ -399,11 +391,16 @@ class SampleAnalysisPipeline:
                     *list(transcript.get("warnings") or []),
                     *pipeline_warnings,
                 ],
-                "sourcePath": str(selected_video_path),
                 "locale": "zh",
             }
             if audio_profile is not None:
-                sample_analysis["audioProfile"] = audio_profile
+                context.artifacts.write_json(
+                    analysis_rel_dir / "audio-profile-full.json",
+                    audio_profile,
+                )
+                slim_profile = slim_audio_profile(audio_profile)
+                if slim_profile is not None:
+                    sample_analysis["audioProfile"] = slim_profile
             sample_analysis_path = context.artifacts.write_json(
                 analysis_rel_dir / "sample-analysis.json",
                 sample_analysis,

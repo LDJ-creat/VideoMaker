@@ -2,13 +2,13 @@
   "id": "video-structure-project-1",
   "projectId": "project-1",
   "sourceVideoId": "sample-1",
-  "version": "p0-v1",
+  "version": "p1-v3",
   "metadata": {
+    "hasAudio": true,
     "durationSec": 30.0,
     "width": 1080,
     "height": 1920,
-    "fps": 30,
-    "hasAudio": true
+    "fps": 30
   },
   "narrative": {
     "summary": "反问式痛点开场，中段展示实测效率与使用场景对比，结尾限时下单引导。",
@@ -20,7 +20,8 @@
         "endSec": 3.0,
         "scriptSummary": "第二人称反问开场，点出「太贵又麻烦」痛点，语速偏快建立停滑。",
         "visualSummary": "9:16 胸景口播，博主直视镜头；0.8s 快切至产品 UI 特写，底部黄字关键词。",
-        "intent": "停滑并建立共鸣"
+        "intent": "停滑并建立共鸣",
+        "transcriptExcerpt": "太贵又麻烦？"
       },
       {
         "id": "seg-2",
@@ -29,7 +30,8 @@
         "endSec": 10.5,
         "scriptSummary": "数字+结果证言，强调效率提升与使用便捷，语气由焦虑转希望。",
         "visualSummary": "中景使用演示镜头，屏幕录屏叠加三要点字幕卡片，节奏中等。",
-        "intent": "建立产品价值"
+        "intent": "建立产品价值",
+        "transcriptExcerpt": "效率提升，使用起来很方便"
       },
       {
         "id": "seg-3",
@@ -38,7 +40,8 @@
         "endSec": 22.5,
         "scriptSummary": "前后对比式证言，展示真实场景与结果截图，增强可信度。",
         "visualSummary": "分屏对比：左旧方案卡顿、右新方案流畅；穿插用户操作近景。",
-        "intent": "社会证明"
+        "intent": "社会证明",
+        "transcriptExcerpt": "真实使用场景和结果对比"
       },
       {
         "id": "seg-cta",
@@ -47,7 +50,8 @@
         "endSec": 30.0,
         "scriptSummary": "限时优惠+明确行动指令，语速加快，制造紧迫感。",
         "visualSummary": "产品特写叠加价格贴纸与「立即购买」花字，BGM 推高。",
-        "intent": "转化引导"
+        "intent": "转化引导",
+        "transcriptExcerpt": "点击下单了解更多"
       }
     ]
   },
@@ -64,7 +68,8 @@
       5.0,
       8.4,
       14.0,
-      22.0
+      22.0,
+      30.0
     ],
     "shotBoundaries": [
       {
@@ -117,12 +122,6 @@
       }
     ]
   },
-  "packaging": {
-    "titleCards": [],
-    "stickers": [],
-    "transitions": [],
-    "visualDensity": "low"
-  },
   "slots": [
     {
       "id": "seg-hook-hook_visual-1",
@@ -151,9 +150,9 @@
       ],
       "visualIntent": "快切胸景口播+产品 UI 特写，黄字强调痛点词",
       "scriptIntent": "反问式口播，第二人称痛点，语速快",
-      "packagingHint": "highlight key message",
       "importance": "recommended",
-      "constraints": []
+      "constraints": [],
+      "packagingHint": "highlight key message"
     },
     {
       "id": "seg-2-benefit_card-1",
@@ -167,9 +166,9 @@
       ],
       "visualIntent": "三要点字幕卡片+中景使用演示",
       "scriptIntent": "数字证言强调效率与便捷",
-      "packagingHint": "highlight key message",
       "importance": "recommended",
-      "constraints": []
+      "constraints": [],
+      "packagingHint": "highlight key message"
     },
     {
       "id": "seg-3-proof-1",
@@ -199,62 +198,62 @@
       ],
       "visualIntent": "产品特写+价格贴纸+购买花字",
       "scriptIntent": "限时优惠口播，明确下单指令",
-      "packagingHint": "highlight key message",
       "importance": "must_have",
-      "constraints": []
+      "constraints": [],
+      "packagingHint": "highlight key message"
     }
   ],
   "evidence": [
     {
       "targetId": "seg-hook",
       "source": "asr",
-      "summary": "0.1-2.5s 反问痛点",
-      "excerpt": "太贵又麻烦？",
-      "confidence": 0.8
+      "summary": "0.1-2.5 sec",
+      "confidence": 0.8,
+      "excerpt": "太贵又麻烦？"
     },
     {
       "targetId": "seg-hook",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries at 0.0-3.0s",
+      "summary": "0.0-3.0 sec",
       "confidence": 0.75
     },
     {
       "targetId": "seg-2",
       "source": "asr",
-      "summary": "3.0-8.0s 效率证言",
-      "excerpt": "效率提升，使用起来很方便",
-      "confidence": 0.8
+      "summary": "3.0-8.0 sec",
+      "confidence": 0.8,
+      "excerpt": "效率提升，使用起来很方便"
     },
     {
       "targetId": "seg-2",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries at 3.0-10.5s",
+      "summary": "3.0-10.5 sec",
       "confidence": 0.75
     },
     {
       "targetId": "seg-3",
       "source": "asr",
-      "summary": "8.1-20.0s 场景对比",
-      "excerpt": "真实使用场景和结果对比",
-      "confidence": 0.8
+      "summary": "8.1-20.0 sec",
+      "confidence": 0.8,
+      "excerpt": "真实使用场景和结果对比"
     },
     {
       "targetId": "seg-3",
       "source": "shot_detection",
-      "summary": "3 overlapping shot boundaries at 10.5-22.5s",
+      "summary": "10.5-22.5 sec",
       "confidence": 0.75
     },
     {
       "targetId": "seg-cta",
       "source": "asr",
-      "summary": "20.1-29.4s 购买引导",
-      "excerpt": "点击下单了解更多",
-      "confidence": 0.8
+      "summary": "20.1-29.4 sec",
+      "confidence": 0.8,
+      "excerpt": "点击下单了解更多"
     },
     {
       "targetId": "seg-cta",
       "source": "shot_detection",
-      "summary": "1 overlapping shot boundaries at 25.5-30.0s",
+      "summary": "25.5-30.0 sec",
       "confidence": 0.75
     },
     {
@@ -276,5 +275,112 @@
       "confidence": 0.78
     }
   ],
-  "confidence": 0.82
+  "confidence": 0.82,
+  "context": {
+    "contentCategory": "general",
+    "platformFormat": "9:16_short",
+    "primaryIntent": "exposure",
+    "successHypothesis": "反问式痛点开场，中段展示实测效率与使用场景对比，结尾限时下单引导。",
+    "applicability": {
+      "suitableFor": [
+        "短视频"
+      ],
+      "unsuitableFor": [
+        "长纪录片"
+      ]
+    }
+  },
+  "verbal": {
+    "hookTemplate": "第二人称反问开场，点出「太贵又麻烦」痛点，语速偏快建立停滑。",
+    "outlineTimeline": [
+      {
+        "phase": "hook",
+        "startSec": 0.0,
+        "endSec": 3.0,
+        "sharePct": 0.1
+      },
+      {
+        "phase": "benefit",
+        "startSec": 3.0,
+        "endSec": 10.5,
+        "sharePct": 0.25
+      },
+      {
+        "phase": "proof",
+        "startSec": 10.5,
+        "endSec": 22.5,
+        "sharePct": 0.4
+      },
+      {
+        "phase": "cta",
+        "startSec": 25.5,
+        "endSec": 30.0,
+        "sharePct": 0.15
+      }
+    ],
+    "ctaMechanism": "结尾明确行动号召"
+  },
+  "visual": {
+    "cutRateProfile": {
+      "avgShotSec": 3.75,
+      "openingCutRate": "medium",
+      "fastCutRanges": [
+        {
+          "startSec": 2.1,
+          "endSec": 3.0
+        }
+      ]
+    },
+    "packagingSpec": {
+      "visualDensity": "low",
+      "summary": "字幕密度low，花字/贴纸随节奏点缀"
+    }
+  },
+  "audio": {
+    "voProfile": {
+      "pace": "mixed",
+      "energy": "medium",
+      "persona": "口播讲解"
+    }
+  },
+  "transfer": {
+    "structureFamily": "short_form_segmented",
+    "differentiationLever": "反问式痛点开场，中段展示实测效率与使用场景对比，结尾限时下单引导。",
+    "emotionTriggers": [
+      {
+        "timeSec": 0.0,
+        "triggerType": "hook",
+        "segmentId": "seg-hook",
+        "mechanism": "停滑并建立共鸣"
+      },
+      {
+        "timeSec": 3.0,
+        "triggerType": "benefit",
+        "segmentId": "seg-2",
+        "mechanism": "建立产品价值"
+      },
+      {
+        "timeSec": 10.5,
+        "triggerType": "proof",
+        "segmentId": "seg-3",
+        "mechanism": "社会证明"
+      },
+      {
+        "timeSec": 25.5,
+        "triggerType": "cta",
+        "segmentId": "seg-cta",
+        "mechanism": "转化引导"
+      }
+    ],
+    "scalabilityRules": "保持段级意图与槽位一一对应，可替换素材复用结构",
+    "nonTransferableElements": [
+      "具体产品名称",
+      "真人面孔"
+    ]
+  },
+  "analysisQuality": {
+    "locale": "zh",
+    "promoteReady": false,
+    "warnings": []
+  }
 }

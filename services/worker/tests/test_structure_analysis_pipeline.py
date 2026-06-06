@@ -53,7 +53,7 @@ def test_structure_pipeline_resumes_after_proposing_segments(tmp_path: Path) -> 
         checkpoint_path=analysis_root / "checkpoint.json",
     )
 
-    assert structure.get("version") == "p1-v2"
+    assert structure.get("version") == "p1-v3"
     assert (analysis_root / "segment-analyses.json").is_file()
     quality = structure.get("analysisQuality") or {}
     assert isinstance(quality.get("warnings"), list)

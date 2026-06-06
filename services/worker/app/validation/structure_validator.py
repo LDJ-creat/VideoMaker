@@ -135,6 +135,25 @@ def _validate_anti_template(structure: dict[str, Any], errors: list[str]) -> Non
                 errors.append(f"slot '{slot_id}' {label} matches template blacklist")
 
 
+def _validate_excerpt_not_duplicate_summary(
+    structure: dict[str, Any],
+    errors: list[str],
+) -> None:
+    for segment in structure.get("narrative", {}).get("segments", []):
+        if not isinstance(segment, dict):
+            continue
+        segment_id = str(segment.get("id", ""))
+        script = str(segment.get("scriptSummary", "")).strip()
+        excerpt = str(segment.get("transcriptExcerpt", "")).strip()
+        if excerpt and script and (
+            excerpt == script
+            or (len(excerpt) >= 15 and _overlap_ratio(excerpt, script) >= _MAX_OVERLAP_RATIO)
+        ):
+            errors.append(
+                f"segment '{segment_id}' transcriptExcerpt duplicates scriptSummary"
+            )
+
+
 def _validate_rhythm_alignment(
     structure: dict[str, Any],
     reference_shots: list[dict[str, Any]],
@@ -157,12 +176,12 @@ def _validate_rhythm_alignment(
             )
 
 
-def _validate_v2_depth(
+def _validate_v3_transcript_excerpt(
     structure: dict[str, Any],
     errors: list[str],
 ) -> None:
     version = str(structure.get("version") or "")
-    if version != "p1-v2":
+    if version != "p1-v3":
         return
     for segment in structure.get("narrative", {}).get("segments", []):
         if not isinstance(segment, dict):
@@ -170,7 +189,7 @@ def _validate_v2_depth(
         segment_id = str(segment.get("id", ""))
         excerpt = str(segment.get("transcriptExcerpt", "")).strip()
         if len(excerpt) < _MIN_TRANSCRIPT_EXCERPT_LEN:
-            errors.append(f"v2 segment '{segment_id}' missing transcriptExcerpt")
+            errors.append(f"v3 segment '{segment_id}' missing transcriptExcerpt")
 
 
 def _validate_audio_profile_alignment(
@@ -275,7 +294,7 @@ def validate_video_structure(
     if reference_shots:
         _validate_rhythm_alignment(structure, reference_shots, errors)
 
-    _validate_v2_depth(structure, errors)
+    _validate_v3_transcript_excerpt(structure, errors)
     _validate_audio_profile_alignment(
         structure,
         analysis,
@@ -286,6 +305,8 @@ def validate_video_structure(
 
     if anti_template:
         _validate_anti_template(structure, errors)
+
+    _validate_excerpt_not_duplicate_summary(structure, errors)
 
     if errors:
         raise StructureValidationError(errors)

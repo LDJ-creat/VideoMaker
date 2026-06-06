@@ -29,6 +29,48 @@ from app.perception.visual_facts_progress import (
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMToolConfigError, LLMToolValidationError
 
+_SAMPLE_ANALYSIS_PATH_KEYS = frozenset(
+    {
+        "metadataPath",
+        "audioPath",
+        "transcriptPath",
+        "shotsPath",
+        "keyframesPath",
+        "sourcePath",
+    }
+)
+
+
+def slim_audio_profile(full: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(full, dict):
+        return None
+    slim: dict[str, Any] = {
+        "hasVoiceover": full.get("hasVoiceover"),
+        "hasBgm": full.get("hasBgm"),
+        "onsetTimes": list(full.get("onsetTimes") or []),
+        "metrics": full.get("metrics"),
+        "avgSpeechRate": full.get("avgSpeechRate"),
+    }
+    return {key: value for key, value in slim.items() if value is not None}
+
+
+def batch_digest_index_entry(digest: dict[str, Any]) -> dict[str, Any]:
+    batch_index = int(digest.get("batchIndex", 0))
+    return {
+        "batchIndex": batch_index,
+        "startSec": digest.get("startSec"),
+        "endSec": digest.get("endSec"),
+        "digestRef": f"batch-digests/batch-{batch_index}.json",
+    }
+
+
+def batch_digest_index_entries(batch_digests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        batch_digest_index_entry(item)
+        for item in batch_digests
+        if isinstance(item, dict)
+    ]
+
 
 def aggregate_on_screen_text_facts(
     batch_digests: list[dict[str, Any]],
@@ -58,7 +100,9 @@ def merge_visual_facts_into_sample_analysis(
     warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     merged = dict(sample_analysis)
-    merged["keyframeBatchDigests"] = batch_digests
+    for path_key in _SAMPLE_ANALYSIS_PATH_KEYS:
+        merged.pop(path_key, None)
+    merged["keyframeBatchDigests"] = batch_digest_index_entries(batch_digests)
     merged["onScreenTextFacts"] = aggregate_on_screen_text_facts(batch_digests)
     if warnings:
         existing = list(merged.get("warnings") or [])
@@ -259,6 +303,22 @@ def persist_sample_analysis(
     analysis_root: Path,
     sample_analysis: dict[str, Any],
 ) -> Path:
+    payload = dict(sample_analysis)
+    for path_key in _SAMPLE_ANALYSIS_PATH_KEYS:
+        payload.pop(path_key, None)
+    audio_profile = payload.get("audioProfile")
+    if isinstance(audio_profile, dict) and "energyTimeline" in audio_profile:
+        slimmed = slim_audio_profile(audio_profile)
+        if slimmed is not None:
+            payload["audioProfile"] = slimmed
+    digests = payload.get("keyframeBatchDigests")
+    if isinstance(digests, list) and any(
+        isinstance(item, dict) and ("visualFacts" in item or "frames" in item)
+        for item in digests
+    ):
+        payload["keyframeBatchDigests"] = batch_digest_index_entries(
+            [item for item in digests if isinstance(item, dict)]
+        )
     path = analysis_root / "sample-analysis.json"
-    path.write_text(json.dumps(sample_analysis, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path

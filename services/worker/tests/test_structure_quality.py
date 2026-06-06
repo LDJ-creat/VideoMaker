@@ -5,7 +5,7 @@ from app.validation.structure_quality import evaluate_structure_quality, has_cri
 
 def test_structure_quality_flags_uniform_slots() -> None:
     structure = {
-        "version": "p1-v2",
+        "version": "p1-v3",
         "narrative": {
             "summary": "中文结构摘要",
             "segments": [

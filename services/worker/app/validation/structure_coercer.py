@@ -9,12 +9,13 @@ _ALLOWED_METADATA_KEYS = frozenset(
 )
 _ASR_RANGE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:to|-)\s*(\d+(?:\.\d+)?)")
 _SHOT_BOUNDARY_PATTERN = re.compile(r"\d+(?:\.\d+)?")
+_LOW_VALUE_EVIDENCE_PATTERN = re.compile(r"\d+\s+overlapping\s+shot\s+boundaries", re.IGNORECASE)
 _SLOT_ROLE_ALIASES = {
     "attention_grabber": "hook_visual",
     "intro": "hook_visual",
-    "pain_point": "usage_scene",
-    "problem_visual": "usage_scene",
-    "problem": "usage_scene",
+    "pain_point": "proof",
+    "problem_visual": "proof",
+    "problem": "proof",
     "product_intro": "product_closeup",
     "solution": "product_closeup",
     "benefit": "benefit_card",
@@ -77,6 +78,51 @@ def _normalize_tempo(value: str | None, *, fallback: str = "mixed") -> str:
     if mapped:
         return mapped
     return fallback
+
+
+def _resolve_beat_points(
+    rhythm: dict[str, Any],
+    *,
+    analysis: dict[str, Any],
+    segments: list[dict[str, Any]],
+    duration_sec: float,
+) -> list[float]:
+    """Narrative/onset beats — never mirror raw shot cut starts."""
+    explicit = [
+        float(value)
+        for value in (rhythm.get("beatPoints") or [])
+        if isinstance(value, (int, float))
+    ]
+    if explicit:
+        return _normalize_beat_points(explicit, duration_sec=duration_sec)
+
+    audio_profile = analysis.get("audioProfile")
+    if isinstance(audio_profile, dict):
+        onset_times = [
+            float(value)
+            for value in (audio_profile.get("onsetTimes") or [])
+            if isinstance(value, (int, float))
+        ]
+        if onset_times:
+            return _normalize_beat_points(onset_times[:12], duration_sec=duration_sec)
+
+    narrative_beats: list[float] = [0.0]
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        start = segment.get("startSec")
+        if isinstance(start, (int, float)) and float(start) > 0:
+            narrative_beats.append(float(start))
+    if duration_sec > 0:
+        narrative_beats.append(duration_sec)
+    return _normalize_beat_points(narrative_beats, duration_sec=duration_sec)
+
+
+def _sanitize_evidence_summary(summary: str, *, segment: dict[str, Any]) -> str:
+    text = str(summary or "").strip()
+    if _LOW_VALUE_EVIDENCE_PATTERN.search(text):
+        return f"{segment.get('startSec', 0.0)}-{segment.get('endSec', 0.0)} sec"
+    return text
 
 
 def _compute_rhythm_facts(
@@ -172,7 +218,10 @@ def _ensure_segment_evidence(
             continue
         segment = segments_by_id.get(target_id, {})
         source = str(item.get("source") or "shot_detection")
-        summary = str(item.get("summary") or item.get("excerpt") or "").strip()
+        summary = _sanitize_evidence_summary(
+            str(item.get("summary") or item.get("excerpt") or "").strip(),
+            segment=segment,
+        )
         if not summary:
             continue
         entry: dict[str, Any] = {
@@ -199,7 +248,7 @@ def _ensure_segment_evidence(
         segment_id = str(segment["id"])
         matches = [item for item in normalized if str(item.get("targetId")) == segment_id]
         if has_voiceover and not any(item.get("source") in {"asr", "audio"} for item in matches):
-            excerpt = str(segment.get("transcriptExcerpt") or segment.get("scriptSummary") or "").strip()
+            excerpt = str(segment.get("transcriptExcerpt") or "").strip()
             normalized.append(
                 {
                     "targetId": segment_id,
@@ -561,8 +610,30 @@ def _normalize_slots(
     for slot in slots:
         segment_id = str(slot.get("segmentId", ""))
         segment = segments_by_id.get(segment_id, {})
-        intent_text = str(slot.pop("intent", "") or slot.get("visualIntent") or segment.get("scriptSummary") or "slot")
+        legacy_intent = str(slot.pop("intent", "") or "").strip()
+        visual_intent = str(slot.get("visualIntent") or "").strip()
+        script_intent = str(slot.get("scriptIntent") or "").strip()
+        if not visual_intent:
+            visual_intent = str(
+                segment.get("visualSummary") or legacy_intent or segment.get("intent") or "画面呈现"
+            ).strip()
+        if not script_intent:
+            script_intent = str(
+                segment.get("scriptSummary") or legacy_intent or segment.get("intent") or "口播表达"
+            ).strip()
+        if visual_intent == script_intent:
+            seg_visual = str(segment.get("visualSummary") or "").strip()
+            seg_script = str(segment.get("scriptSummary") or "").strip()
+            if seg_visual and seg_script and seg_visual != seg_script:
+                visual_intent = seg_visual
+                script_intent = seg_script
+            elif seg_visual and visual_intent != seg_visual:
+                visual_intent = seg_visual
+            elif seg_script and script_intent != seg_script:
+                script_intent = seg_script
         role = _normalize_slot_role(str(slot.get("role", "usage_scene")))
+        if role == "usage_scene" and segment.get("role"):
+            role = _normalize_slot_role(str(segment.get("role")))
         slot_payload: dict[str, Any] = {
                 "id": str(slot.get("id") or f"{segment_id}-{role}"),
                 "segmentId": segment_id,
@@ -570,8 +641,8 @@ def _normalize_slots(
                 "startSec": float(slot.get("startSec", segment.get("startSec", 0.0))),
                 "endSec": float(slot.get("endSec", segment.get("endSec", 0.0))),
                 "requiredAssetType": list(slot.get("requiredAssetType") or ["video", "image"]),
-                "visualIntent": str(slot.get("visualIntent") or intent_text),
-                "scriptIntent": str(slot.get("scriptIntent") or intent_text),
+                "visualIntent": visual_intent,
+                "scriptIntent": script_intent,
                 "importance": str(slot.get("importance") or "recommended"),
                 "constraints": list(slot.get("constraints") or []),
                 **(
@@ -606,31 +677,6 @@ def _normalize_slots(
     return normalized
 
 
-def _payload_has_v2_deep_fields(payload: dict[str, Any]) -> bool:
-    narrative = payload.get("narrative") if isinstance(payload.get("narrative"), dict) else {}
-    for segment in narrative.get("segments") or []:
-        if not isinstance(segment, dict):
-            continue
-        if any(
-            segment.get(key)
-            for key in (
-                "transcriptExcerpt",
-                "voStyle",
-                "visualSpec",
-                "rhetoricalDevices",
-                "emotionTone",
-            )
-        ):
-            return True
-    for slot in payload.get("slots") or []:
-        if not isinstance(slot, dict):
-            continue
-        if slot.get("migrationTemplate") or slot.get("packagingRequirements"):
-            return True
-    explicit = str(payload.get("version") or "").strip()
-    return explicit.startswith("p1-v2")
-
-
 def _ensure_transcript_excerpts(
     segments: list[dict[str, Any]],
     evidence: list[dict[str, Any]],
@@ -655,18 +701,369 @@ def _ensure_transcript_excerpts(
                 excerpt = str(item["excerpt"]).strip()
                 break
         if len(excerpt) < 4:
-            excerpt = str(segment.get("scriptSummary") or "").strip()
+            continue
         if excerpt:
             segment["transcriptExcerpt"] = excerpt[:120]
 
 
-def _resolve_structure_version(payload: dict[str, Any]) -> str:
-    explicit = str(payload.get("version") or "").strip()
-    if explicit:
-        return explicit
-    if _payload_has_v2_deep_fields(payload):
-        return "p1-v2"
-    return "p0-v1"
+def _build_outline_timeline(segments: list[dict[str, Any]], *, duration_sec: float) -> list[dict[str, Any]]:
+    timeline: list[dict[str, Any]] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        start = float(segment.get("startSec", 0.0))
+        end = float(segment.get("endSec", start))
+        span = max(0.0, end - start)
+        share = span / duration_sec if duration_sec > 0 else 0.0
+        timeline.append(
+            {
+                "phase": str(segment.get("role") or "segment"),
+                "startSec": start,
+                "endSec": end,
+                "sharePct": round(min(1.0, max(0.0, share)), 3),
+            }
+        )
+    return timeline
+
+
+def _build_cut_rate_profile(
+    *,
+    rhythm: dict[str, Any],
+    shots: list[dict[str, Any]],
+    duration_sec: float,
+) -> dict[str, Any]:
+    avg_shot = float(rhythm.get("avgShotDurationSec") or 0.0)
+    opening_cut_rate = "medium"
+    if shots and duration_sec > 0:
+        opening_shots = [s for s in shots if float(s.get("startSec", 0.0)) < min(5.0, duration_sec * 0.2)]
+        if opening_shots:
+            opening_avg = sum(
+                float(s.get("endSec", 0.0)) - float(s.get("startSec", 0.0)) for s in opening_shots
+            ) / len(opening_shots)
+            if opening_avg < 1.2:
+                opening_cut_rate = "fast"
+            elif opening_avg > 2.5:
+                opening_cut_rate = "slow"
+    fast_ranges: list[dict[str, Any]] = []
+    for shot in shots[:6]:
+        start = float(shot.get("startSec", 0.0))
+        end = float(shot.get("endSec", start))
+        if end - start < 1.0:
+            fast_ranges.append({"startSec": start, "endSec": end})
+    return {
+        "avgShotSec": round(avg_shot, 3),
+        "openingCutRate": opening_cut_rate,
+        "fastCutRanges": fast_ranges[:5],
+    }
+
+
+def _normalize_share_pct(value: Any) -> float:
+    share = float(value)
+    if share > 1.0:
+        share = share / 100.0
+    return round(min(1.0, max(0.0, share)), 3)
+
+
+def _normalize_outline_timeline(
+    timeline: Any,
+    *,
+    segments: list[dict[str, Any]],
+    duration_sec: float,
+) -> list[dict[str, Any]]:
+    if not isinstance(timeline, list) or not timeline:
+        return _build_outline_timeline(segments, duration_sec=duration_sec)
+    normalized: list[dict[str, Any]] = []
+    for item in timeline:
+        if not isinstance(item, dict):
+            continue
+        if "startSec" not in item and "endSec" not in item and "sharePct" not in item:
+            continue
+        start = float(item.get("startSec", 0.0))
+        end = float(item.get("endSec", start))
+        share_raw = item.get("sharePct")
+        if share_raw is None and duration_sec > 0:
+            share = max(0.0, end - start) / duration_sec
+        else:
+            share = _normalize_share_pct(share_raw or 0.0)
+        normalized.append(
+            {
+                "phase": str(item.get("phase") or item.get("nodeName") or "segment"),
+                "startSec": start,
+                "endSec": end,
+                "sharePct": share,
+            }
+        )
+    if not normalized:
+        return _build_outline_timeline(segments, duration_sec=duration_sec)
+    return normalized
+
+
+def _normalize_emotion_triggers(
+    triggers: Any,
+    *,
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not isinstance(triggers, list) or not triggers:
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(triggers):
+        if isinstance(item, str):
+            segment = segments[index] if index < len(segments) else {}
+            if not isinstance(segment, dict):
+                segment = segments[0] if segments and isinstance(segments[0], dict) else {}
+            label, _, mechanism = item.partition("：")
+            normalized.append(
+                {
+                    "timeSec": float(segment.get("startSec", 0.0) if isinstance(segment, dict) else 0.0),
+                    "triggerType": label[:40] or "emotion",
+                    "segmentId": str(segment.get("id", "") if isinstance(segment, dict) else ""),
+                    "mechanism": (mechanism or item)[:80],
+                }
+            )
+            continue
+        if not isinstance(item, dict):
+            continue
+        if all(key in item for key in ("timeSec", "triggerType", "segmentId", "mechanism")):
+            normalized.append(
+                {
+                    "timeSec": float(item.get("timeSec", 0.0)),
+                    "triggerType": str(item.get("triggerType") or "beat"),
+                    "segmentId": str(item.get("segmentId") or ""),
+                    "mechanism": str(item.get("mechanism") or "")[:80],
+                }
+            )
+            continue
+        segment = segments[index] if index < len(segments) else {}
+        if not isinstance(segment, dict):
+            segment = segments[0] if segments and isinstance(segments[0], dict) else {}
+        normalized.append(
+            {
+                "timeSec": float(segment.get("startSec", 0.0) if isinstance(segment, dict) else 0.0),
+                "triggerType": str(item.get("type") or item.get("triggerType") or "beat"),
+                "segmentId": str(segment.get("id", "") if isinstance(segment, dict) else ""),
+                "mechanism": str(item.get("desc") or item.get("mechanism") or item.get("type") or "")[
+                    :80
+                ],
+            }
+        )
+    return normalized
+
+
+def _normalize_vo_profile(
+    profile: Any,
+    *,
+    rhythm: dict[str, Any],
+    metrics: dict[str, Any],
+    duration_sec: float,
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    raw = dict(profile) if isinstance(profile, dict) else {}
+    style_text = str(raw.pop("style", "") or "").strip()
+    vo_profile: dict[str, Any] = {
+        key: raw[key]
+        for key in ("pace", "energy", "persona", "wordsPerMinute")
+        if key in raw
+    }
+    vo_profile.setdefault("pace", str(raw.get("pace") or rhythm.get("tempo") or "medium")[:40])
+    vo_profile.setdefault("energy", str(raw.get("energy") or "medium")[:40])
+    vo_profile.setdefault(
+        "persona",
+        str(vo_profile.get("persona") or style_text or "口播讲解")[:80],
+    )
+    if metrics.get("voiceoverCoveragePct") is not None and duration_sec > 0:
+        speech_sec = float(metrics["voiceoverCoveragePct"]) * duration_sec
+        words = sum(len(str(s.get("scriptSummary", ""))) for s in segments if isinstance(s, dict))
+        if speech_sec > 0 and words > 0 and "wordsPerMinute" not in vo_profile:
+            vo_profile["wordsPerMinute"] = round(words / (speech_sec / 60.0), 1)
+    return vo_profile
+
+
+def _normalize_cut_rate_profile(
+    profile: Any,
+    *,
+    rhythm: dict[str, Any],
+    shots: list[dict[str, Any]],
+    duration_sec: float,
+) -> dict[str, Any]:
+    if isinstance(profile, str):
+        return _build_cut_rate_profile(rhythm=rhythm, shots=shots, duration_sec=duration_sec)
+    if not isinstance(profile, dict) or not profile:
+        return _build_cut_rate_profile(rhythm=rhythm, shots=shots, duration_sec=duration_sec)
+    normalized: dict[str, Any] = {}
+    if profile.get("avgShotSec") is not None:
+        normalized["avgShotSec"] = float(profile["avgShotSec"])
+    elif profile.get("avgShotDurationSec") is not None:
+        normalized["avgShotSec"] = float(profile["avgShotDurationSec"])
+    if profile.get("openingCutRate") is not None:
+        normalized["openingCutRate"] = str(profile["openingCutRate"])
+    fast_ranges = profile.get("fastCutRanges")
+    if isinstance(fast_ranges, list):
+        cleaned: list[dict[str, Any]] = []
+        for item in fast_ranges:
+            if not isinstance(item, dict):
+                continue
+            cleaned.append(
+                {
+                    "startSec": float(item.get("startSec", 0.0)),
+                    "endSec": float(item.get("endSec", item.get("startSec", 0.0))),
+                }
+            )
+        normalized["fastCutRanges"] = cleaned[:5]
+    if normalized.get("avgShotSec") is None:
+        return _build_cut_rate_profile(rhythm=rhythm, shots=shots, duration_sec=duration_sec)
+    normalized.setdefault("openingCutRate", "medium")
+    normalized.setdefault("fastCutRanges", [])
+    return normalized
+
+
+def _cap_list(items: list[Any], *, limit: int) -> list[Any]:
+    return list(items[:limit]) if len(items) > limit else list(items)
+
+
+def _enrich_v3_blocks(
+    coerced: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+    analysis: dict[str, Any],
+) -> None:
+    """Deterministic v3 block fill (L2) and version upgrade."""
+    segments = list(coerced.get("narrative", {}).get("segments") or [])
+    rhythm = coerced.get("rhythm") if isinstance(coerced.get("rhythm"), dict) else {}
+    duration_sec = float(coerced.get("metadata", {}).get("durationSec") or 0.0)
+    shots = list(analysis.get("shots") or [])
+    narrative_summary = str(coerced.get("narrative", {}).get("summary") or "").strip()
+
+    for segment in segments:
+        if isinstance(segment, dict):
+            segment.pop("retentionRole", None)
+
+    packaging = coerced.pop("packaging", None)
+    if not isinstance(packaging, dict):
+        packaging = payload.get("packaging") if isinstance(payload.get("packaging"), dict) else {}
+    visual_density = str(packaging.get("visualDensity") or "medium")
+
+    context = dict(payload.get("context") or coerced.get("context") or {})
+    context.setdefault("contentCategory", "general")
+    context.setdefault("platformFormat", "9:16_short")
+    context.setdefault("primaryIntent", "exposure")
+    context.setdefault("successHypothesis", narrative_summary[:160] or "结构迁移可提升完播与转化")
+    context.setdefault(
+        "applicability",
+        {"suitableFor": ["短视频"], "unsuitableFor": ["长纪录片"]},
+    )
+
+    hook_segment = next((s for s in segments if s.get("role") == "hook"), segments[0] if segments else {})
+    verbal = dict(payload.get("verbal") or coerced.get("verbal") or {})
+    verbal.setdefault(
+        "hookTemplate",
+        str(verbal.get("hookTemplate") or hook_segment.get("scriptSummary") or "反问/痛点开场")[:120],
+    )
+    verbal["outlineTimeline"] = _normalize_outline_timeline(
+        verbal.get("outlineTimeline"),
+        segments=segments,
+        duration_sec=duration_sec,
+    )
+    verbal.setdefault("ctaMechanism", str(verbal.get("ctaMechanism") or "结尾明确行动号召")[:120])
+    verbal = {
+        key: verbal[key]
+        for key in ("hookTemplate", "outlineTimeline", "ctaMechanism", "infoLubricantRatio")
+        if key in verbal
+    }
+
+    visual = dict(payload.get("visual") or coerced.get("visual") or {})
+    misplaced_vo = visual.pop("voProfile", None)
+    visual_summary = visual.pop("summary", None)
+    visual["cutRateProfile"] = _normalize_cut_rate_profile(
+        visual.get("cutRateProfile"),
+        rhythm=rhythm,
+        shots=shots,
+        duration_sec=duration_sec,
+    )
+    packaging_spec = dict(visual.get("packagingSpec") or {})
+    packaging_spec.setdefault("visualDensity", visual_density)
+    if visual_summary:
+        packaging_spec.setdefault("summary", str(visual_summary)[:200])
+    elif not packaging_spec.get("summary"):
+        packaging_spec.setdefault("summary", f"字幕密度{visual_density}，花字/贴纸随节奏点缀")
+    visual["packagingSpec"] = packaging_spec
+    if visual.get("conceptVisualMap"):
+        visual["conceptVisualMap"] = _cap_list(list(visual["conceptVisualMap"]), limit=8)
+    visual = {
+        key: visual[key]
+        for key in ("conceptVisualMap", "cutRateProfile", "packagingSpec")
+        if key in visual
+    }
+
+    audio_profile = analysis.get("audioProfile") if isinstance(analysis.get("audioProfile"), dict) else {}
+    audio = dict(payload.get("audio") or coerced.get("audio") or {})
+    metrics = audio_profile.get("metrics") if isinstance(audio_profile.get("metrics"), dict) else {}
+    vo_seed: dict[str, Any] = {}
+    if isinstance(audio.get("voProfile"), dict):
+        vo_seed.update(audio["voProfile"])
+    elif isinstance(misplaced_vo, str) and misplaced_vo.strip():
+        vo_seed["style"] = misplaced_vo.strip()
+    audio["voProfile"] = _normalize_vo_profile(
+        vo_seed,
+        rhythm=rhythm,
+        metrics=metrics,
+        duration_sec=duration_sec,
+        segments=segments,
+    )
+    audio = {
+        key: audio[key]
+        for key in ("voProfile", "audioEventRules")
+        if key in audio
+    }
+    if audio.get("audioEventRules"):
+        audio["audioEventRules"] = _cap_list(list(audio["audioEventRules"]), limit=5)
+
+    transfer = dict(payload.get("transfer") or coerced.get("transfer") or {})
+    transfer.setdefault("structureFamily", "short_form_segmented")
+    transfer.setdefault(
+        "differentiationLever",
+        str(transfer.get("differentiationLever") or narrative_summary[:120] or "叙事节奏+证据链组合"),
+    )
+    normalized_triggers = _normalize_emotion_triggers(
+        transfer.get("emotionTriggers"),
+        segments=segments,
+    )
+    if normalized_triggers:
+        transfer["emotionTriggers"] = _cap_list(normalized_triggers, limit=5)
+    else:
+        triggers: list[dict[str, Any]] = []
+        for segment in segments[:5]:
+            if not isinstance(segment, dict):
+                continue
+            triggers.append(
+                {
+                    "timeSec": float(segment.get("startSec", 0.0)),
+                    "triggerType": str(segment.get("role") or "beat"),
+                    "segmentId": str(segment.get("id") or ""),
+                    "mechanism": str(segment.get("intent") or segment.get("role") or "")[:80],
+                }
+            )
+        transfer["emotionTriggers"] = triggers
+    transfer.setdefault("scalabilityRules", "保持段级意图与槽位一一对应，可替换素材复用结构")
+    transfer.setdefault("nonTransferableElements", ["具体产品名称", "真人面孔"])
+
+    analysis_quality = dict(coerced.get("analysisQuality") or payload.get("analysisQuality") or {})
+    analysis_quality.setdefault("locale", str(analysis.get("locale") or "zh"))
+    analysis_quality.setdefault("promoteReady", False)
+    analysis_quality.setdefault("warnings", list(analysis_quality.get("warnings") or []))
+    route = str(analysis.get("structureAnalysisRoute") or "")
+    if route == "direct_multimodal":
+        warnings = list(analysis_quality.get("warnings") or [])
+        if "direct_route_partial_v3" not in warnings:
+            warnings.append("direct_route_partial_v3")
+        analysis_quality["warnings"] = warnings
+
+    coerced["context"] = context
+    coerced["verbal"] = verbal
+    coerced["visual"] = visual
+    coerced["audio"] = audio
+    coerced["transfer"] = transfer
+    coerced["analysisQuality"] = analysis_quality
+    coerced["version"] = "p1-v3"
 
 
 def coerce_video_structure(
@@ -688,7 +1085,7 @@ def coerce_video_structure(
     coerced["id"] = str(payload.get("id") or f"video-structure-{project_id}")
     coerced["projectId"] = project_id
     coerced["sourceVideoId"] = source_video_id
-    coerced["version"] = _resolve_structure_version(payload)
+    coerced["version"] = "p1-v3"
 
     clean_metadata = {
         key: metadata[key]
@@ -730,37 +1127,25 @@ def coerce_video_structure(
             str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
             fallback=str(rhythm_facts.get("tempoHint") or "mixed"),
         )
-        beat_points = _normalize_beat_points(
-            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
-            duration_sec=duration_sec,
-        )
     else:
         boundaries = _normalize_shot_boundaries(shots, rhythm=rhythm)
         tempo = _normalize_tempo(
             str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
             fallback="mixed",
         )
-        beat_points = _normalize_beat_points(
-            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
-            duration_sec=duration_sec,
-        )
+    beat_points = _resolve_beat_points(
+        rhythm,
+        analysis=analysis,
+        segments=segments,
+        duration_sec=duration_sec,
+    )
     coerced["rhythm"] = {
         "totalDurationSec": float(rhythm_facts.get("durationSec", duration_sec)),
         "shotCount": int(rhythm_facts.get("shotCount", len(boundaries))),
         "avgShotDurationSec": float(rhythm_facts.get("avgShotDurationSec", 0.0)),
         "tempo": tempo,
-        "beatPoints": beat_points,
+        "beatPoints": beat_points[:12],
         "shotBoundaries": boundaries,
-    }
-
-    packaging = dict(payload.get("packaging") or {})
-    if not all(key in packaging for key in _DEFAULT_PACKAGING):
-        packaging = dict(_DEFAULT_PACKAGING)
-    coerced["packaging"] = {
-        "titleCards": list(packaging.get("titleCards") or []),
-        "stickers": list(packaging.get("stickers") or []),
-        "transitions": list(packaging.get("transitions") or []),
-        "visualDensity": str(packaging.get("visualDensity") or "medium"),
     }
 
     coerced["slots"] = _normalize_slots(list(payload.get("slots") or []), segments_by_id=segments_by_id)
@@ -778,4 +1163,5 @@ def coerce_video_structure(
     _ensure_transcript_excerpts(segments, coerced["evidence"])
     coerced["narrative"]["segments"] = segments
     coerced["confidence"] = float(payload.get("confidence", 0.75))
+    _enrich_v3_blocks(coerced, payload=payload, analysis=analysis)
     return coerced
