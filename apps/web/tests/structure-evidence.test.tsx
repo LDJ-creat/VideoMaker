@@ -11,7 +11,7 @@ describe("StructureEvidencePanel", () => {
     cleanup();
   });
 
-  it("shows segment evidence and transcript excerpts", () => {
+  it("shows merged narrative segments with Chinese role labels", () => {
     render(
       <StructureEvidencePanel
         structure={fixtureVideoStructure}
@@ -20,8 +20,10 @@ describe("StructureEvidencePanel", () => {
     );
 
     expect(screen.getByTestId("structure-evidence-panel")).toBeInTheDocument();
-    expect(screen.getAllByText(/转写：/).length).toBeGreaterThan(0);
+    expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument();
+    expect(screen.getByText("开场钩子")).toBeInTheDocument();
     expect(screen.getByTestId("evidence-card-seg-hook")).toBeInTheDocument();
+    expect(screen.getAllByText(/口播手法：/).length).toBeGreaterThan(0);
   });
 
   it("shows analysis message during structure extraction", () => {

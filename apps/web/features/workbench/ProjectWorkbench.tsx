@@ -40,7 +40,6 @@ import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
 import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
 import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
-import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
 import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";

@@ -11,9 +11,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StructureQualityWarnings } from "@/features/structure-quality/StructureQualityWarnings";
 import {
   type SampleKeyframe,
-  isDuplicateText,
   resolveSegmentKeyframePreview,
 } from "@/lib/keyframePreview";
 import { cn } from "@/lib/utils";
@@ -131,12 +131,20 @@ export function StructureEvidencePanel({
   return (
     <Card data-testid="structure-evidence-panel">
       <CardHeader>
-        <CardTitle>结构证据</CardTitle>
-        <CardDescription>
-          叙事片段对应的镜头、转写与关键帧依据（点击可高亮槽位）
-        </CardDescription>
+        <CardTitle>叙事分段 · 结构解读</CardTitle>
+        <CardDescription>{structure.narrative.summary}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <StructureQualityWarnings analysisQuality={structure.analysisQuality} />
+        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+          <span>时长 {structure.metadata.durationSec}s</span>
+          <span>镜头 {structure.rhythm.shotCount}</span>
+          <Badge variant="ai">
+            置信度 {(structure.confidence * 100).toFixed(0)}%
+          </Badge>
+          <Badge variant="secondary">证据条目 {structure.evidence.length}</Badge>
+        </div>
+
         {isAnalyzing && (
           <p
             className="rounded-md border border-ai/30 bg-ai/5 px-3 py-2 text-sm text-ai"
@@ -145,6 +153,10 @@ export function StructureEvidencePanel({
             AI 正在分析样例结构…
           </p>
         )}
+
+        <p className="text-xs text-muted-foreground">
+          各段按叙事节拍拆解；点击分段可高亮对应结构槽。展开「核对依据」可查看转写、镜头等原始证据。
+        </p>
 
         {views.map((view) => (
           <EvidenceCard
@@ -159,13 +171,6 @@ export function StructureEvidencePanel({
             }}
           />
         ))}
-
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Badge variant="outline">置信度 {(structure.confidence * 100).toFixed(0)}%</Badge>
-          <Badge variant="secondary">
-            证据条目 {structure.evidence.length}
-          </Badge>
-        </div>
       </CardContent>
     </Card>
   );

@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/card";
 import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
-import { SampleAnalysisView } from "@/features/sample-analysis/SampleAnalysisView";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
 import type { ActiveSampleSummary, SampleKeyframeRecord } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
@@ -287,7 +286,6 @@ export function SampleAnalysisPanel({
                   </CardContent>
                 </Card>
               ) : null}
-              <SampleAnalysisView structure={structure} />
               <KnowledgeDraftPanel
                 projectId={projectId}
                 sampleId={displayedSampleId}
