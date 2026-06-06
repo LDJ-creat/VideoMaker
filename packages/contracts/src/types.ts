@@ -4,7 +4,8 @@ export type TaskStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
-  | "retrying";
+  | "retrying"
+  | "awaiting_review";
 
 export type TaskStage =
   | "uploading"
@@ -24,6 +25,11 @@ export type TaskStage =
   | "rendering_knowledge_draft"
   | "analyzing_assets"
   | "mapping_slots"
+  | "drafting_master_script"
+  | "awaiting_master_review"
+  | "drafting_storyboard"
+  | "awaiting_storyboard_review"
+  | "producing_media"
   | "planning_completion"
   | "generating_storyboard"
   | "building_timeline"
@@ -297,6 +303,20 @@ export type ContentCategory =
   | "news_commentary"
   | "general";
 
+export type DurationTargetSource = "sample" | "user" | "default";
+
+export type DurationTarget = {
+  targetSec: number;
+  minSec?: number;
+  maxSec?: number;
+  recommendedSec?: number;
+  source?: DurationTargetSource;
+};
+
+export type GenerationStrategy = "short_form_direct" | "long_form_composed";
+
+export type ScriptReviewStatus = "draft" | "approved";
+
 export type UserBrief = {
   contentCategory?: ContentCategory;
   topic?: string;
@@ -311,6 +331,7 @@ export type UserBrief = {
   mustMention: string[];
   avoidMention: string[];
   supplementalNotes?: string;
+  durationTarget?: DurationTarget;
 };
 
 export type UserAsset = {
@@ -507,11 +528,28 @@ export type GenerationPlan = {
   inventoryId: string;
   gapReportId: string;
   variant: GenerationVariant;
+  generationStrategy?: GenerationStrategy;
+  durationTargetSec?: number;
   masterNarration: string;
   storyboard: StoryboardScene[];
   timeline: RenderTimeline;
   packagingPlan: PackagingPlan;
   completionActions: CompletionAction[];
+};
+
+export type ScriptDraft = {
+  generationId: string;
+  projectId: string;
+  variant: GenerationVariant;
+  masterNarration: string;
+  masterNarrationStatus: ScriptReviewStatus;
+  storyboard: StoryboardScene[];
+  storyboardStatus: ScriptReviewStatus;
+  generationStrategy?: GenerationStrategy;
+  durationTargetSec?: number;
+  masterApprovedAt?: string;
+  storyboardApprovedAt?: string;
+  approvedBy?: string;
 };
 
 export type KnowledgeEntryStatus = "draft" | "published" | "archived";

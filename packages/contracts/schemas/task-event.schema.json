@@ -8,7 +8,7 @@
     "taskId": { "type": "string", "minLength": 1 },
     "status": {
       "type": "string",
-      "enum": ["queued", "running", "succeeded", "failed", "cancelled", "retrying"]
+      "enum": ["queued", "running", "succeeded", "failed", "cancelled", "retrying", "awaiting_review"]
     },
     "stage": {
       "type": "string",
@@ -30,6 +30,11 @@
         "rendering_knowledge_draft",
         "analyzing_assets",
         "mapping_slots",
+        "drafting_master_script",
+        "awaiting_master_review",
+        "drafting_storyboard",
+        "awaiting_storyboard_review",
+        "producing_media",
         "planning_completion",
         "generating_storyboard",
         "building_timeline",

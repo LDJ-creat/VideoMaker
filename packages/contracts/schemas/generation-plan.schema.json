@@ -11,6 +11,11 @@
     "inventoryId": { "type": "string", "minLength": 1 },
     "gapReportId": { "type": "string", "minLength": 1 },
     "variant": { "type": "string", "enum": ["default", "high_click", "high_conversion", "fast_paced", "premium"] },
+    "generationStrategy": {
+      "type": "string",
+      "enum": ["short_form_direct", "long_form_composed"]
+    },
+    "durationTargetSec": { "type": "number", "minimum": 1 },
     "masterNarration": { "type": "string" },
     "storyboard": {
       "type": "array",

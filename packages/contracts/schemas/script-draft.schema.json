@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/script-draft.schema.json",
+  "title": "ScriptDraft",
+  "type": "object",
+  "required": [
+    "generationId",
+    "projectId",
+    "variant",
+    "masterNarration",
+    "masterNarrationStatus",
+    "storyboard",
+    "storyboardStatus"
+  ],
+  "properties": {
+    "generationId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "variant": {
+      "type": "string",
+      "enum": ["default", "high_click", "high_conversion", "fast_paced", "premium"]
+    },
+    "masterNarration": { "type": "string" },
+    "masterNarrationStatus": { "type": "string", "enum": ["draft", "approved"] },
+    "storyboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "slotId", "startSec", "endSec", "visual", "script", "source"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "slotId": { "type": "string", "minLength": 1 },
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 },
+          "visual": { "type": "string" },
+          "script": { "type": "string" },
+          "source": {
+            "type": "string",
+            "enum": [
+              "user_asset",
+              "text_completion",
+              "packaging_completion",
+              "asset_reuse",
+              "generated"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "storyboardStatus": { "type": "string", "enum": ["draft", "approved"] },
+    "generationStrategy": {
+      "type": "string",
+      "enum": ["short_form_direct", "long_form_composed"]
+    },
+    "durationTargetSec": { "type": "number", "minimum": 1 },
+    "masterApprovedAt": { "type": "string", "format": "date-time" },
+    "storyboardApprovedAt": { "type": "string", "format": "date-time" },
+    "approvedBy": { "type": "string" }
+  },
+  "additionalProperties": false
+}

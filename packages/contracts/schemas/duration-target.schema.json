@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/duration-target.schema.json",
+  "title": "DurationTarget",
+  "type": "object",
+  "required": ["targetSec"],
+  "properties": {
+    "targetSec": { "type": "number", "minimum": 1 },
+    "minSec": { "type": "number", "minimum": 1 },
+    "maxSec": { "type": "number", "minimum": 1 },
+    "recommendedSec": { "type": "number", "minimum": 0 },
+    "source": { "type": "string", "enum": ["sample", "user", "default"] }
+  },
+  "additionalProperties": false
+}
