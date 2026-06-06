@@ -314,6 +314,7 @@ export type ActiveSampleSummary = {
   previewUrl?: string;
   uploadBatchId?: string | null;
   batchCreatedAt?: string | null;
+  taskId?: string | null;
 };
 
 export type ProjectAsset = {
@@ -651,6 +652,13 @@ export type KnowledgeDraftResponse = {
   entryMeta: Record<string, unknown>;
   skillMdUri: string;
   structureJsonUri: string;
+  publishedEntry?: {
+    id: string;
+    title?: string;
+    category?: string;
+    style?: string;
+    updatedAt?: string;
+  } | null;
 };
 
 export type KnowledgeListResponse = {
