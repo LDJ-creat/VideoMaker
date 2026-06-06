@@ -11,11 +11,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StructureQualityWarnings } from "@/features/structure-quality/StructureQualityWarnings";
 import {
   type SampleKeyframe,
   resolveSegmentKeyframePreview,
 } from "@/lib/keyframePreview";
+import {
+  audioFieldLabel,
+  contentCategoryLabel,
+  outlinePhaseLabel,
+  primaryIntentLabel,
+  STRUCTURE_V3_TRACK_LABELS,
+  tempoLabel,
+  transferFieldLabel,
+  verbalFieldLabel,
+  visualDensityLabel,
+  visualFieldLabel,
+} from "@/lib/structureV3Labels";
 import { cn } from "@/lib/utils";
 
 import { EvidenceCard } from "./EvidenceCard";
@@ -111,6 +124,149 @@ export function buildSegmentEvidenceViews(
   });
 }
 
+function StructureV3TrackPanel({ structure }: { structure: VideoStructure }) {
+  const { context, verbal, visual, audio, transfer } = structure;
+
+  return (
+    <Tabs defaultValue="verbal" className="w-full" data-testid="structure-v3-tracks">
+      <TabsList className="grid w-full grid-cols-4">
+        {(Object.keys(STRUCTURE_V3_TRACK_LABELS) as Array<keyof typeof STRUCTURE_V3_TRACK_LABELS>).map(
+          (track) => (
+            <TabsTrigger key={track} value={track}>
+              {STRUCTURE_V3_TRACK_LABELS[track]}
+            </TabsTrigger>
+          ),
+        )}
+      </TabsList>
+
+      <TabsContent value="verbal" className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {verbalFieldLabel("hookTemplate")}：
+          </span>
+          {verbal.hookTemplate || "—"}
+        </p>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {verbalFieldLabel("ctaMechanism")}：
+          </span>
+          {verbal.ctaMechanism || "—"}
+        </p>
+        {verbal.outlineTimeline?.length ? (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {verbal.outlineTimeline.map((phase) => (
+              <li key={`${phase.phase}-${phase.startSec}`}>
+                {outlinePhaseLabel(phase.phase)} · {phase.startSec}–{phase.endSec}s ·{" "}
+                {(phase.sharePct * 100).toFixed(0)}%
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {verbal.infoLubricantRatio ? (
+          <p className="text-xs text-muted-foreground">
+            {verbalFieldLabel("infoLubricantRatio")}：信息 {verbal.infoLubricantRatio.infoSec}s /
+            润滑 {verbal.infoLubricantRatio.lubricantSec}s（
+            {verbal.infoLubricantRatio.ratio.toFixed(2)}）
+          </p>
+        ) : null}
+      </TabsContent>
+
+      <TabsContent value="visual" className="space-y-3 text-sm">
+        {visual?.cutRateProfile ? (
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {visualFieldLabel("cutRateProfile")}：
+            </span>
+            均镜 {visual.cutRateProfile.avgShotSec ?? "—"}s · 开场{" "}
+            {visual.cutRateProfile.openingCutRate ?? "—"}
+          </p>
+        ) : null}
+        {visual?.packagingSpec ? (
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {visualFieldLabel("packagingSpec")}：
+            </span>
+            密度 {visualDensityLabel(visual.packagingSpec.visualDensity)} ·{" "}
+            {visual.packagingSpec.summary ?? "—"}
+          </p>
+        ) : null}
+        {visual?.conceptVisualMap?.length ? (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {visual.conceptVisualMap.map((entry) => (
+              <li key={`${entry.concept}-${entry.timeSec ?? 0}`}>
+                {entry.concept} → {entry.visualMetaphor}
+                {entry.timeSec != null ? ` @ ${entry.timeSec}s` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">暂无概念-画面映射</p>
+        )}
+      </TabsContent>
+
+      <TabsContent value="audio" className="space-y-3 text-sm">
+        {audio?.voProfile ? (
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {audioFieldLabel("voProfile")}：
+            </span>
+            {audio.voProfile.persona ?? "—"} / {tempoLabel(audio.voProfile.pace)} /{" "}
+            {audio.voProfile.energy ?? "—"}
+            {audio.voProfile.wordsPerMinute != null
+              ? ` · ${audio.voProfile.wordsPerMinute} ${audioFieldLabel("wordsPerMinute")}`
+              : ""}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">暂无口播画像</p>
+        )}
+        {audio?.audioEventRules?.length ? (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {audio.audioEventRules.map((rule, index) => (
+              <li key={`${rule.trigger}-${index}`}>
+                {rule.trigger} → {rule.action}
+                {rule.timeSec != null ? ` @ ${rule.timeSec}s` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </TabsContent>
+
+      <TabsContent value="transfer" className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">类型：</span>
+          {contentCategoryLabel(context.contentCategory)} ·{" "}
+          {primaryIntentLabel(context.primaryIntent)}
+        </p>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {transferFieldLabel("differentiationLever")}：
+          </span>
+          {transfer.differentiationLever || "—"}
+        </p>
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">成功假说：</span>
+          {context.successHypothesis || "—"}
+        </p>
+        {transfer.emotionTriggers?.length ? (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {transfer.emotionTriggers.map((trigger) => (
+              <li key={`${trigger.segmentId}-${trigger.timeSec}`}>
+                {trigger.timeSec}s · {trigger.triggerType} · {trigger.mechanism}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {transfer.nonTransferableElements?.length ? (
+          <p className="text-xs text-muted-foreground">
+            {transferFieldLabel("nonTransferableElements")}：
+            {transfer.nonTransferableElements.join("、")}
+          </p>
+        ) : null}
+      </TabsContent>
+    </Tabs>
+  );
+}
+
 export function StructureEvidencePanel({
   structure,
   projectId,
@@ -127,6 +283,7 @@ export function StructureEvidencePanel({
     sampleId,
     keyframes,
   });
+  const isV3 = structure.version === "p1-v3";
 
   return (
     <Card data-testid="structure-evidence-panel">
@@ -143,7 +300,10 @@ export function StructureEvidencePanel({
             置信度 {(structure.confidence * 100).toFixed(0)}%
           </Badge>
           <Badge variant="secondary">证据条目 {structure.evidence.length}</Badge>
+          {isV3 ? <Badge variant="outline">p1-v3 四轨</Badge> : null}
         </div>
+
+        {isV3 ? <StructureV3TrackPanel structure={structure} /> : null}
 
         {isAnalyzing && (
           <p

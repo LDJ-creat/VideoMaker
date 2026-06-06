@@ -4,7 +4,7 @@ export const fixtureVideoStructure: VideoStructure = {
   id: "vs-demo-001",
   projectId: "proj-demo-001",
   sourceVideoId: "sample-demo-001",
-  version: "1.0",
+  version: "p1-v3",
   metadata: {
     durationSec: 28,
     width: 1080,
@@ -66,11 +66,55 @@ export const fixtureVideoStructure: VideoStructure = {
       },
     ],
   },
-  packaging: {
-    titleCards: [{ style: "bold_lower_third" }],
-    stickers: [],
-    transitions: [{ type: "zoom_punch" }],
-    visualDensity: "high",
+  context: {
+    contentCategory: "product_commerce",
+    platformFormat: "9:16_short",
+    primaryIntent: "conversion",
+    successHypothesis: "痛点钩子 + 快切展示 + 明确 CTA 驱动转化",
+    applicability: {
+      suitableFor: ["竖屏带货短视频"],
+      unsuitableFor: ["长纪录片"],
+    },
+  },
+  verbal: {
+    hookTemplate: "反问痛点 → 引出解决方案",
+    outlineTimeline: [
+      { phase: "hook", startSec: 0, endSec: 3, sharePct: 0.11 },
+      { phase: "solution", startSec: 3, endSec: 18, sharePct: 0.54 },
+      { phase: "cta", startSec: 18, endSec: 28, sharePct: 0.35 },
+    ],
+    ctaMechanism: "限时优惠 + 评论区领券",
+  },
+  visual: {
+    cutRateProfile: {
+      avgShotSec: 2,
+      openingCutRate: "fast",
+    },
+    packagingSpec: {
+      visualDensity: "high",
+      summary: "高密字幕与价格贴纸",
+    },
+  },
+  audio: {
+    voProfile: {
+      pace: "fast",
+      energy: "high",
+      persona: "种草口播",
+    },
+  },
+  transfer: {
+    structureFamily: "short_form_commerce",
+    differentiationLever: "痛点反问 + 快切产品演示",
+    emotionTriggers: [
+      {
+        timeSec: 0,
+        triggerType: "hook",
+        segmentId: "seg-hook",
+        mechanism: "痛点共鸣",
+      },
+    ],
+    scalabilityRules: "保持 hook-卖点-CTA 三段式，可替换产品与话术",
+    nonTransferableElements: ["具体品牌名", "真人面孔"],
   },
   slots: [
     {
@@ -161,4 +205,9 @@ export const fixtureVideoStructure: VideoStructure = {
     },
   ],
   confidence: 0.87,
+  analysisQuality: {
+    warnings: [],
+    locale: "zh",
+    promoteReady: true,
+  },
 };

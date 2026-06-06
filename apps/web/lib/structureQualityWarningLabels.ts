@@ -160,6 +160,57 @@ export function parseStructureQualityWarning(raw: string): ParsedStructureQualit
     };
   }
 
+  if (text === "beat_points_mirror_shots") {
+    return {
+      raw,
+      code: text,
+      severity: "warn",
+      message: "节拍点与镜头切点高度重合，可能把物理切镜误当成叙事节拍。",
+      hint: "叙事 beat 应来自口播/音乐节奏，不必与每个 shot 边界对齐。",
+    };
+  }
+
+  if (text === "v3_l0_incomplete") {
+    return {
+      raw,
+      code: "v3_l0_incomplete",
+      severity: "critical",
+      message: "v3 L0 四轨核心字段不完整（Hook 模板、差异化杠杆或内容类型缺失）。",
+      hint: "存在严重提示时无法加入知识库；请重新分析或补全 verbal/transfer/context 块。",
+    };
+  }
+
+  if (text === "missing_cta_mechanism") {
+    return {
+      raw,
+      code: text,
+      severity: "warn",
+      message: "文本轨缺少 CTA 机制（ctaMechanism）。",
+      hint: "应说明结尾如何促成行动，而非仅描述画面。",
+    };
+  }
+
+  if (text === "missing_emotion_triggers") {
+    return {
+      raw,
+      code: text,
+      severity: "warn",
+      message: "策略轨缺少情绪触发点（emotionTriggers）。",
+      hint: "应标注关键时间点的情绪/留存机制，便于迁移时复用。",
+    };
+  }
+
+  if (text.startsWith("slot_intent_duplicate:")) {
+    const slotId = text.slice("slot_intent_duplicate:".length);
+    return {
+      raw,
+      code: "slot_intent_duplicate",
+      severity: "warn",
+      message: `结构槽 ${slotId} 的画面意图与口播意图完全相同。`,
+      hint: "画面与口播应分别描述镜头手法与修辞策略。",
+    };
+  }
+
   return {
     raw,
     code: text.split(":")[0] ?? text,

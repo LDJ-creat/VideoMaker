@@ -21,7 +21,10 @@ export function inferAssetUnderstandingRouteFromEvent(
   if (message.includes("Direct multimodal asset batch")) {
     return "direct_multimodal_batched";
   }
-  if (message.includes("Direct multimodal")) {
+  if (message.includes("Direct multimodal user asset")) {
+    return "direct_multimodal";
+  }
+  if (message.includes("Direct multimodal asset")) {
     return "direct_multimodal";
   }
   if (message.includes("(legacy)")) {

@@ -264,18 +264,38 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setDataLoading(true);
       }
       setDataError(null);
+      const maxAttempts = 5;
+      const retryDelayMs = 400;
+      let lastError: unknown = null;
       try {
-        const [structureResult, keyframesResult, sampleFactsResult] =
-          await Promise.all([
-          getSampleStructure(currentSampleId),
-          getSampleKeyframes(currentSampleId),
-          getSampleAnalysis(currentSampleId),
-        ]);
-        setStructure(structureResult.data);
-        setSampleKeyframes(keyframesResult.data.keyframes ?? []);
-        setSampleAnalysisFacts(sampleFactsResult.data);
-        setAnalysisSampleId(currentSampleId);
-        setDataSource(structureResult.meta.dataSource);
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          try {
+            const [structureResult, keyframesResult, sampleFactsResult] =
+              await Promise.all([
+                getSampleStructure(currentSampleId),
+                getSampleKeyframes(currentSampleId),
+                getSampleAnalysis(currentSampleId),
+              ]);
+            setStructure(structureResult.data);
+            setSampleKeyframes(keyframesResult.data.keyframes ?? []);
+            setSampleAnalysisFacts(sampleFactsResult.data);
+            setAnalysisSampleId(currentSampleId);
+            setDataSource(structureResult.meta.dataSource);
+            return;
+          } catch (err) {
+            lastError = err;
+            const message = getErrorMessage(err);
+            const retryable =
+              message.includes("Structure not available") && attempt < maxAttempts - 1;
+            if (!retryable) {
+              throw err;
+            }
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+          }
+        }
+        if (lastError) {
+          throw lastError;
+        }
       } catch (err) {
         setDataError(getErrorMessage(err));
       } finally {
@@ -512,6 +532,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       }
       if (event.status !== "succeeded") return;
       if (lastAction === "analysis" && sampleId) {
+        setAnalysisSampleId(sampleId);
         void loadAnalysisResults(sampleId);
         setPanel("analysis");
       }

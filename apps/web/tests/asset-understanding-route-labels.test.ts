@@ -26,6 +26,13 @@ describe("assetUnderstandingRouteLabels", () => {
     );
   });
 
+  it("does not infer asset route from sample structure extraction messages", () => {
+    const event = {
+      message: "Direct multimodal structure extraction",
+    } as TaskEvent;
+    expect(inferAssetUnderstandingRouteFromEvent(event)).toBeNull();
+  });
+
   it("infers legacy route", () => {
     const event = {
       message: "Analyzing user brief and uploaded assets (legacy)",

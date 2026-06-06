@@ -86,19 +86,19 @@ export function TaskProgressPanel({
             任务进度
             <Badge variant="ai">{event.status}</Badge>
           </CardTitle>
-          <CardDescription>
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-muted-foreground">
             <span className="font-mono text-xs">{event.taskId}</span>
-            <span className="mx-1">·</span>
+            <span aria-hidden>·</span>
             <span>{stageLabel}</span>
-            {assetRoute && (
+            {assetRoute ? (
               <>
-                <span className="mx-1">·</span>
+                <span aria-hidden>·</span>
                 <Badge variant="secondary" className="text-xs font-normal">
                   {assetUnderstandingRouteLabel(assetRoute)}
                 </Badge>
               </>
-            )}
-          </CardDescription>
+            ) : null}
+          </div>
         </div>
         <Badge variant="outline">{modeLabel}</Badge>
       </CardHeader>
