@@ -99,6 +99,7 @@ export function useTaskProgress({
     if (!enabled || !taskId) {
       stopAll();
       cleanupRef.current.disposed = false;
+      setEvent(null);
       setMode("idle");
       return;
     }

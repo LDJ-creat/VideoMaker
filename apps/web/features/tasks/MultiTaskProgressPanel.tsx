@@ -18,6 +18,8 @@ type MultiTaskProgressPanelProps = {
   tasks: MultiTaskProgressEntry[];
   sseFailureCounts?: Record<string, number>;
   error: string | null;
+  title?: string;
+  compact?: boolean;
   onRetry?: (taskId: string) => void;
   retryBusy?: boolean;
   retryLabel?: string;
@@ -29,6 +31,8 @@ export function MultiTaskProgressPanel({
   tasks,
   sseFailureCounts = {},
   error,
+  title = "任务进度",
+  compact = false,
   onRetry,
   retryBusy = false,
   retryLabel = "重试任务",
@@ -42,6 +46,8 @@ export function MultiTaskProgressPanel({
         mode="idle"
         sseFailureCount={0}
         error={error}
+        title={title}
+        compact={compact}
       />
     );
   }
@@ -57,6 +63,9 @@ export function MultiTaskProgressPanel({
           single.sseFailureCount ?? sseFailureCounts[single.taskId] ?? 0
         }
         error={error}
+        title={title}
+        subtitle={single.label}
+        compact={compact}
         retryBusy={retryBusy}
         retryLabel={retryLabel}
         onGoToScriptReview={onGoToScriptReview}
@@ -70,30 +79,29 @@ export function MultiTaskProgressPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {tasks.map((task) => (
-        <div key={task.taskId} className="space-y-1">
-          {task.label && (
-            <p className="text-sm font-medium text-muted-foreground">{task.label}</p>
-          )}
-          <TaskProgressPanel
-            projectId={projectId}
-            event={task.event}
-            mode={task.mode}
-            sseFailureCount={
-              task.sseFailureCount ?? sseFailureCounts[task.taskId] ?? 0
-            }
-            error={error}
-            retryBusy={retryBusy}
-            retryLabel={retryLabel}
-            onGoToScriptReview={onGoToScriptReview}
-            onRetry={
-              task.event?.status === "failed" && onRetry
-                ? () => onRetry(task.taskId)
-                : undefined
-            }
-          />
-        </div>
+        <TaskProgressPanel
+          key={task.taskId}
+          projectId={projectId}
+          event={task.event}
+          mode={task.mode}
+          sseFailureCount={
+            task.sseFailureCount ?? sseFailureCounts[task.taskId] ?? 0
+          }
+          error={error}
+          title={title}
+          subtitle={task.label ?? `任务 ${task.taskId.slice(0, 8)}`}
+          compact
+          retryBusy={retryBusy}
+          retryLabel={retryLabel}
+          onGoToScriptReview={onGoToScriptReview}
+          onRetry={
+            task.event?.status === "failed" && onRetry
+              ? () => onRetry(task.taskId)
+              : undefined
+          }
+        />
       ))}
     </div>
   );
