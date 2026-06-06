@@ -6,7 +6,7 @@ Produce contract-valid slot match candidates with natural-language explanations.
 
 # Inputs
 - `videoStructure`: full `VideoStructure` including slots with role, requiredAssetType, visualIntent, scriptIntent, importance, duration, **`migrationTemplate`**, **`packagingRequirements`**, **`antiPatterns`** when present (v2).
-- `assetInventory`: `AssetInventory` with assets, candidateMoments, extractedFacts.
+- `assetInventory`: `AssetInventory` with assets, candidateMoments, extractedFacts (including key_message, goal, selling_point).
 - `variantOverrides`: optional tuning hints (usually empty for slot mapping).
 
 # Output

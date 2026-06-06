@@ -14,9 +14,9 @@ Given a user brief and index cards for candidate knowledge entries (title, summa
 ```
 
 # Rules
-- Prefer category/style alignment with brief topic and tone.
+- Prefer category/style alignment with brief `contentCategory`, topic, and tone.
 - Prefer tempo match when tone implies pace (快节奏 → fast).
-- Prefer structures with benefit/proof chains for multi-selling-point briefs.
+- Prefer structures with benefit/proof chains for commerce briefs or multi key-point briefs.
 - Do not invent entry ids; only use ids from candidates.
 - If no good match, still pick the highest-signal candidate and explain uncertainty.
 
