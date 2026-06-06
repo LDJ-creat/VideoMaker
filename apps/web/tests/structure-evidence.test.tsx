@@ -2,7 +2,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GeneratedAssetBadge } from "@/features/aigc-preview/GeneratedAssetBadge";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
 import { fixtureVideoStructure } from "@/fixtures";
 
@@ -11,7 +10,7 @@ describe("StructureEvidencePanel", () => {
     cleanup();
   });
 
-  it("shows merged narrative segments with Chinese role labels", () => {
+  it("shows timeline master-detail with Chinese role labels", () => {
     render(
       <StructureEvidencePanel
         structure={fixtureVideoStructure}
@@ -20,10 +19,12 @@ describe("StructureEvidencePanel", () => {
     );
 
     expect(screen.getByTestId("structure-evidence-panel")).toBeInTheDocument();
-    expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument();
-    expect(screen.getByText("开场钩子")).toBeInTheDocument();
-    expect(screen.getByTestId("evidence-card-seg-hook")).toBeInTheDocument();
-    expect(screen.getAllByText(/口播手法：/).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("structure-hero")).toBeInTheDocument();
+    expect(screen.getByTestId("narrative-timeline")).toBeInTheDocument();
+    expect(screen.getByTestId("segment-detail-panel")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("segment-detail-panel").textContent,
+    ).toContain("开场钩子");
   });
 
   it("shows analysis message during structure extraction", () => {
@@ -37,9 +38,11 @@ describe("StructureEvidencePanel", () => {
     expect(screen.getByText("AI 正在分析样例结构…")).toBeInTheDocument();
   });
 
-  it("invokes highlight callback when evidence card clicked", async () => {
+  it("invokes highlight callback when timeline segment clicked", async () => {
     const user = userEvent.setup();
     const onHighlightSlot = vi.fn();
+    const secondSegment = fixtureVideoStructure.narrative.segments[1];
+    if (!secondSegment) return;
 
     render(
       <StructureEvidencePanel
@@ -48,26 +51,20 @@ describe("StructureEvidencePanel", () => {
       />,
     );
 
-    await user.click(screen.getByTestId("evidence-card-seg-hook"));
-    expect(onHighlightSlot).toHaveBeenCalledWith("slot-hook-visual");
-  });
-});
-
-describe("GeneratedAssetBadge", () => {
-  afterEach(() => {
-    cleanup();
+    await user.click(screen.getByTestId(`timeline-segment-${secondSegment.id}`));
+    expect(onHighlightSlot).toHaveBeenCalled();
   });
 
-  it("renders provider label and tooltip metadata", () => {
+  it("keeps v3 track panel inside collapsed details by default", () => {
     render(
-      <GeneratedAssetBadge
-        provider="image_generation"
-        generatedBy={{ provider: "image_generation", model: "dall-e-3" }}
+      <StructureEvidencePanel
+        structure={fixtureVideoStructure}
+        onHighlightSlot={() => undefined}
       />,
     );
 
-    const badge = screen.getByTestId("generated-asset-badge");
-    expect(badge).toHaveTextContent("AI 生图");
-    expect(badge).toHaveAttribute("title", "模型 dall-e-3");
+    const summary = screen.getByText("四轨深度洞察");
+    expect(summary).toBeInTheDocument();
+    expect(summary.closest("details")).not.toHaveAttribute("open");
   });
 });

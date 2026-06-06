@@ -1,24 +1,22 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useState } from "react";
 
 import { Loader2 } from "lucide-react";
 
+import { SamplePreviewDialog } from "@/components/sample-preview-dialog";
+import { SampleThumbnail } from "@/components/sample-thumbnail";
 import type { SampleAnalysisFacts, TaskStage, VideoStructure } from "@videomaker/contracts";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
-import { StructureSlotBoard } from "@/features/structure-mapping/StructureSlotBoard";
 import type { ActiveSampleSummary, SampleKeyframeRecord } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 
@@ -53,78 +51,53 @@ function AnalyzedSampleListItem({
   sample,
   isDisplayed,
   isPending,
-  onViewDetails,
+  onSelect,
+  onPreview,
 }: {
   sample: ActiveSampleSummary;
   isDisplayed: boolean;
   isPending: boolean;
-  onViewDetails: () => void;
+  onSelect: () => void;
+  onPreview: (sample: ActiveSampleSummary) => void;
 }) {
   const title = sampleDisplayName(sample);
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        "rounded-lg border p-3 transition-colors",
+        "flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors",
         isDisplayed
-          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+          ? "border-primary border-l-4 bg-primary/5 ring-1 ring-primary/30"
           : isPending
             ? "border-primary/50 bg-muted/30"
             : "border-border bg-card hover:border-primary/40",
       )}
+      onClick={onSelect}
+      disabled={isPending}
     >
-      <div className="space-y-3">
-        {sample.previewUrl ? (
-          <video
-            src={sample.previewUrl}
-            controls
-            playsInline
-            preload="metadata"
-            className="mx-auto aspect-[9/16] w-full max-w-[168px] rounded-md bg-black object-cover"
-            title="点击播放样例视频"
-            onClick={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-          />
-        ) : (
-          <div className="mx-auto flex aspect-[9/16] w-full max-w-[168px] items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-[10px] text-muted-foreground">
-            无预览
-          </div>
-        )}
-        <div className="min-w-0 space-y-2">
-          <div>
-            <p className="truncate text-sm font-medium">{title}</p>
-            <p className="font-mono text-[10px] text-muted-foreground">
-              {sample.id.slice(0, 8)}…
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            <Badge variant="ai">已分析</Badge>
-            {sample.uploadBatchId && (
-              <Badge variant="outline">批次 {sample.uploadBatchId.slice(0, 6)}</Badge>
-            )}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant={isDisplayed ? "secondary" : "outline"}
-            className="w-full"
-            onClick={onViewDetails}
-            disabled={isDisplayed || isPending}
-          >
-            {isPending ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                加载中…
-              </span>
-            ) : isDisplayed ? (
-              "当前查看中"
-            ) : (
-              "查看详情"
-            )}
-          </Button>
+      <SampleThumbnail
+        previewUrl={sample.previewUrl}
+        posterUrl={sample.posterUrl}
+        alt={title}
+        size="xs"
+        onPreviewClick={
+          sample.previewUrl ? () => onPreview(sample) : undefined
+        }
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{title}</p>
+        <div className="flex items-center gap-1">
+          {isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          ) : (
+            <Badge variant="ai" className="text-[10px]">
+              已分析
+            </Badge>
+          )}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -143,11 +116,12 @@ export function SampleAnalysisPanel({
   analysisStage,
   emptyMessage = "暂无分析结果，请先完成样例分析或加载演示数据。",
 }: SampleAnalysisPanelProps) {
+  const [previewSample, setPreviewSample] = useState<ActiveSampleSummary | null>(
+    null,
+  );
   const analyzed = sortAnalyzedSamples(
     samples.filter((sample) => sample.hasStructure && sample.status === "analyzed"),
   );
-  const displayedSample =
-    analyzed.find((sample) => sample.id === displayedSampleId) ?? null;
   const pendingSample =
     analyzed.find((sample) => sample.id === pendingSampleId) ?? null;
   const isSwitching =
@@ -157,59 +131,51 @@ export function SampleAnalysisPanel({
   if (analyzed.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {emptyMessage}
+        <CardContent className="space-y-2 py-8 text-center">
+          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          {samples.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              已有 {samples.length} 个样例待分析，请返回「录入」点击「开始样例分析」。
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              请先在「录入」上传样例视频，或点击顶栏「加载演示数据」预览流程。
+            </p>
+          )}
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+    <>
+    <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
       <Card className="flex h-fit flex-col xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)]">
-        <CardHeader className="shrink-0 pb-3">
-          <CardTitle>已分析样例</CardTitle>
-          <CardDescription>
-            共 {analyzed.length} 个。结构证据、结构槽、叙事分段与知识草稿均属于单个样例，请在此切换。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain">
-          {analyzed.map((sample) => (
-            <AnalyzedSampleListItem
-              key={sample.id}
-              sample={sample}
-              isDisplayed={sample.id === displayedSampleId}
-              isPending={sample.id === pendingSampleId}
-              onViewDetails={() => onSelectSample(sample.id)}
-            />
-          ))}
+        <CardContent className="space-y-3 p-4">
+          <div>
+            <p className="font-serif text-base font-semibold">已分析样例</p>
+            <p className="text-xs text-muted-foreground">共 {analyzed.length} 个</p>
+          </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain">
+            {analyzed.map((sample) => (
+              <AnalyzedSampleListItem
+                key={sample.id}
+                sample={sample}
+                isDisplayed={sample.id === displayedSampleId}
+                isPending={sample.id === pendingSampleId}
+                onSelect={() => onSelectSample(sample.id)}
+                onPreview={setPreviewSample}
+              />
+            ))}
+          </div>
         </CardContent>
       </Card>
 
       <div className="min-w-0 space-y-4">
-            {displayedSample && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">当前详情所属样例</p>
-              <p className="truncate text-sm font-medium">
-                {sampleDisplayName(displayedSample)}
-              </p>
-              <p className="font-mono text-[10px] text-muted-foreground">
-                {displayedSample.id}
-              </p>
-              {sampleAnalysisFacts?.structureAnalysisRoute === "direct_multimodal" ? (
-                <div className="mt-1">
-                  <Badge variant="secondary">直连多模态分析</Badge>
-                </div>
-              ) : null}
-              {isSwitching && pendingSample && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  正在切换到 {sampleDisplayName(pendingSample)}…
-                </p>
-              )}
-            </div>
-            <Badge variant="ai">{isSwitching ? "切换中" : "查看中"}</Badge>
-          </div>
+        {isSwitching && pendingSample && (
+          <p className="text-xs text-muted-foreground" role="status">
+            正在切换到 {sampleDisplayName(pendingSample)}…
+          </p>
         )}
 
         {error && (
@@ -252,49 +218,30 @@ export function SampleAnalysisPanel({
                 projectId={projectId}
                 sampleId={displayedSampleId}
                 keyframes={sampleKeyframes}
+                sampleAnalysisFacts={sampleAnalysisFacts}
                 highlightedSlotIds={highlightedSlotIds}
                 onHighlightSlot={onHighlightSlot}
                 analysisStage={analysisStage}
+                promoteAction={
+                  <KnowledgeDraftPanel
+                    projectId={projectId}
+                    sampleId={displayedSampleId}
+                    layout="inline"
+                  />
+                }
               />
-              <StructureSlotBoard
-                structure={structure}
-                highlightedSlotIds={highlightedSlotIds}
-              />
-              {sampleAnalysisFacts?.audioProfile ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">音频事实</CardTitle>
-                    <CardDescription>
-                      来自 sample-analysis.json 的确定性音频画像
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-                    <Badge variant="secondary">
-                      口播 {sampleAnalysisFacts.audioProfile.hasVoiceover ? "有" : "无"}
-                    </Badge>
-                    <Badge variant="secondary">
-                      BGM {sampleAnalysisFacts.audioProfile.hasBgm ? "疑似有" : "无"}
-                    </Badge>
-                    {sampleAnalysisFacts.audioProfile.tempoBpm != null ? (
-                      <Badge variant="outline">
-                        节奏约 {sampleAnalysisFacts.audioProfile.tempoBpm} BPM
-                      </Badge>
-                    ) : null}
-                    <Badge variant="outline">
-                      口播覆盖{" "}
-                      {(
-                        sampleAnalysisFacts.audioProfile.metrics.voiceoverCoveragePct *
-                        100
-                      ).toFixed(0)}
-                      %
-                    </Badge>
-                  </CardContent>
-                </Card>
-              ) : null}
-              <KnowledgeDraftPanel
-                projectId={projectId}
-                sampleId={displayedSampleId}
-              />
+              <details className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                <summary className="cursor-pointer font-serif text-base font-semibold">
+                  知识草稿详情
+                </summary>
+                <div className="mt-4">
+                  <KnowledgeDraftPanel
+                    projectId={projectId}
+                    sampleId={displayedSampleId}
+                    layout="card"
+                  />
+                </div>
+              </details>
             </div>
           </div>
         )}
@@ -302,11 +249,17 @@ export function SampleAnalysisPanel({
         {!initialLoading && !structure && !error && (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              请从左侧选择一个样例并点击「查看详情」。
+              请从左侧选择一个样例查看结构详情。
             </CardContent>
           </Card>
         )}
       </div>
     </div>
+    <SamplePreviewDialog
+      sample={previewSample}
+      open={previewSample != null}
+      onClose={() => setPreviewSample(null)}
+    />
+    </>
   );
 }

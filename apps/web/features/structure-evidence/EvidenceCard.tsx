@@ -15,6 +15,7 @@ import type { SegmentEvidenceView } from "./StructureEvidencePanel";
 
 type EvidenceCardProps = {
   view: SegmentEvidenceView;
+  mode?: "compact" | "detail";
   highlighted?: boolean;
   onSelect?: () => void;
 };
@@ -24,7 +25,12 @@ function isTimeRangeSummary(text: string): boolean {
   return /^\d+(\.\d+)?\s*[-–]\s*\d+(\.\d+)?(\s*sec)?$/i.test(trimmed);
 }
 
-export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps) {
+export function EvidenceCard({
+  view,
+  mode = "detail",
+  highlighted,
+  onSelect,
+}: EvidenceCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const {
     segment,
@@ -64,22 +70,31 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
     Boolean(audioSummary) ||
     shotRanges.length > 0;
 
+  const Wrapper = mode === "compact" ? "button" : "div";
+  const interactive = mode === "compact";
+
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
+      <Wrapper
+        type={interactive ? "button" : undefined}
+        role={interactive ? "button" : undefined}
+        tabIndex={interactive ? 0 : undefined}
         className={cn(
-          "w-full cursor-pointer rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/40",
+          "w-full rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors",
+          interactive && "cursor-pointer hover:bg-muted/40",
           highlighted && "border-ai/50 bg-ai/5",
         )}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect?.();
-          }
-        }}
+        onClick={interactive ? onSelect : undefined}
+        onKeyDown={
+          interactive
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect?.();
+                }
+              }
+            : undefined
+        }
         data-testid={`evidence-card-${segment.id}`}
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -94,6 +109,11 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
           ) : null}
         </div>
 
+        {mode === "compact" ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">{segment.intent}</p>
+        ) : null}
+
+        {mode === "detail" ? (
         <div className="grid gap-3 sm:grid-cols-[96px_1fr]">
           {keyframePreviewUrl ? (
             <button
@@ -219,7 +239,8 @@ export function EvidenceCard({ view, highlighted, onSelect }: EvidenceCardProps)
             ) : null}
           </div>
         </div>
-      </div>
+        ) : null}
+      </Wrapper>
 
       {keyframePreviewUrl ? (
         <ImageLightbox
