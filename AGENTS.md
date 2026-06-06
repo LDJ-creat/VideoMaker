@@ -9,7 +9,7 @@ The competition brief is stored in `VideoMaker.md`. The user's original solution
 - `docs/superpowers/specs/2026-05-27-videomaker-design.md` (architecture spec)
 - `docs/superpowers/plans/P0/` (archived P0 implementation plans; see index below)
 - `docs/superpowers/plans/2026-05-29-videomaker-p1-implementation-plan.md` (P1 master plan; merged on `main`)
-- Post-P1 extension plans: `2026-06-02-master-narration-layer-plan.md`, `2026-06-03-knowledge-deposition-plan.md`, `2026-06-04-multi-sample-analysis-plan.md`, `2026-06-06-sample-analysis-cost-resilience-plan.md`
+- Post-P1 extension plans: `2026-06-02-master-narration-layer-plan.md`, `2026-06-03-knowledge-deposition-plan.md`, `2026-06-04-multi-sample-analysis-plan.md`, `2026-06-06-sample-analysis-cost-resilience-plan.md`, `2026-06-08-generation-human-review-and-duration-strategy-plan.md`
 
 ### P0 Plan Archive (`docs/superpowers/plans/P0/`)
 
@@ -186,6 +186,7 @@ GET /api/projects/{project_id}/generation-runs
 GET /api/projects/{project_id}/generation-runs/{run_id}
 GET /api/projects/{project_id}/media/samples/{sample_id}
 GET /api/projects/{project_id}/media/assets/{asset_id}
+GET /api/projects/{project_id}/duration-recommendation
 POST /api/projects/{project_id}/generation-plan
 GET /api/projects/{project_id}/generations/latest
 GET /api/settings/cookies
@@ -221,6 +222,10 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_ASSET_TEXT_MAX_CHARS` | Max UTF-8 chars read from text assets during understanding | `8000` |
 | `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
+| `VIDEOMAKER_SHORT_FORM_MAX_SEC` | Target duration ≤ this uses `short_form_direct` strategy | `60` |
+| `VIDEOMAKER_DURATION_TARGET_MAX_SEC` | Max user-configurable target duration (seconds) | `600` |
+| `VIDEOMAKER_SHORT_FORM_VIDEO_GEN` | Allow one full short-form `video_generation` job | `1` |
+| `VIDEOMAKER_HUMAN_REVIEW_MODE` | Pause generation for master/storyboard approval (API default `true`; set `false` for CI/fixture one-shot) | `true` |
 
 Gap completion: image weak matches on visual slots → `video_generation` (i2v); video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
 
@@ -233,9 +238,15 @@ GET /api/samples/{sample_id}/analysis
 GET /api/samples/{sample_id}/sample-analysis
 GET /api/samples/{sample_id}/keyframes
 GET /api/generations/{generation_id}
+GET /api/generations/{generation_id}/script-draft
+PUT /api/generations/{generation_id}/script-draft
+POST /api/generations/{generation_id}/approve-master
+POST /api/generations/{generation_id}/approve-storyboard
 POST /api/generations/{generation_id}/revise
 GET /api/generations/{generation_id}/agent-runs
 ```
+
+Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Revise re-runs skip human review gates (`human_review_mode=false`).
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
 
@@ -253,7 +264,7 @@ Pipelines and tools:
 
 - **Perception:** `SampleAnalysisPipeline` — metadata, shots, Whisper ASR, keyframe extraction (algorithm inputs to Agents)
 - **Sample analysis:** `p0_demo_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
-- **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (`masterNarration` + storyboard) → `packaging_designer` → material completion → HyperFrames render
+- **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (two-phase master/storyboard when human review enabled) → user approval gates → `packaging_designer` → material completion (`short_form_direct` ≤60s or `long_form_composed`) → HyperFrames render
 - **Revise:** `revise_pipeline` — `edit_intent_parser` + partial stage re-run
 - **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.)
 - **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
