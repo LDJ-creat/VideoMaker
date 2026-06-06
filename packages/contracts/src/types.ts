@@ -274,23 +274,117 @@ export type StructureEvidence = {
 };
 
 export type AnalysisQuality = {
-  warnings?: string[];
-  locale?: string;
+  warnings: string[];
+  locale: string;
+  promoteReady: boolean;
 };
+
+export type StructureContext = {
+  contentCategory: ContentCategory;
+  platformFormat: string;
+  primaryIntent: "exposure" | "consideration" | "conversion";
+  successHypothesis: string;
+  applicability: {
+    suitableFor: string[];
+    unsuitableFor: string[];
+  };
+};
+
+export type VerbalOutlinePhase = {
+  phase: string;
+  startSec: number;
+  endSec: number;
+  sharePct: number;
+};
+
+export type VerbalLayer = {
+  hookTemplate: string;
+  outlineTimeline: VerbalOutlinePhase[];
+  ctaMechanism: string;
+  infoLubricantRatio?: {
+    infoSec: number;
+    lubricantSec: number;
+    ratio: number;
+  };
+};
+
+export type ConceptVisualMapEntry = {
+  concept: string;
+  visualMetaphor: string;
+  timeSec?: number;
+  assetHint?: string;
+};
+
+export type CutRateProfile = {
+  avgShotSec?: number;
+  openingCutRate?: string;
+  fastCutRanges?: { startSec: number; endSec: number }[];
+};
+
+export type VisualPackagingSpec = {
+  visualDensity?: "low" | "medium" | "high";
+  summary?: string;
+} & LooseStyleObject;
+
+export type VisualLayer = {
+  conceptVisualMap?: ConceptVisualMapEntry[];
+  cutRateProfile?: CutRateProfile;
+  packagingSpec?: VisualPackagingSpec;
+};
+
+export type StructureVoProfile = {
+  pace?: string;
+  energy?: string;
+  persona?: string;
+  wordsPerMinute?: number;
+};
+
+export type AudioEventRule = {
+  trigger: string;
+  action: string;
+  timeSec?: number;
+};
+
+export type StructureAudioLayer = {
+  voProfile?: StructureVoProfile;
+  audioEventRules?: AudioEventRule[];
+};
+
+export type EmotionTrigger = {
+  timeSec: number;
+  triggerType: string;
+  segmentId: string;
+  mechanism: string;
+};
+
+export type TransferMetadata = {
+  structureFamily: string;
+  differentiationLever: string;
+  emotionTriggers: EmotionTrigger[];
+  scalabilityRules: string;
+  nonTransferableElements: string[];
+  materialRequirementsSummary?: string;
+};
+
+export type VideoStructureVersion = "p1-v3";
 
 export type VideoStructure = {
   id: string;
   projectId: string;
   sourceVideoId: string;
-  version: string;
+  version: VideoStructureVersion;
   metadata: VideoMetadata;
+  context: StructureContext;
+  verbal: VerbalLayer;
+  visual?: VisualLayer;
+  audio?: StructureAudioLayer;
+  transfer: TransferMetadata;
   narrative: NarrativeStructure;
   rhythm: RhythmProfile;
-  packaging: PackagingProfile;
   slots: StructureSlot[];
   evidence: StructureEvidence[];
   confidence: number;
-  analysisQuality?: AnalysisQuality;
+  analysisQuality: AnalysisQuality;
 };
 
 export type ContentCategory =
