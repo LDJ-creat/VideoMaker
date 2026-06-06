@@ -6,6 +6,7 @@ import type {
   KnowledgeEntry,
   KnowledgeRecommendation,
   ProjectKnowledgeSelection,
+  ScriptDraft,
   TaskEvent,
   UserBrief,
   SampleAnalysisFacts,
@@ -770,6 +771,60 @@ export async function applyKnowledgeToProject(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+}
+
+export type DurationRecommendationResponse = {
+  recommendedSec: number;
+  sampleId?: string | null;
+  structureDurationSec: number;
+  defaultTargetSec: number;
+  shortFormMaxSec: number;
+  maxTargetSec: number;
+};
+
+export async function getDurationRecommendation(
+  projectId: string,
+): Promise<ApiResult<DurationRecommendationResponse>> {
+  return apiFetch(`/api/projects/${projectId}/duration-recommendation`);
+}
+
+export type ScriptDraftResponse = {
+  draft: ScriptDraft;
+  taskStatus?: string | null;
+  taskStage?: string | null;
+};
+
+export async function getScriptDraft(
+  generationId: string,
+): Promise<ApiResult<ScriptDraftResponse>> {
+  return apiFetch(`/api/generations/${generationId}/script-draft`);
+}
+
+export async function updateScriptDraft(
+  generationId: string,
+  body: { masterNarration?: string; storyboard?: ScriptDraft["storyboard"] },
+): Promise<ApiResult<{ draft: ScriptDraft }>> {
+  return apiFetch(`/api/generations/${generationId}/script-draft`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function approveMasterScript(
+  generationId: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; draft: ScriptDraft }>> {
+  return apiFetch(`/api/generations/${generationId}/approve-master`, {
+    method: "POST",
+  });
+}
+
+export async function approveStoryboardScript(
+  generationId: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; draft: ScriptDraft }>> {
+  return apiFetch(`/api/generations/${generationId}/approve-storyboard`, {
+    method: "POST",
   });
 }
 

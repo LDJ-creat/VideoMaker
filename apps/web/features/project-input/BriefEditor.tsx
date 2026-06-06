@@ -49,10 +49,11 @@ type BriefEditorProps = {
   projectId: string;
   initialBrief?: UserBriefRequest | null;
   onSaved?: (brief: UserBriefRequest) => void;
+  getDurationTarget?: () => UserBriefRequest["durationTarget"];
 };
 
 export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
-  function BriefEditor({ projectId, initialBrief, onSaved }, ref) {
+  function BriefEditor({ projectId, initialBrief, onSaved, getDurationTarget }, ref) {
     const [contentCategory, setContentCategory] = useState<ContentCategory>("general");
     const [topic, setTopic] = useState("");
     const [creativeGoal, setCreativeGoal] = useState("");
@@ -108,6 +109,10 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
       if (supplementalNotes.trim()) {
         brief.supplementalNotes = supplementalNotes.trim();
       }
+      const durationTarget = getDurationTarget?.();
+      if (durationTarget) {
+        brief.durationTarget = durationTarget;
+      }
       return brief;
     };
 
@@ -122,6 +127,7 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
       mustMention,
       avoidMention,
       supplementalNotes,
+      getDurationTarget,
     ]);
 
     const handleSave = async () => {

@@ -15,6 +15,14 @@ import type { GenerationRunSummary } from "@/lib/apiClient";
 import { getGenerationRun, listGenerationRuns } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 
+function generationRunStatusLabel(status: string): string {
+  if (status === "awaiting_review") return "等待脚本审核";
+  if (status === "completed") return "已完成";
+  if (status === "partial_failed") return "部分失败";
+  if (status === "running") return "进行中";
+  return status;
+}
+
 type GenerationRunHistoryPanelProps = {
   projectId: string;
   activeRunId?: string | null;
@@ -74,7 +82,7 @@ export function GenerationRunHistoryPanel({
             <div className="space-y-1">
               <p className="font-mono text-xs">{run.id}</p>
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{run.status}</Badge>
+                <Badge variant="outline">{generationRunStatusLabel(run.status)}</Badge>
                 <span className="text-xs text-muted-foreground">{run.createdAt}</span>
               </div>
             </div>

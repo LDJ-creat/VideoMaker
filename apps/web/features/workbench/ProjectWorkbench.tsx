@@ -34,6 +34,11 @@ import {
   BriefEditor,
   type BriefEditorHandle,
 } from "@/features/project-input/BriefEditor";
+import {
+  DurationTargetPanel,
+  type DurationTargetPanelHandle,
+} from "@/features/project-input/DurationTargetPanel";
+import { ScriptReviewPanel } from "@/features/script-review/ScriptReviewPanel";
 import { GenerationRunHistoryPanel } from "@/features/generation-runs/GenerationRunHistoryPanel";
 import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatchAnalysisProgress";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
@@ -96,6 +101,7 @@ import {
 export type WorkbenchPanel =
   | "input"
   | "progress"
+  | "script-review"
   | "analysis"
   | "structure"
   | "gap"
@@ -107,6 +113,7 @@ export type WorkbenchPanel =
 const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   input: "录入",
   progress: "进度",
+  "script-review": "脚本审核",
   analysis: "样例分析",
   structure: "结构槽",
   gap: "缺口",
@@ -180,6 +187,7 @@ function applyLatestGenerations(
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const briefEditorRef = useRef<BriefEditorHandle>(null);
+  const durationTargetRef = useRef<DurationTargetPanelHandle>(null);
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
@@ -517,6 +525,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       if (match) {
         void loadGenerationIntoVariants(match.generationId);
       }
+      if (event.status === "awaiting_review") {
+        setPanel("script-review");
+        return;
+      }
       if (event.status !== "succeeded") {
         setPanel("progress");
         return;
@@ -532,6 +544,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         void loadGenerationRunProvenance(activeGenerationRunId);
       }
       const statuses = Object.values(events).map((entry) => entry.status);
+      if (statuses.some((status) => status === "awaiting_review")) {
+        setPanel("script-review");
+        return;
+      }
       if (statuses.some((status) => status === "failed" || status === "cancelled")) {
         setPanel("progress");
         return;
@@ -606,6 +622,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     onAllTerminal: handleAllGenerationTerminal,
   });
 
+  useEffect(() => {
+    if (!isGenerationProgress || lastAction !== "generation") return;
+    const awaiting = Object.values(generationEvents).some(
+      (entry) => entry?.status === "awaiting_review",
+    );
+    if (awaiting) {
+      setPanel("script-review");
+    }
+  }, [generationEvents, isGenerationProgress, lastAction]);
+
   const handleTaskStarted = useCallback(
     (nextTaskId: string, nextSampleId: string) => {
       setLastAction("analysis");
@@ -643,6 +669,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setLastAction("generation");
     try {
       const brief = briefEditorRef.current?.getBrief() ?? emptyBrief();
+      const durationTarget = durationTargetRef.current?.getDurationTarget();
+      if (durationTarget) {
+        brief.durationTarget = durationTarget;
+      }
       await saveBrief(projectId, brief);
       setSavedBrief(brief);
 
@@ -852,6 +882,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const panels: WorkbenchPanel[] = [
     "input",
     "progress",
+    "script-review",
     "analysis",
     "structure",
     "gap",
@@ -983,10 +1014,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               />
             </div>
             <div className="lg:col-span-2">
+              <DurationTargetPanel
+                ref={durationTargetRef}
+                projectId={projectId}
+                initialTarget={savedBrief?.durationTarget}
+              />
+            </div>
+            <div className="lg:col-span-2">
               <BriefEditor
                 ref={briefEditorRef}
                 projectId={projectId}
                 initialBrief={savedBrief}
+                getDurationTarget={() => durationTargetRef.current?.getDurationTarget()}
                 onSaved={(brief) => setSavedBrief(brief)}
               />
             </div>
@@ -1028,6 +1067,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 retryBusy={busy}
                 retryLabel="重试生成计划"
                 onRetry={(retryTaskId) => void handleRetryFailedTask(retryTaskId)}
+                onGoToScriptReview={() => setPanel("script-review")}
               />
             ) : (
               <TaskProgressPanel
@@ -1049,11 +1089,30 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                     ? () => void handleRetryFailedTask()
                     : undefined
                 }
+                onGoToScriptReview={() => setPanel("script-review")}
               />
             )}
             {lastAction === "revise" && reviseIntents && reviseIntents.length > 0 && (
               <EditIntentList intents={reviseIntents} />
             )}
+          </div>
+        )}
+
+        {panel === "script-review" && (
+          <div className="lg:col-span-2">
+            <ScriptReviewPanel
+              projectId={projectId}
+              variants={activeGenerations.map((entry) => ({
+                generationId: entry.generationId,
+                variant: entry.variant,
+                label: entry.label,
+                taskEvent: generationEvents[entry.taskId] ?? null,
+              }))}
+              onApproved={() => {
+                setProgressWatchKey((key) => key + 1);
+                setPanel("progress");
+              }}
+            />
           </div>
         )}
 

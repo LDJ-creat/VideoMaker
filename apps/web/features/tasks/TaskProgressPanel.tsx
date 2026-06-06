@@ -31,6 +31,7 @@ type TaskProgressPanelProps = {
   onRetry?: () => void;
   retryBusy?: boolean;
   retryLabel?: string;
+  onGoToScriptReview?: () => void;
 };
 
 const MODE_LABEL: Record<TaskProgressMode, string> = {
@@ -49,6 +50,7 @@ export function TaskProgressPanel({
   onRetry,
   retryBusy = false,
   retryLabel = "重试任务",
+  onGoToScriptReview,
 }: TaskProgressPanelProps) {
   const formattedError = formatTaskError(event?.error);
   const assetRoute = inferAssetUnderstandingRouteFromEvent(event);
@@ -71,7 +73,13 @@ export function TaskProgressPanel({
       : MODE_LABEL[mode];
 
   return (
-    <Card className="border-ai/20">
+    <Card
+      className={
+        event.status === "awaiting_review"
+          ? "border-amber-500/40 border-ai/20"
+          : "border-ai/20"
+      }
+    >
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div>
           <CardTitle className="flex items-center gap-2">
@@ -136,6 +144,17 @@ export function TaskProgressPanel({
                 {formattedError.technical}
               </pre>
             )}
+          </div>
+        )}
+
+        {event.status === "awaiting_review" && onGoToScriptReview && (
+          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              生成已暂停，等待您审核脚本后继续。
+            </p>
+            <Button type="button" variant="outline" onClick={onGoToScriptReview}>
+              前往脚本审核
+            </Button>
           </div>
         )}
 

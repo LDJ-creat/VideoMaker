@@ -21,6 +21,7 @@ type MultiTaskProgressPanelProps = {
   onRetry?: (taskId: string) => void;
   retryBusy?: boolean;
   retryLabel?: string;
+  onGoToScriptReview?: () => void;
 };
 
 export function MultiTaskProgressPanel({
@@ -31,6 +32,7 @@ export function MultiTaskProgressPanel({
   onRetry,
   retryBusy = false,
   retryLabel = "重试任务",
+  onGoToScriptReview,
 }: MultiTaskProgressPanelProps) {
   if (tasks.length === 0) {
     return (
@@ -57,6 +59,7 @@ export function MultiTaskProgressPanel({
         error={error}
         retryBusy={retryBusy}
         retryLabel={retryLabel}
+        onGoToScriptReview={onGoToScriptReview}
         onRetry={
           single.event?.status === "failed" && onRetry
             ? () => onRetry(single.taskId)
@@ -83,6 +86,7 @@ export function MultiTaskProgressPanel({
             error={error}
             retryBusy={retryBusy}
             retryLabel={retryLabel}
+            onGoToScriptReview={onGoToScriptReview}
             onRetry={
               task.event?.status === "failed" && onRetry
                 ? () => onRetry(task.taskId)
