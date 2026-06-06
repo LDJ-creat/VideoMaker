@@ -13,6 +13,8 @@ Produce a two-phase JSON payload compatible with `GenerationPlan`:
 2. **`storyboard`**: one scene per slot with `visual` and per-scene `script`.
 
 # Constraints
+- Use **`verbal.outlineTimeline`** for scene pacing and **`audio.voProfile`** / **`audio.audioEventRules`** for VO energy and SFX cues when present.
+- Use **`visual.packagingSpec`** (from v3) instead of legacy top-level packaging when available.
 - One scene per slot.
 - Preserve slot timing unless completion requires text packaging adjustment.
 - Do not copy sample video wording verbatim.

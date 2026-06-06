@@ -6,6 +6,7 @@ Generate `GapReport`-compatible weak/missing items with human-readable reasons a
 
 # Inputs
 - `structure`, `inventory`, `slotMatches` from SlotMapper.
+- **`transfer.materialRequirementsSummary`** and **`visual.conceptVisualMap`** (v3) for AIGC completion hints when slots are weak/missing.
 - `weakSlotIds`, `missingSlotIds`: Python-classified slot ids.
 - `variantOverrides.gap_planner`: e.g. `preferProviders`, `videoGenPriority`.
 - `videoGenQuotaRemaining`: how many visual slots may still use `video_generation` in this generation.

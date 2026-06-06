@@ -6,7 +6,7 @@ Analyze ONE narrative segment using transcript excerpts, audio profile hints, an
 
 # Output JSON
 Return a flat JSON object (not an array, not wrapped under `segment-analysis`) with:
-- `segmentId`, `transcriptExcerpt` (≤120 Chinese chars, factual)
+- `segmentId`, `transcriptExcerpt` (≤120 Chinese chars, factual quote — **not** a paraphrase of `scriptSummary`)
 - `rhetoricalDevices[]`, `emotionTone`
 - `voStyle`: pace / energy / persona
 - `visualSpec`: framing, subject, cameraMove, onScreenText[], colorMood, density (`low`|`medium`|`high`)
@@ -14,6 +14,7 @@ Return a flat JSON object (not an array, not wrapped under `segment-analysis`) w
 - `localEvidence[]`: objects `{ targetId, source, summary, confidence, timeRange?, excerpt? }` — not plain strings
 
 # Rules
+- Output feeds **p1-v3** segment enrichment; keep excerpt factual and distinct from rhetorical summaries.
 - When batch digests cover the segment, treat `keyframeBatchDigests.visualFacts` and `onScreenTextFacts` as primary visual evidence.
 - Quote visible on-screen text literally when readable.
 - Do not invent dialogue not supported by transcript or visible text.
