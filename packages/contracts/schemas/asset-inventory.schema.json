@@ -7,17 +7,42 @@
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "projectId": { "type": "string", "minLength": 1 },
+    "assetUnderstandingRoute": {
+      "type": "string",
+      "enum": ["direct_multimodal", "legacy", "direct_multimodal_batched"]
+    },
+    "assetUnderstandingWarnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "userBrief": {
       "type": "object",
       "required": ["sellingPoints", "mustMention", "avoidMention"],
       "properties": {
+        "contentCategory": {
+          "type": "string",
+          "enum": [
+            "product_commerce",
+            "education",
+            "vlog_lifestyle",
+            "brand_story",
+            "tutorial",
+            "entertainment",
+            "news_commentary",
+            "general"
+          ]
+        },
         "topic": { "type": "string" },
+        "creativeGoal": { "type": "string" },
+        "subjectName": { "type": "string" },
         "productName": { "type": "string" },
+        "keyPoints": { "type": "array", "items": { "type": "string" } },
         "sellingPoints": { "type": "array", "items": { "type": "string" } },
         "targetAudience": { "type": "string" },
         "tone": { "type": "string" },
         "mustMention": { "type": "array", "items": { "type": "string" } },
-        "avoidMention": { "type": "array", "items": { "type": "string" } }
+        "avoidMention": { "type": "array", "items": { "type": "string" } },
+        "supplementalNotes": { "type": "string" }
       },
       "additionalProperties": false
     },
@@ -44,7 +69,18 @@
         "required": ["id", "kind", "text", "source"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
-          "kind": { "type": "string", "enum": ["selling_point", "audience", "scene", "constraint", "other"] },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "selling_point",
+              "key_message",
+              "goal",
+              "audience",
+              "scene",
+              "constraint",
+              "other"
+            ]
+          },
           "text": { "type": "string" },
           "source": { "type": "string" }
         },

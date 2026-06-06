@@ -287,14 +287,30 @@ export type VideoStructure = {
   analysisQuality?: AnalysisQuality;
 };
 
+export type ContentCategory =
+  | "product_commerce"
+  | "education"
+  | "vlog_lifestyle"
+  | "brand_story"
+  | "tutorial"
+  | "entertainment"
+  | "news_commentary"
+  | "general";
+
 export type UserBrief = {
+  contentCategory?: ContentCategory;
   topic?: string;
+  creativeGoal?: string;
+  subjectName?: string;
+  /** @deprecated use subjectName */
   productName?: string;
+  keyPoints?: string[];
   sellingPoints: string[];
   targetAudience?: string;
   tone?: string;
   mustMention: string[];
   avoidMention: string[];
+  supplementalNotes?: string;
 };
 
 export type UserAsset = {
@@ -306,12 +322,26 @@ export type UserAsset = {
   durationSec?: number;
 };
 
+export type ContentFactKind =
+  | "selling_point"
+  | "key_message"
+  | "goal"
+  | "audience"
+  | "scene"
+  | "constraint"
+  | "other";
+
 export type ContentFact = {
   id: string;
-  kind: "selling_point" | "audience" | "scene" | "constraint" | "other";
+  kind: ContentFactKind;
   text: string;
   source: string;
 };
+
+export type AssetUnderstandingRoute =
+  | "direct_multimodal"
+  | "legacy"
+  | "direct_multimodal_batched";
 
 export type CandidateSegmentRole = "hook" | "mid" | "cta";
 
@@ -330,6 +360,8 @@ export type CandidateMoment = {
 export type AssetInventory = {
   id: string;
   projectId: string;
+  assetUnderstandingRoute?: AssetUnderstandingRoute;
+  assetUnderstandingWarnings?: string[];
   userBrief: UserBrief;
   assets: UserAsset[];
   extractedFacts: ContentFact[];

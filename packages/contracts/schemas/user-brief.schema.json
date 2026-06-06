@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/user-brief.schema.json",
+  "title": "UserBrief",
+  "type": "object",
+  "required": ["sellingPoints", "mustMention", "avoidMention"],
+  "properties": {
+    "contentCategory": {
+      "type": "string",
+      "enum": [
+        "product_commerce",
+        "education",
+        "vlog_lifestyle",
+        "brand_story",
+        "tutorial",
+        "entertainment",
+        "news_commentary",
+        "general"
+      ]
+    },
+    "topic": { "type": "string" },
+    "creativeGoal": { "type": "string" },
+    "subjectName": { "type": "string" },
+    "productName": { "type": "string" },
+    "keyPoints": { "type": "array", "items": { "type": "string" } },
+    "sellingPoints": { "type": "array", "items": { "type": "string" } },
+    "targetAudience": { "type": "string" },
+    "tone": { "type": "string" },
+    "mustMention": { "type": "array", "items": { "type": "string" } },
+    "avoidMention": { "type": "array", "items": { "type": "string" } },
+    "supplementalNotes": { "type": "string" }
+  },
+  "additionalProperties": false
+}
