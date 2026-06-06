@@ -12,14 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
 import {
   KnowledgeLibraryView,
   KnowledgeSelectionPanel,
 } from "@/features/knowledge/KnowledgeSelectionPanel";
 import {
   getDefaultSelectedVariantIds,
-  VariantPicker,
 } from "@/features/generation-variants/VariantPicker";
 import { VariantCompareView } from "@/features/generation-variants/VariantCompareView";
 import { VariantTabs } from "@/features/generation-variants/VariantTabs";
@@ -29,20 +27,19 @@ import { MasterNarrationPanel } from "@/features/master-narration/MasterNarratio
 import { EditIntentList } from "@/features/nl-revise/EditIntentList";
 import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
 import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
-import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
-import {
-  BriefEditor,
-  type BriefEditorHandle,
-} from "@/features/project-input/BriefEditor";
-import {
-  DurationTargetPanel,
-  type DurationTargetPanelHandle,
-} from "@/features/project-input/DurationTargetPanel";
 import { ScriptReviewPanel } from "@/features/script-review/ScriptReviewPanel";
 import { GenerationRunHistoryPanel } from "@/features/generation-runs/GenerationRunHistoryPanel";
 import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatchAnalysisProgress";
-import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
-import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
+import {
+  InputWorkbenchPanel,
+  type InputWorkbenchPanelHandle,
+} from "@/features/workbench/InputWorkbenchPanel";
+import { WorkbenchStepper } from "@/features/workbench/WorkbenchStepper";
+import { computeWorkbenchPhaseState } from "@/features/workbench/workbenchPhases";
+import {
+  PANEL_LABELS,
+  type WorkbenchPanel,
+} from "@/features/workbench/workbenchTypes";
 import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
 import { buildRecentSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
@@ -99,28 +96,6 @@ import {
   saveProjectSession,
 } from "@/lib/project-session";
 
-export type WorkbenchPanel =
-  | "input"
-  | "progress"
-  | "script-review"
-  | "analysis"
-  | "gap"
-  | "timeline"
-  | "narration"
-  | "result"
-  | "knowledge";
-
-const PANEL_LABELS: Record<WorkbenchPanel, string> = {
-  input: "录入",
-  progress: "进度",
-  "script-review": "脚本审核",
-  analysis: "样例分析",
-  gap: "缺口",
-  timeline: "时间线",
-  narration: "全片口播",
-  result: "结果",
-  knowledge: "知识库",
-};
 
 type LastPipelineAction = "analysis" | "generation" | "revise" | null;
 
@@ -184,9 +159,10 @@ function applyLatestGenerations(
   }
 }
 
+export type { WorkbenchPanel } from "@/features/workbench/workbenchTypes";
+
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
-  const briefEditorRef = useRef<BriefEditorHandle>(null);
-  const durationTargetRef = useRef<DurationTargetPanelHandle>(null);
+  const inputWorkbenchRef = useRef<InputWorkbenchPanelHandle>(null);
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
@@ -735,8 +711,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
     setLastAction("generation");
     try {
-      const brief = briefEditorRef.current?.getBrief() ?? emptyBrief();
-      const durationTarget = durationTargetRef.current?.getDurationTarget();
+      const brief = inputWorkbenchRef.current?.getBrief() ?? emptyBrief();
+      const durationTarget = inputWorkbenchRef.current?.getDurationTarget();
       if (durationTarget) {
         brief.durationTarget = durationTarget;
       }
@@ -853,7 +829,29 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const loadDemoFixtures = useCallback(() => {
+    const demoSampleId = fixtureVideoStructure.sourceVideoId ?? "sample-demo-001";
     setStructure(fixtureVideoStructure);
+    setSampleId(demoSampleId);
+    setAnalysisSampleId(demoSampleId);
+    setProjectSamples((current) => {
+      if (current.some((sample) => sample.id === demoSampleId)) {
+        return current.map((sample) =>
+          sample.id === demoSampleId
+            ? { ...sample, hasStructure: true, status: "analyzed" as const }
+            : sample,
+        );
+      }
+      return [
+        ...current,
+        {
+          id: demoSampleId,
+          sourceKind: "local" as const,
+          status: "analyzed" as const,
+          hasStructure: true,
+          fileName: "demo.mp4",
+        },
+      ];
+    });
     setGapReport(fixtureGapReport);
     setGenerationPlan(fixtureGenerationPlan);
     setActiveGenerations(
@@ -873,7 +871,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataSource("fixture");
     setGapApiPending(true);
     setDataError(null);
-  }, []);
+  }, [projectId]);
 
   const handleRetryFailedTask = useCallback(
     async (retryTaskId?: string) => {
@@ -946,17 +944,33 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     gapReport,
   ]);
 
-  const panels: WorkbenchPanel[] = [
-    "input",
-    "progress",
-    "script-review",
-    "analysis",
-    "gap",
-    "timeline",
-    "narration",
-    "result",
-    "knowledge",
-  ];
+  const hasAnalyzedSample = useMemo(
+    () => projectSamples.some((sample) => sample.hasStructure && sample.status === "analyzed"),
+    [projectSamples],
+  );
+
+  const hasActiveTask = Boolean(
+    taskId || isGenerationProgress || isBatchAnalysisProgress,
+  );
+
+  const phaseState = useMemo(
+    () =>
+      computeWorkbenchPhaseState({
+        hasAnalyzedSample,
+        hasActiveTask,
+        hasGenerationPlan: Boolean(generationPlan),
+        panel,
+      }),
+    [generationPlan, hasActiveTask, hasAnalyzedSample, panel],
+  );
+
+  const taskInProgress =
+    busy ||
+    (event != null &&
+      event.status !== "succeeded" &&
+      event.status !== "failed" &&
+      event.status !== "cancelled" &&
+      event.status !== "awaiting_review");
 
   return (
     <div className="space-y-6">
@@ -982,21 +996,42 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           <Button type="button" variant="outline" onClick={loadDemoFixtures}>
             加载演示数据
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || !sampleId}
-            onClick={() => void handleStartAnalysis()}
-          >
-            开始样例分析
-          </Button>
-          <Button
-            type="button"
-            disabled={busy}
-            onClick={() => void handleStartGeneration()}
-          >
-            开始生成计划
-          </Button>
+          {taskInProgress ? (
+            <Button type="button" onClick={() => setPanel("progress")}>
+              查看进度
+            </Button>
+          ) : hasAnalyzedSample ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || !sampleId}
+                onClick={() => void handleStartAnalysis()}
+              >
+                开始样例分析
+              </Button>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleStartGeneration()}
+              >
+                开始生成计划
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                disabled={busy || !sampleId}
+                onClick={() => void handleStartAnalysis()}
+              >
+                开始样例分析
+              </Button>
+              <Button type="button" disabled title="请先完成样例分析">
+                开始生成计划
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1009,47 +1044,47 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         </p>
       )}
 
-      <nav
-        className="flex flex-wrap gap-2"
-        aria-label="工作台视图"
-        data-testid="workbench-nav"
-      >
-        {panels.map((key) => (
-          <Button
-            key={key}
-            type="button"
-            size="sm"
-            variant={panel === key ? "default" : "outline"}
-            onClick={() => setPanel(key)}
-          >
-            {PANEL_LABELS[key]}
-          </Button>
-        ))}
-        {taskId && !isGenerationProgress && !isBatchAnalysisProgress && (
-          <Badge variant="outline" className="ml-auto font-normal">
-            单任务进度
-          </Badge>
-        )}
-        {isBatchAnalysisProgress && progressAnalysisBatch ? (
-          <Badge variant="ai" className="ml-auto">
-            批量分析 {progressAnalysisBatch.tasks.length} 个
-          </Badge>
-        ) : null}
-        {isGenerationProgress && (
-          <Badge variant="ai" className="ml-auto">
-            {activeGenerations.length} 个变体任务
-          </Badge>
-        )}
-      </nav>
+      <WorkbenchStepper
+        phaseState={phaseState}
+        panel={panel}
+        panelLabels={PANEL_LABELS}
+        onSelectPanel={setPanel}
+        taskBadge={
+          <>
+            {taskId && !isGenerationProgress && !isBatchAnalysisProgress && (
+              <Badge variant="outline" className="ml-auto font-normal">
+                单任务进度
+              </Badge>
+            )}
+            {isBatchAnalysisProgress && progressAnalysisBatch ? (
+              <Badge variant="ai" className="ml-auto">
+                批量分析 {progressAnalysisBatch.tasks.length} 个
+              </Badge>
+            ) : null}
+            {isGenerationProgress && (
+              <Badge variant="ai" className="ml-auto">
+                {activeGenerations.length} 个变体任务
+              </Badge>
+            )}
+          </>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
         {panel === "input" && (
-          <>
-            <SampleInputPanel
+          <div className="lg:col-span-2">
+            <InputWorkbenchPanel
+              ref={inputWorkbenchRef}
               projectId={projectId}
               samples={projectSamples}
+              assets={projectAssets}
               activeSample={activeSample}
               selectedSampleId={sampleId}
+              savedBrief={savedBrief}
+              selectedVariantIds={selectedVariantIds}
+              busy={busy}
+              onSavedBrief={(brief) => setSavedBrief(brief)}
+              onVariantChange={setSelectedVariantIds}
               onTaskStarted={handleTaskStarted}
               onBatchAnalysisStarted={(tasks, maxConcurrent) => {
                 setAnalysisBatch({ tasks, maxConcurrent });
@@ -1066,48 +1101,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 void loadAnalysisResults(id);
               }}
               onSampleChanged={() => void loadProjectInput()}
-            />
-            <AssetInputPanel
-              projectId={projectId}
-              assets={projectAssets}
               onAssetsChanged={() => void loadProjectInput()}
+              onKnowledgeApplied={() => void loadProjectInput()}
+              onSelectionChanged={() => void loadProjectInput()}
             />
-            <div className="lg:col-span-2">
-              <SampleSelectionPanel
-                projectId={projectId}
-                onSelectionChanged={() => void loadProjectInput()}
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <KnowledgeSelectionPanel
-                projectId={projectId}
-                onApplied={() => void loadProjectInput()}
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <DurationTargetPanel
-                ref={durationTargetRef}
-                projectId={projectId}
-                initialTarget={savedBrief?.durationTarget}
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <BriefEditor
-                ref={briefEditorRef}
-                projectId={projectId}
-                initialBrief={savedBrief}
-                getDurationTarget={() => durationTargetRef.current?.getDurationTarget()}
-                onSaved={(brief) => setSavedBrief(brief)}
-              />
-            </div>
-            <div className="lg:col-span-2">
-              <VariantPicker
-                selectedVariantIds={selectedVariantIds}
-                onChange={setSelectedVariantIds}
-                disabled={busy}
-              />
-            </div>
-          </>
+          </div>
         )}
 
         {panel === "progress" && (
@@ -1381,12 +1379,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 }).then(() => void loadProjectInput());
               }}
             />
-            {sampleId && (
-              <KnowledgeDraftPanel
-                projectId={projectId}
-                sampleId={sampleId}
-              />
-            )}
           </div>
         )}
       </div>

@@ -102,6 +102,16 @@ describe("ProjectWorkbench", () => {
       data: { entries: [] },
       meta: { dataSource: "api" },
     });
+    vi.spyOn(apiClient, "getDurationRecommendation").mockResolvedValue({
+      data: {
+        recommendedSec: 60,
+        defaultTargetSec: 60,
+        shortFormMaxSec: 60,
+        maxTargetSec: 600,
+        structureDurationSec: 60,
+      },
+      meta: { dataSource: "api" },
+    });
   });
 
   afterEach(() => {
@@ -112,7 +122,7 @@ describe("ProjectWorkbench", () => {
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
 
-    expect(screen.getByRole("heading", { name: "样例视频" })).toBeInTheDocument();
+    expect(screen.getByTestId("input-wizard-step-1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "进度" }));
     expect(screen.getByText(/任务进度/i)).toBeInTheDocument();
@@ -120,11 +130,8 @@ describe("ProjectWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "加载演示数据" }));
     await user.click(screen.getByRole("button", { name: "样例分析" }));
     expect(
-      screen.getByRole("heading", { name: "样例分析" }),
+      screen.getByText("已分析样例"),
     ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "结构槽" }));
-    expect(screen.getByText(/结构槽位/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "缺口" }));
     expect(screen.getByText(/缺口报告/i)).toBeInTheDocument();
@@ -139,15 +146,48 @@ describe("ProjectWorkbench", () => {
     expect(screen.getByTestId("master-narration-text")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "结果" }));
-    expect(screen.getByText(/生成结果/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "生成结果" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "录入" }));
     expect(screen.getByText(/创作 Brief/i)).toBeInTheDocument();
   });
 
   it("loads sample structure after upload task succeeds", async () => {
-    vi.spyOn(apiClient, "uploadSampleVideo").mockResolvedValue({
-      data: { id: "sample-upload-1", taskId: "task-upload-1" },
+    vi.spyOn(apiClient, "uploadSampleBatch").mockResolvedValue({
+      data: {
+        batchId: "batch-1",
+        samples: [{ id: "sample-upload-1", taskId: "task-upload-1" }],
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "startSampleAnalysis").mockResolvedValue({
+      data: { taskId: "task-upload-1" },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getSampleAnalysis").mockResolvedValue({
+      data: {
+        metadata: { durationSec: 60 },
+        transcript: {},
+        shots: [],
+        keyframes: [],
+        structureAnalysisRoute: "map_reduce",
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listProjectSamples").mockResolvedValue({
+      data: {
+        samples: [
+          {
+            id: "sample-upload-1",
+            sourceKind: "local",
+            status: "analyzed",
+            hasStructure: true,
+            fileName: "demo.mp4",
+          },
+        ],
+      },
       meta: { dataSource: "api" },
     });
     const getStructure = vi.spyOn(apiClient, "getSampleStructure").mockResolvedValue({
@@ -160,6 +200,12 @@ describe("ProjectWorkbench", () => {
 
     const file = new File(["video"], "demo.mp4", { type: "video/mp4" });
     await user.upload(screen.getByLabelText(/上传样例视频/i), file);
+
+    await waitFor(() =>
+      expect(apiClient.uploadSampleBatch).toHaveBeenCalled(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "开始样例分析" }));
 
     await waitFor(() => expect(capturedOnTerminal).toBeDefined());
 
@@ -178,9 +224,7 @@ describe("ProjectWorkbench", () => {
 
     await user.click(screen.getByRole("button", { name: "样例分析" }));
 
-    expect(
-      screen.getByRole("heading", { name: "样例分析" }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument();
   });
 
     it("calls retryTask with the same task id when retry is clicked", async () => {
@@ -280,9 +324,49 @@ describe("ProjectWorkbench", () => {
     vi.spyOn(apiClient, "getActiveSample").mockResolvedValue({
       data: {
         id: "sample-1",
-        status: "ready",
+        status: "analyzed",
         sourceKind: "local",
         hasStructure: true,
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listProjectSamples").mockResolvedValue({
+      data: {
+        samples: [
+          {
+            id: "sample-1",
+            sourceKind: "local",
+            status: "analyzed",
+            hasStructure: true,
+            fileName: "demo.mp4",
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getSampleStructure").mockResolvedValue({
+      data: fixtureVideoStructure,
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getSampleAnalysis").mockResolvedValue({
+      data: {
+        metadata: { durationSec: 60 },
+        transcript: {},
+        shots: [],
+        keyframes: [],
+        structureAnalysisRoute: "map_reduce",
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "getSampleSelection").mockResolvedValue({
+      data: {
+        selection: {
+          projectId: "proj-test",
+          primarySampleId: "sample-1",
+          referenceSampleIds: [],
+          mode: "auto",
+          updatedAt: "2026-06-06T00:00:00Z",
+        },
       },
       meta: { dataSource: "api" },
     });
@@ -309,6 +393,9 @@ describe("ProjectWorkbench", () => {
 
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "开始生成计划" })).toBeEnabled(),
+    );
     await user.click(screen.getByRole("button", { name: "开始生成计划" }));
 
     await waitFor(() => expect(capturedOnAllGenerationTerminal).toBeDefined());
