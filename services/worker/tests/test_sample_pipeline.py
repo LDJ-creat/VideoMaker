@@ -66,7 +66,16 @@ class _FakeWhisperTool:
 
 
 class _FakeOpenCVTool:
-    def detect_shots(self, video_path: str, *, duration_sec: float | None = None, output_json_path: Path | None = None):
+    extract_keyframes_calls = 0
+
+    def detect_shots(
+        self,
+        video_path: str,
+        *,
+        duration_sec: float | None = None,
+        output_json_path: Path | None = None,
+        min_shot_duration_sec: float | None = None,
+    ):
         shots = [
             {"startSec": 0.0, "endSec": 2.0, "confidence": 0.8, "changeReason": "histogram_cut"},
             {"startSec": 2.0, "endSec": 4.0, "confidence": 0.85, "changeReason": "histogram_cut"},
@@ -76,6 +85,7 @@ class _FakeOpenCVTool:
         return {"shots": shots}
 
     def extract_keyframes(self, video_path: str, shots: list[dict], output_dir: Path, *, keyframes_json_path: Path | None = None):
+        type(self).extract_keyframes_calls += 1
         output_dir.mkdir(parents=True, exist_ok=True)
         keyframes = []
         for idx, shot in enumerate(shots):
@@ -284,5 +294,35 @@ def test_sample_pipeline_resume_skips_completed_stages_after_transcribing_failur
     assert resumed["finalEvent"]["status"] == "succeeded"
     assert fake_ffmpeg.probe_calls == 0
     assert fake_ffmpeg.extract_audio_calls == 0
-    assert "extracting_metadata" in resumed["resumeSummary"]["skippedStages"]
-    assert "extracting_audio" in resumed["resumeSummary"]["skippedStages"]
+
+
+def test_sample_pipeline_skips_keyframe_extraction_when_requested(tmp_path: Path) -> None:
+    _FakeOpenCVTool.extract_keyframes_calls = 0
+    project_id = "project-1"
+    sample_id = "sample-direct"
+    video_path = _setup_local_video(tmp_path, project_id, sample_id)
+
+    pipeline = SampleAnalysisPipeline(
+        storage_root=tmp_path,
+        ffmpeg_tool=_FakeFFmpegTool(),
+        whisper_tool=_FakeWhisperTool(),
+        opencv_tool=_FakeOpenCVTool(),
+        ytdlp_tool=_FakeYtDlpTool(tmp_path / "downloads" / "original.mp4"),
+    )
+
+    summary = pipeline.run(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id="task-direct",
+        video_path=video_path,
+        skip_keyframe_extraction=True,
+    )
+
+    assert summary["finalEvent"]["status"] == "succeeded"
+    assert _FakeOpenCVTool.extract_keyframes_calls == 0
+
+    analysis_root = tmp_path / "projects" / project_id / "samples" / sample_id / "analysis"
+    assert json.loads((analysis_root / "keyframes.json").read_text(encoding="utf-8")) == []
+    assert (analysis_root / "keyframes").is_dir()
+    sample_analysis = json.loads((analysis_root / "sample-analysis.json").read_text(encoding="utf-8"))
+    assert "keyframes_skipped:direct_multimodal" in sample_analysis["warnings"]

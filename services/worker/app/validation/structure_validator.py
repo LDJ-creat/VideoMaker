@@ -15,6 +15,12 @@ _ASR_TIME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _KEYFRAME_PATH_PATTERN = re.compile(r"keyframes/[\w./-]+\.(?:jpg|jpeg|png|webp)", re.IGNORECASE)
+_KEYFRAME_TIMESTAMP_PATTERN = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:s|sec|秒)\b"
+    r"|"
+    r"\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*(?:s|sec|秒)?",
+    re.IGNORECASE,
+)
 _SHOT_BOUNDARY_PATTERN = re.compile(r"\d+(\.\d+)?")
 _AUDIO_TIME_PATTERN = re.compile(
     r"\d+(\.\d+)?\s*-\s*\d+(\.\d+)?",
@@ -67,7 +73,13 @@ def _field_too_short(text: str) -> bool:
     return len(text.strip()) < _MIN_SUMMARY_FIELD_LEN
 
 
-def _evidence_summary_valid(source: str, summary: str, *, excerpt: str = "") -> bool:
+def _evidence_summary_valid(
+    source: str,
+    summary: str,
+    *,
+    excerpt: str = "",
+    time_range: dict[str, Any] | None = None,
+) -> bool:
     text = summary.strip()
     if not text:
         return False
@@ -76,7 +88,16 @@ def _evidence_summary_valid(source: str, summary: str, *, excerpt: str = "") -> 
         has_excerpt = len(excerpt.strip()) >= 4
         return has_time or has_excerpt
     if source == "keyframe":
-        return bool(_KEYFRAME_PATH_PATTERN.search(text))
+        if _KEYFRAME_PATH_PATTERN.search(text):
+            return True
+        if _KEYFRAME_TIMESTAMP_PATTERN.search(text):
+            return True
+        if isinstance(time_range, dict):
+            start = time_range.get("startSec")
+            end = time_range.get("endSec")
+            if isinstance(start, (int, float)) and isinstance(end, (int, float)) and float(end) >= float(start):
+                return True
+        return False
     if source == "shot_detection":
         return bool(_SHOT_BOUNDARY_PATTERN.search(text))
     if source == "audio":
@@ -233,6 +254,7 @@ def validate_video_structure(
                 str(item.get("source", "")),
                 str(item.get("summary", "")),
                 excerpt=str(item.get("excerpt", "")),
+                time_range=item.get("timeRange") if isinstance(item.get("timeRange"), dict) else None,
             )
         ]
         if not valid:

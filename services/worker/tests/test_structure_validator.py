@@ -125,6 +125,161 @@ def test_validate_rhythm_misaligned_shot_boundaries_fail() -> None:
         validate_video_structure(structure, reference_shots=shots)
 
 
+def test_validate_skips_shot_alignment_when_reference_shots_none() -> None:
+    structure = _valid_structure()
+    structure["rhythm"]["shotBoundaries"][0]["startSec"] = 99.0
+    assert validate_video_structure(structure, reference_shots=None) == structure
+
+
+def test_validate_accepts_keyframe_evidence_with_timestamp_without_path() -> None:
+    structure = {
+        "version": "p1-v2",
+        "confidence": 0.8,
+        "metadata": {"durationSec": 10.0},
+        "narrative": {
+            "summary": "中文摘要足够长用于测试",
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "hook",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "scriptSummary": "反问式痛点开场建立停滑",
+                    "visualSummary": "胸景口播快切产品 UI 特写",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                    "intent": "停滑",
+                }
+            ],
+        },
+        "rhythm": {
+            "totalDurationSec": 10.0,
+            "shotCount": 1,
+            "avgShotDurationSec": 10.0,
+            "tempo": "fast",
+            "beatPoints": [0.0, 10.0],
+            "shotBoundaries": [
+                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
+            ],
+        },
+        "packaging": {
+            "titleCards": [],
+            "stickers": [],
+            "transitions": [],
+            "visualDensity": "medium",
+        },
+        "slots": [],
+        "evidence": [
+            {
+                "targetId": "seg-1",
+                "source": "keyframe",
+                "summary": "0.8s 快切至产品 UI 特写，底部黄字关键词",
+                "confidence": 0.8,
+            }
+        ],
+    }
+    assert validate_video_structure(structure, reference_shots=None, anti_template=False) == structure
+
+
+def test_validate_accepts_keyframe_evidence_with_time_range_without_path() -> None:
+    structure = {
+        "version": "p1-v2",
+        "confidence": 0.8,
+        "metadata": {"durationSec": 10.0},
+        "narrative": {
+            "summary": "中文摘要足够长用于测试",
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "hook",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "scriptSummary": "反问式痛点开场建立停滑",
+                    "visualSummary": "胸景口播快切产品 UI 特写",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                    "intent": "停滑",
+                }
+            ],
+        },
+        "rhythm": {
+            "totalDurationSec": 10.0,
+            "shotCount": 1,
+            "avgShotDurationSec": 10.0,
+            "tempo": "fast",
+            "beatPoints": [0.0, 10.0],
+            "shotBoundaries": [
+                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
+            ],
+        },
+        "packaging": {
+            "titleCards": [],
+            "stickers": [],
+            "transitions": [],
+            "visualDensity": "medium",
+        },
+        "slots": [],
+        "evidence": [
+            {
+                "targetId": "seg-1",
+                "source": "keyframe",
+                "summary": "胸景口播直视镜头",
+                "timeRange": {"startSec": 0.0, "endSec": 0.8},
+                "confidence": 0.8,
+            }
+        ],
+    }
+    assert validate_video_structure(structure, reference_shots=None, anti_template=False) == structure
+
+
+def test_validate_rejects_keyframe_evidence_without_path_or_timestamp() -> None:
+    structure = {
+        "version": "p1-v2",
+        "confidence": 0.8,
+        "metadata": {"durationSec": 10.0},
+        "narrative": {
+            "summary": "中文摘要足够长用于测试",
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "hook",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "scriptSummary": "反问式痛点开场建立停滑",
+                    "visualSummary": "胸景口播快切产品 UI 特写",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                    "intent": "停滑",
+                }
+            ],
+        },
+        "rhythm": {
+            "totalDurationSec": 10.0,
+            "shotCount": 1,
+            "avgShotDurationSec": 10.0,
+            "tempo": "fast",
+            "beatPoints": [0.0, 10.0],
+            "shotBoundaries": [
+                {"startSec": 0.0, "endSec": 10.0, "confidence": 0.8, "changeReason": "scene_change"}
+            ],
+        },
+        "packaging": {
+            "titleCards": [],
+            "stickers": [],
+            "transitions": [],
+            "visualDensity": "medium",
+        },
+        "slots": [],
+        "evidence": [
+            {
+                "targetId": "seg-1",
+                "source": "keyframe",
+                "summary": "胸景口播",
+                "confidence": 0.8,
+            }
+        ],
+    }
+    with pytest.raises(StructureValidationError, match="segment evidence"):
+        validate_video_structure(structure, reference_shots=None, anti_template=False)
+
+
 def test_validate_v2_requires_transcript_excerpt() -> None:
     structure = {
         "version": "p1-v2",

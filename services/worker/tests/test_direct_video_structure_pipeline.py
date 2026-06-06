@@ -45,6 +45,7 @@ def test_direct_video_structure_pipeline_fixture_mode(tmp_path: Path, fixtures_d
         ],
         "keyframes": [],
         "locale": "zh",
+        "structureAnalysisRoute": "direct_multimodal",
     }
     (analysis_root / "sample-analysis.json").write_text(
         json.dumps(analysis, ensure_ascii=False),
@@ -77,6 +78,8 @@ def test_direct_video_structure_pipeline_fixture_mode(tmp_path: Path, fixtures_d
     )
 
     assert structure["projectId"] == "project-1"
+    assert len(structure["rhythm"]["shotBoundaries"]) == len(analysis["shots"])
+    assert structure["rhythm"]["shotBoundaries"][0]["startSec"] == analysis["shots"][0]["startSec"]
     saved = json.loads((analysis_root / "sample-analysis.json").read_text(encoding="utf-8"))
     assert saved["structureAnalysisRoute"] == "direct_multimodal"
     warnings = list((structure.get("analysisQuality") or {}).get("warnings") or [])

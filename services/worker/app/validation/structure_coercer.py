@@ -723,19 +723,33 @@ def coerce_video_structure(
 
     rhythm_facts = _compute_rhythm_facts(shots, duration_sec=duration_sec or None)
     rhythm = dict(payload.get("rhythm") or {})
-    boundaries = _normalize_shot_boundaries(shots, rhythm=rhythm)
+    route = str(analysis.get("structureAnalysisRoute") or "")
+    if route == "direct_multimodal":
+        boundaries = _normalize_shot_boundaries(shots, rhythm={})
+        tempo = _normalize_tempo(
+            str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
+            fallback=str(rhythm_facts.get("tempoHint") or "mixed"),
+        )
+        beat_points = _normalize_beat_points(
+            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
+            duration_sec=duration_sec,
+        )
+    else:
+        boundaries = _normalize_shot_boundaries(shots, rhythm=rhythm)
+        tempo = _normalize_tempo(
+            str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
+            fallback="mixed",
+        )
+        beat_points = _normalize_beat_points(
+            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
+            duration_sec=duration_sec,
+        )
     coerced["rhythm"] = {
         "totalDurationSec": float(rhythm_facts.get("durationSec", duration_sec)),
         "shotCount": int(rhythm_facts.get("shotCount", len(boundaries))),
         "avgShotDurationSec": float(rhythm_facts.get("avgShotDurationSec", 0.0)),
-        "tempo": _normalize_tempo(
-            str(rhythm.get("tempo") or rhythm_facts.get("tempoHint") or "mixed"),
-            fallback="mixed",
-        ),
-        "beatPoints": _normalize_beat_points(
-            list(rhythm.get("beatPoints") or [0.0, duration_sec]),
-            duration_sec=duration_sec,
-        ),
+        "tempo": tempo,
+        "beatPoints": beat_points,
         "shotBoundaries": boundaries,
     }
 

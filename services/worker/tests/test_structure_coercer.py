@@ -126,3 +126,59 @@ def test_coerce_fills_transcript_excerpt_from_asr_evidence() -> None:
         analysis={"metadata": {"durationSec": 30.0}, "shots": []},
     )
     assert coerced["narrative"]["segments"][0]["transcriptExcerpt"] == "还在花冤枉钱？"
+
+
+def test_coerce_direct_route_ignores_llm_shot_boundaries() -> None:
+    shots = [
+        {"startSec": 0.0, "endSec": 2.0, "confidence": 0.8, "changeReason": "visual_cut"},
+        {"startSec": 2.0, "endSec": 5.0, "confidence": 0.81, "changeReason": "scene_change"},
+    ]
+    payload = {
+        "version": "p1-v2",
+        "narrative": {
+            "summary": "测试",
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "hook",
+                    "startSec": 0,
+                    "endSec": 5,
+                    "scriptSummary": "反问式开场",
+                    "visualSummary": "胸景口播",
+                    "intent": "停滑",
+                    "transcriptExcerpt": "还在花冤枉钱？",
+                }
+            ],
+        },
+        "rhythm": {
+            "tempo": "fast",
+            "beatPoints": [0, 5],
+            "shotBoundaries": [
+                {
+                    "startSec": 99.0,
+                    "endSec": 100.0,
+                    "confidence": 0.9,
+                    "changeReason": "visual_cut",
+                }
+            ],
+        },
+        "packaging": {"visualDensity": "medium"},
+        "slots": [],
+        "evidence": [],
+    }
+    coerced = coerce_video_structure(
+        payload,
+        project_id="project-1",
+        source_video_id="sample-1",
+        analysis={
+            "metadata": {"durationSec": 5.0},
+            "shots": shots,
+            "structureAnalysisRoute": "direct_multimodal",
+        },
+    )
+    boundaries = coerced["rhythm"]["shotBoundaries"]
+    assert len(boundaries) == 2
+    assert boundaries[0]["startSec"] == 0.0
+    assert boundaries[0]["endSec"] == 2.0
+    assert boundaries[1]["startSec"] == 2.0
+    assert boundaries[1]["endSec"] == 5.0

@@ -68,6 +68,7 @@ def build_direct_video_text_payload(analysis: dict[str, Any]) -> dict[str, Any]:
             shots,
             duration_sec=metadata.get("durationSec") if isinstance(metadata, dict) else None,
         ),
+        "rhythmFactsRole": "soft_hint",
         "locale": str(analysis.get("locale") or "zh"),
     }
     audio_profile = _slim_audio_profile(analysis.get("audioProfile"))
@@ -123,9 +124,11 @@ def _post_validate(
     reference_shots: list[dict[str, Any]],
     analysis: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    route = str((analysis or {}).get("structureAnalysisRoute") or "")
+    refs = None if route == "direct_multimodal" else reference_shots
     return validate_video_structure(
         structure,
-        reference_shots=reference_shots,
+        reference_shots=refs,
         analysis=analysis,
     )
 

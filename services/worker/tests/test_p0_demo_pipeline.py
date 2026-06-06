@@ -36,8 +36,10 @@ class _RecordingPipeline(P0DemoPipeline):
 class _StubSamplePipeline:
     def __init__(self, storage_root: Path) -> None:
         self._storage_root = storage_root
+        self.last_kwargs: dict[str, Any] = {}
 
     def run(self, project_id: str, sample_id: str, task_id: str, **kwargs: Any) -> dict[str, Any]:
+        self.last_kwargs = dict(kwargs)
         analysis_dir = (
             self._storage_root / "projects" / project_id / "samples" / sample_id / "analysis"
         )
@@ -48,10 +50,20 @@ class _StubSamplePipeline:
                 fixture_path.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
+        checkpoint_path = analysis_dir / "checkpoint.json"
+        checkpoint_path.write_text(
+            json.dumps({"sampleId": sample_id, "completedStages": ["consolidating"]}),
+            encoding="utf-8",
+        )
         return {
-            "finalEvent": {"status": "succeeded", "stage": "transcribing", "progress": 90},
+            "finalEvent": {"status": "succeeded", "stage": "completed", "progress": 100},
             "artifactRefs": [],
         }
+
+
+class _DirectRoutePipeline(P0DemoPipeline):
+    def _resolve_structure_analysis_route(self) -> str:
+        return "direct_multimodal"
 
 
 def _load_structure_fixture() -> dict[str, Any]:
@@ -174,7 +186,7 @@ def test_run_generation_fails_when_agent_fixture_invalid(tmp_path: Path) -> None
 
 def test_analyze_sample_fails_when_structure_agent_invalid(tmp_path: Path) -> None:
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
-    fixtures["structure_compiler"] = {"id": "bad-only"}
+    fixtures["segment_proposer"] = {"segments": [{"id": "bad-only"}]}
     pipeline = P0DemoPipeline(
         tmp_path,
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
@@ -197,3 +209,45 @@ def test_analyze_sample_fails_when_structure_agent_invalid(tmp_path: Path) -> No
     assert events[-1]["status"] == "failed"
     assert events[-1]["stage"] == "extracting_structure"
     assert events[-1]["error"]["code"] in {"agent_failed", "LLMValidationError"}
+
+
+def test_analyze_sample_passes_skip_keyframes_for_direct_route(tmp_path: Path) -> None:
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    stub = _StubSamplePipeline(tmp_path)
+    pipeline = _DirectRoutePipeline(
+        tmp_path,
+        llm=LLMTool(fixture_mode=True, fixtures=fixtures),
+    )
+    pipeline._sample_pipeline = stub  # noqa: SLF001
+    events: list[dict[str, Any]] = []
+
+    def emit(**kwargs: Any) -> dict[str, Any]:
+        events.append(kwargs)
+        return kwargs
+
+    sample_root = tmp_path / "projects" / "project-1" / "samples" / "sample-1"
+    sample_root.mkdir(parents=True, exist_ok=True)
+    (sample_root / "source.mp4").write_bytes(b"video")
+
+    result = pipeline.analyze_sample(
+        project_id="project-1",
+        task_id="task-analyze-direct",
+        sample_id="sample-1",
+        video_path=sample_root / "source.mp4",
+        emit=emit,
+    )
+
+    assert stub.last_kwargs.get("skip_keyframe_extraction") is True
+    assert result["ok"] is True
+    checkpoint = json.loads(
+        (
+            tmp_path
+            / "projects"
+            / "project-1"
+            / "samples"
+            / "sample-1"
+            / "analysis"
+            / "checkpoint.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert checkpoint.get("analysisRoute") == "direct_multimodal"

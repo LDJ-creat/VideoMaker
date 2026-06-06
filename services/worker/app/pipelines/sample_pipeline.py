@@ -89,6 +89,7 @@ class SampleAnalysisPipeline:
         cookies_path: str | Path | None = None,
         *,
         resume: bool = False,
+        skip_keyframe_extraction: bool = False,
     ) -> dict[str, Any]:
         context = TaskContext(project_id=project_id, task_id=task_id, storage_root=self._storage_root)
         sample_root = context.artifacts.resolve(Path("samples") / sample_id)
@@ -343,6 +344,23 @@ class SampleAnalysisPipeline:
             skipped_stages.append("extracting_keyframes")
             keyframes = _read_json(analysis_root / "keyframes.json") or []
             context.emit_event("extracting_keyframes", 80, "(resumed) keyframes already extracted")
+        elif skip_keyframe_extraction:
+            executed_stages.append("extracting_keyframes")
+            keyframes_dir = context.artifacts.resolve(analysis_rel_dir / "keyframes")
+            keyframes_dir.mkdir(parents=True, exist_ok=True)
+            keyframes = []
+            skip_warning = "keyframes_skipped:direct_multimodal"
+            if skip_warning not in pipeline_warnings:
+                pipeline_warnings.append(skip_warning)
+            context.emit_event(
+                "extracting_keyframes",
+                80,
+                "skip keyframe extraction (direct multimodal route)",
+            )
+            keyframes_path = context.artifacts.write_json(analysis_rel_dir / "keyframes.json", keyframes)
+            context.register_artifact("json", keyframes_path)
+            checkpoint.mark_stage_complete("extracting_keyframes")
+            checkpoint.save(checkpoint_path)
         else:
             executed_stages.append("extracting_keyframes")
             context.emit_event("extracting_keyframes", 80, "extracting representative keyframes")

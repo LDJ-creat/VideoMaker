@@ -14,6 +14,7 @@ from app.pipelines.direct_video_structure_pipeline import (
     resolve_sample_video_path,
     run_direct_video_structure_pipeline,
 )
+from app.pipelines.analysis_route import resolve_structure_analysis_route
 from app.pipelines.asset_understanding_route import resolve_asset_understanding_route
 from app.perception.sample_facts import (
     merge_visual_facts_into_sample_analysis,
@@ -147,6 +148,51 @@ class P0DemoPipeline:
             return is_fixture_material_gateway(self._llm.gateway)
         return self._llm.fixture_mode
 
+    def _resolve_structure_analysis_route(self) -> str:
+        route = "map_reduce"
+        if self._database_path is not None and not is_fixture_mode():
+            gateway_store = ModelGatewayStore(self._database_path, self._storage_root)
+            gateway_store.ensure_initialized()
+            route = resolve_structure_analysis_route(gateway_store)
+        return route
+
+    def _emit_analysis_route_mismatch(
+        self,
+        *,
+        emit: EmitFn,
+        stored_route: str,
+        route: str,
+    ) -> dict[str, Any]:
+        emit(
+            status="failed",
+            stage="consolidating",
+            progress=85,
+            message="Analysis route changed; restart sample analysis",
+            error={
+                "code": "analysis_route_mismatch",
+                "message": (
+                    f"Checkpoint route {stored_route} differs from current route {route}; "
+                    "delete checkpoint or keep settings unchanged before retry"
+                ),
+                "retryable": False,
+            },
+        )
+        return {
+            "ok": False,
+            "error": "analysis route mismatch",
+            "finalEvent": {
+                "status": "failed",
+                "stage": "consolidating",
+                "progress": 85,
+                "message": "Analysis route changed; restart sample analysis",
+                "error": {
+                    "code": "analysis_route_mismatch",
+                    "message": f"Checkpoint route {stored_route} differs from current route {route}",
+                    "retryable": False,
+                },
+            },
+        }
+
     def analyze_sample(
         self,
         *,
@@ -165,7 +211,37 @@ class P0DemoPipeline:
             progress=5,
             message="Starting sample analysis" + (" (resume)" if resume else ""),
         )
-        result = self._sample_pipeline.run(
+
+        project_root = self._storage_root / "projects" / project_id
+        analysis_root = analysis_artifact_root(project_root, sample_id)
+        analysis_root.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = analysis_root / "checkpoint.json"
+        checkpoint = AnalysisCheckpoint.load(checkpoint_path)
+        if not checkpoint.sampleId:
+            checkpoint.sampleId = sample_id
+
+        route = self._resolve_structure_analysis_route()
+        stored_route = checkpoint.analysisRoute
+        if not stored_route:
+            existing_analysis = _load_sample_analysis(
+                self._storage_root,
+                project_id,
+                sample_id,
+                required=False,
+            )
+            if isinstance(existing_analysis, dict):
+                stored_route = existing_analysis.get("structureAnalysisRoute")
+        if resume and stored_route and stored_route != route:
+            return self._emit_analysis_route_mismatch(
+                emit=emit,
+                stored_route=str(stored_route),
+                route=route,
+            )
+
+        checkpoint.analysisRoute = route
+        checkpoint.save(checkpoint_path)
+
+        sample_run_result = self._sample_pipeline.run(
             project_id,
             sample_id,
             task_id,
@@ -173,8 +249,9 @@ class P0DemoPipeline:
             source_url=source_url,
             cookies_path=cookies_path,
             resume=resume,
+            skip_keyframe_extraction=(route == "direct_multimodal"),
         )
-        final_event = result.get("finalEvent", {})
+        final_event = sample_run_result.get("finalEvent", {})
         if final_event.get("status") == "failed":
             emit(
                 status="failed",
@@ -183,7 +260,7 @@ class P0DemoPipeline:
                 message=str(final_event.get("message", "sample analysis failed")),
                 error=final_event.get("error"),
             )
-            return {"ok": False, "finalEvent": final_event, "resumeSummary": result.get("resumeSummary")}
+            return {"ok": False, "finalEvent": final_event, "resumeSummary": sample_run_result.get("resumeSummary")}
 
         project_root = self._storage_root / "projects" / project_id
         analysis_root = analysis_artifact_root(project_root, sample_id)
@@ -198,44 +275,6 @@ class P0DemoPipeline:
         runner = self._build_runner()
 
         sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
-
-        route = "map_reduce"
-        if self._database_path is not None and not is_fixture_mode():
-            gateway_store = ModelGatewayStore(self._database_path, self._storage_root)
-            gateway_store.ensure_initialized()
-            route = resolve_structure_analysis_route(gateway_store)
-
-        stored_route = checkpoint.analysisRoute or sample_analysis.get("structureAnalysisRoute")
-        if resume and stored_route and stored_route != route:
-            emit(
-                status="failed",
-                stage="consolidating",
-                progress=85,
-                message="Analysis route changed; restart sample analysis",
-                error={
-                    "code": "analysis_route_mismatch",
-                    "message": (
-                        f"Checkpoint route {stored_route} differs from current route {route}; "
-                        "delete checkpoint or keep settings unchanged before retry"
-                    ),
-                    "retryable": False,
-                },
-            )
-            return {
-                "ok": False,
-                "error": "analysis route mismatch",
-                "finalEvent": {
-                    "status": "failed",
-                    "stage": "consolidating",
-                    "progress": 85,
-                    "message": "Analysis route changed; restart sample analysis",
-                    "error": {
-                        "code": "analysis_route_mismatch",
-                        "message": f"Checkpoint route {stored_route} differs from current route {route}",
-                        "retryable": False,
-                    },
-                },
-            }
 
         sample_analysis["structureAnalysisRoute"] = route
         persist_sample_analysis(analysis_root, sample_analysis)
@@ -336,15 +375,15 @@ class P0DemoPipeline:
             )
             warnings: list[str] = []
             try:
-                result = run_visual_facts_extraction(
+                visual_result = run_visual_facts_extraction(
                     runner,
                     sample_analysis=sample_analysis,
                     analysis_root=analysis_root,
                     context=context,
                 )
-                if result.warnings:
-                    warnings.extend(result.warnings)
-                if not result.stage_complete:
+                if visual_result.warnings:
+                    warnings.extend(visual_result.warnings)
+                if not visual_result.stage_complete:
                     emit(
                         status="failed",
                         stage="extracting_visual_facts",
@@ -506,14 +545,14 @@ class P0DemoPipeline:
             stage="completed",
             progress=100,
             message="Sample analysis and structure extraction completed",
-            artifact_refs=result.get("artifactRefs"),
+            artifact_refs=sample_run_result.get("artifactRefs"),
         )
         return {
             "ok": True,
             "structure": structure,
             "sampleAnalysis": sample_analysis,
             "knowledgeDraft": knowledge_draft,
-            "resumeSummary": result.get("resumeSummary"),
+            "resumeSummary": sample_run_result.get("resumeSummary"),
         }
 
     def run_generation(
