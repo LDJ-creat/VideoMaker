@@ -3,16 +3,10 @@
 import { Link2 } from "lucide-react";
 import { useState } from "react";
 
+import { SamplePreviewDialog } from "@/components/sample-preview-dialog";
 import { FileDropzone } from "@/components/file-dropzone";
 import { PaginatedGrid } from "@/components/paginated-grid";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,13 +22,14 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { validateHttpUrl, validateUploadSize } from "@/lib/validation";
 
-const SAMPLE_PAGE_SIZE = 4;
+const SAMPLE_PAGE_SIZE = 6;
 
 type SampleInputPanelProps = {
   projectId: string;
   samples?: ActiveSampleSummary[];
   activeSample?: ActiveSampleSummary | null;
   selectedSampleId?: string | null;
+  embedded?: boolean;
   className?: string;
   onTaskStarted: (taskId: string, sampleId: string) => void;
   onBatchAnalysisStarted?: (
@@ -46,11 +41,77 @@ type SampleInputPanelProps = {
   onSelectSample?: (sampleId: string) => void;
 };
 
+function SampleListSection({
+  previewSamples,
+  effectiveSelectedId,
+  embedded,
+  onSelectSample,
+  onPreview,
+}: {
+  previewSamples: ActiveSampleSummary[];
+  effectiveSelectedId: string | null;
+  embedded: boolean;
+  onSelectSample?: (sampleId: string) => void;
+  onPreview: (sample: ActiveSampleSummary) => void;
+}) {
+  const renderCard = (sample: ActiveSampleSummary) => (
+    <SampleVideoCard
+      sample={sample}
+      variant="filmstrip"
+      density={embedded ? "compact" : "default"}
+      selected={sample.id === effectiveSelectedId}
+      onSelect={onSelectSample}
+      onPreview={onPreview}
+    />
+  );
+
+  return (
+    <div className="border-t border-border pt-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium">
+          已上传样例
+          {previewSamples.length > 0 ? (
+            <span className="ml-1.5 font-normal text-muted-foreground">
+              ({previewSamples.length})
+            </span>
+          ) : null}
+        </p>
+      </div>
+
+      {previewSamples.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          上传第一个样例视频开始结构迁移
+        </p>
+      ) : embedded ? (
+        <div
+          className="grid grid-cols-2 gap-2 sm:grid-cols-1 xl:grid-cols-2"
+          data-testid="sample-filmstrip-grid"
+        >
+          {previewSamples.map((sample) => (
+            <div key={sample.id}>{renderCard(sample)}</div>
+          ))}
+        </div>
+      ) : (
+        <PaginatedGrid
+          items={previewSamples}
+          pageSize={SAMPLE_PAGE_SIZE}
+          resetKey={previewSamples.map((sample) => sample.id).join(",")}
+          getKey={(sample) => sample.id}
+          gridClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          renderItem={renderCard}
+          emptyMessage="暂无样例视频，请上传或导入。"
+        />
+      )}
+    </div>
+  );
+}
+
 export function SampleInputPanel({
   projectId,
   samples = [],
   activeSample,
   selectedSampleId,
+  embedded = false,
   className,
   onTaskStarted,
   onBatchAnalysisStarted,
@@ -62,6 +123,9 @@ export function SampleInputPanel({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+  const [previewSample, setPreviewSample] = useState<ActiveSampleSummary | null>(
+    null,
+  );
 
   const handleLocalUpload = async (files: File[]) => {
     if (files.length === 0) return;
@@ -142,44 +206,46 @@ export function SampleInputPanel({
   const effectiveSelectedId =
     selectedSampleId ?? activeSample?.id ?? previewSamples[0]?.id ?? null;
 
-  return (
-    <Card className={cn("flex h-full flex-col", className)}>
-      <CardHeader className="shrink-0">
-        <CardTitle>样例视频</CardTitle>
-        <CardDescription>
-          支持一次上传多个视频；链接导入由服务端下载，前端不调用 yt-dlp。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-        <Tabs defaultValue="local" className="shrink-0">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="local">本地上传</TabsTrigger>
-            <TabsTrigger value="url" className="gap-2">
-              <Link2 className="h-4 w-4" />
+  const content = (
+    <div className={cn("flex flex-col gap-3", embedded && "min-h-0")}>
+      <Tabs defaultValue="local" className="w-full">
+        <div className="flex items-center gap-2">
+          <TabsList className="h-9 shrink-0">
+            <TabsTrigger value="local" className="px-3 text-xs sm:text-sm">
+              本地上传
+            </TabsTrigger>
+            <TabsTrigger value="url" className="gap-1.5 px-3 text-xs sm:text-sm">
+              <Link2 className="h-3.5 w-3.5" />
               URL 导入
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="local" className="mt-3 space-y-3">
-            <FileDropzone
-              accept="video/*"
-              multiple
-              disabled={busy}
-              title="上传样例视频"
-              hint="点击选择或拖拽多个视频文件到此处"
-              onFiles={(files) => void handleLocalUpload(files)}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void handleAnalyzeLatestBatch()}
-            >
-              分析最近批次
-            </Button>
-          </TabsContent>
-          <TabsContent value="url" className="mt-3 space-y-4">
-            <CookieUploadPanel />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ml-auto shrink-0"
+            disabled={busy}
+            onClick={() => void handleAnalyzeLatestBatch()}
+          >
+            分析最近批次
+          </Button>
+        </div>
+
+        <TabsContent value="local" className="mt-2.5">
+          <FileDropzone
+            accept="video/*"
+            multiple
+            disabled={busy}
+            size={embedded ? "compact" : "default"}
+            title="上传样例视频"
+            hint="点击选择或拖拽多个视频文件到此处"
+            onFiles={(files) => void handleLocalUpload(files)}
+          />
+        </TabsContent>
+
+        <TabsContent value="url" className="mt-2.5 space-y-3">
+          <CookieUploadPanel />
+          <div className="space-y-2">
             <Label htmlFor="sample-url">视频页面 URL</Label>
             <Input
               id="sample-url"
@@ -188,40 +254,53 @@ export function SampleInputPanel({
               disabled={busy}
               onChange={(e) => setUrl(e.target.value)}
             />
-            <Button
-              type="button"
-              disabled={busy || !url.trim()}
-              onClick={() => void handleUrlImport()}
-            >
-              开始 URL 导入
-            </Button>
-          </TabsContent>
-        </Tabs>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !url.trim()}
+            onClick={() => void handleUrlImport()}
+          >
+            开始 URL 导入
+          </Button>
+        </TabsContent>
+      </Tabs>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <p className="shrink-0 text-sm font-medium">已上传样例</p>
-          <PaginatedGrid
-            items={previewSamples}
-            pageSize={SAMPLE_PAGE_SIZE}
-            resetKey={previewSamples.map((sample) => sample.id).join(",")}
-            getKey={(sample) => sample.id}
-            renderItem={(sample) => (
-              <SampleVideoCard
-                sample={sample}
-                selected={sample.id === effectiveSelectedId}
-                onSelect={onSelectSample}
-              />
-            )}
-            emptyMessage="暂无样例视频，请上传或导入。"
-          />
-        </div>
+      <SampleListSection
+        previewSamples={previewSamples}
+        effectiveSelectedId={effectiveSelectedId}
+        embedded={embedded}
+        onSelectSample={onSelectSample}
+        onPreview={setPreviewSample}
+      />
 
-        {status && (
-          <p className="shrink-0 text-sm text-muted-foreground" role="status">
-            {status}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {status ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {status}
+        </p>
+      ) : null}
+
+      <SamplePreviewDialog
+        sample={previewSample}
+        open={previewSample != null}
+        onClose={() => setPreviewSample(null)}
+      />
+    </div>
+  );
+
+  if (embedded) {
+    return <div className={cn(className)}>{content}</div>;
+  }
+
+  return (
+    <div className={cn("space-y-4 rounded-2xl border bg-card p-6 shadow-sm", className)}>
+      <div>
+        <h3 className="font-serif text-lg font-semibold">样例视频</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          支持一次上传多个视频；链接导入由服务端下载，前端不调用 yt-dlp。
+        </p>
+      </div>
+      {content}
+    </div>
   );
 }

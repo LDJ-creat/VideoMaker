@@ -17,8 +17,11 @@ describe("project input panels", () => {
   });
 
   it("uploads local sample with multipart file field", async () => {
-    const upload = vi.spyOn(apiClient, "uploadSampleVideo").mockResolvedValue({
-      data: { id: "sample-1", taskId: "task-1" },
+    const upload = vi.spyOn(apiClient, "uploadSampleBatch").mockResolvedValue({
+      data: {
+        batchId: "batch-1",
+        samples: [{ id: "sample-1", taskId: "task-1" }],
+      },
       meta: { dataSource: "api" },
     });
     const user = userEvent.setup();
@@ -38,7 +41,9 @@ describe("project input panels", () => {
     await waitFor(() =>
       expect(upload).toHaveBeenCalledWith(
         "proj-1",
-        expect.objectContaining({ name: "demo.mp4" }),
+        expect.arrayContaining([
+          expect.objectContaining({ name: "demo.mp4" }),
+        ]),
       ),
     );
   });
@@ -114,7 +119,7 @@ describe("project input panels", () => {
 
     render(<BriefEditor projectId="proj-1" />);
 
-    await user.click(screen.getByRole("button", { name: "带货种草" }));
+    await user.selectOptions(screen.getByLabelText(/^内容类型$/i), "product_commerce");
     await user.type(screen.getByLabelText(/^主题$/i), "夏季防晒");
     await user.type(screen.getByLabelText(/^产品名$/i), "清爽喷雾");
     await user.type(screen.getByLabelText(/^创作目标$/i), "促进转化");

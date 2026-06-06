@@ -10,13 +10,6 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -48,12 +41,24 @@ export type BriefEditorHandle = {
 type BriefEditorProps = {
   projectId: string;
   initialBrief?: UserBriefRequest | null;
+  embedded?: boolean;
+  showSaveButton?: boolean;
   onSaved?: (brief: UserBriefRequest) => void;
   getDurationTarget?: () => UserBriefRequest["durationTarget"];
 };
 
 export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
-  function BriefEditor({ projectId, initialBrief, onSaved, getDurationTarget }, ref) {
+  function BriefEditor(
+    {
+      projectId,
+      initialBrief,
+      embedded = false,
+      showSaveButton = true,
+      onSaved,
+      getDurationTarget,
+    },
+    ref,
+  ) {
     const [contentCategory, setContentCategory] = useState<ContentCategory>("general");
     const [topic, setTopic] = useState("");
     const [creativeGoal, setCreativeGoal] = useState("");
@@ -86,6 +91,13 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
 
     const labels = useMemo(
       () => briefFieldLabels(contentCategory),
+      [contentCategory],
+    );
+
+    const categoryDescription = useMemo(
+      () =>
+        CONTENT_CATEGORY_OPTIONS.find((item) => item.value === contentCategory)
+          ?.description,
       [contentCategory],
     );
 
@@ -142,76 +154,70 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
       }
     };
 
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>创作 Brief</CardTitle>
-          <CardDescription>
-            描述创作意图与约束；上传素材后，系统会结合样例结构统一理解
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="space-y-2">
-            <Label>内容类型</Label>
-            <div className="flex flex-wrap gap-2">
-              {CONTENT_CATEGORY_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={cn(
-                    "rounded-md border px-3 py-1.5 text-left text-sm transition-colors",
-                    contentCategory === option.value
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border hover:bg-muted/50",
-                  )}
-                  onClick={() => setContentCategory(option.value)}
-                >
-                  <span className="font-medium">{option.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {
-                CONTENT_CATEGORY_OPTIONS.find(
-                  (item) => item.value === contentCategory,
-                )?.description
+    const form = (
+      <div className="grid gap-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2 lg:col-span-2">
+            <Label htmlFor="brief-category">内容类型</Label>
+            <select
+              id="brief-category"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:max-w-md"
+              value={contentCategory}
+              onChange={(event) =>
+                setContentCategory(event.target.value as ContentCategory)
               }
-            </p>
+            >
+              {CONTENT_CATEGORY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {categoryDescription ? (
+              <p className="text-xs text-muted-foreground">{categoryDescription}</p>
+            ) : null}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="brief-topic">主题</Label>
-              <Input
-                id="brief-topic"
-                value={topic}
-                placeholder={labels.topicPlaceholder}
-                onChange={(e) => setTopic(e.target.value)}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-topic">主题</Label>
+            <Input
+              id="brief-topic"
+              value={topic}
+              placeholder={labels.topicPlaceholder}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brief-goal">创作目标</Label>
+            <Input
+              id="brief-goal"
+              value={creativeGoal}
+              placeholder={labels.creativeGoalPlaceholder}
+              onChange={(e) => setCreativeGoal(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2 lg:col-span-2">
+            <Label htmlFor="brief-key-points">{labels.keyPoints}</Label>
+            <Textarea
+              id="brief-key-points"
+              value={keyPoints}
+              rows={4}
+              onChange={(e) => setKeyPoints(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <details className="rounded-md border border-border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            受众与语气（可选）
+          </summary>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="brief-subject">{labels.subjectName}</Label>
               <Input
                 id="brief-subject"
                 value={subjectName}
                 onChange={(e) => setSubjectName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="brief-goal">创作目标</Label>
-              <Input
-                id="brief-goal"
-                value={creativeGoal}
-                placeholder={labels.creativeGoalPlaceholder}
-                onChange={(e) => setCreativeGoal(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="brief-key-points">{labels.keyPoints}</Label>
-              <Textarea
-                id="brief-key-points"
-                value={keyPoints}
-                onChange={(e) => setKeyPoints(e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -241,31 +247,33 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
               />
             </div>
           </div>
+        </details>
 
-          <details className="rounded-md border border-border p-3">
-            <summary className="cursor-pointer text-sm font-medium">
-              高级约束（必须 / 禁止提及）
-            </summary>
-            <div className="mt-3 grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="brief-must">必须提及（每行一条）</Label>
-                <Textarea
-                  id="brief-must"
-                  value={mustMention}
-                  onChange={(e) => setMustMention(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
-                <Textarea
-                  id="brief-avoid"
-                  value={avoidMention}
-                  onChange={(e) => setAvoidMention(e.target.value)}
-                />
-              </div>
+        <details className="rounded-md border border-border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            高级约束（必须 / 禁止提及）
+          </summary>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="brief-must">必须提及（每行一条）</Label>
+              <Textarea
+                id="brief-must"
+                value={mustMention}
+                onChange={(e) => setMustMention(e.target.value)}
+              />
             </div>
-          </details>
+            <div className="space-y-2">
+              <Label htmlFor="brief-avoid">禁止提及（每行一条）</Label>
+              <Textarea
+                id="brief-avoid"
+                value={avoidMention}
+                onChange={(e) => setAvoidMention(e.target.value)}
+              />
+            </div>
+          </div>
+        </details>
 
+        {showSaveButton ? (
           <div className="flex items-center gap-3">
             <Button type="button" onClick={() => void handleSave()}>
               保存 Brief
@@ -276,8 +284,24 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
               </p>
             )}
           </div>
-        </CardContent>
-      </Card>
+        ) : null}
+      </div>
+    );
+
+    if (embedded) {
+      return form;
+    }
+
+    return (
+      <div className={cn("space-y-4 rounded-2xl border bg-card p-6 shadow-sm")}>
+        <div>
+          <h3 className="font-serif text-lg font-semibold">创作 Brief</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            描述创作意图与约束；上传素材后，系统会结合样例结构统一理解
+          </p>
+        </div>
+        {form}
+      </div>
     );
   },
 );

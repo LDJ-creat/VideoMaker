@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type PaginatedGridProps<T> = {
   items: T[];
@@ -11,6 +12,8 @@ type PaginatedGridProps<T> = {
   renderItem: (item: T) => ReactNode;
   emptyMessage?: string;
   resetKey?: string | number;
+  /** Tailwind grid column classes, e.g. `sm:grid-cols-2 lg:grid-cols-3` */
+  gridClassName?: string;
 };
 
 export function PaginatedGrid<T>({
@@ -20,6 +23,7 @@ export function PaginatedGrid<T>({
   renderItem,
   emptyMessage,
   resetKey,
+  gridClassName,
 }: PaginatedGridProps<T>) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -45,7 +49,7 @@ export function PaginatedGrid<T>({
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={cn("grid gap-3", gridClassName ?? "sm:grid-cols-2")}>
         {slice.map((item) => (
           <div key={getKey(item)}>{renderItem(item)}</div>
         ))}

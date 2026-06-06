@@ -12,6 +12,7 @@ type FileDropzoneProps = {
   title: string;
   hint: string;
   className?: string;
+  size?: "default" | "compact";
   onFiles: (files: File[]) => void;
 };
 
@@ -22,6 +23,7 @@ export function FileDropzone({
   title,
   hint,
   className,
+  size = "default",
   onFiles,
 }: FileDropzoneProps) {
   const inputId = useId();
@@ -79,16 +81,34 @@ export function FileDropzone({
           handleFiles(event.dataTransfer.files);
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors",
+          "flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed text-center transition-colors",
+          size === "compact"
+            ? "gap-1 px-3 py-3 sm:flex-row sm:justify-center sm:gap-3 sm:py-2.5"
+            : "gap-2 px-4 py-6",
           dragActive
             ? "border-primary bg-primary/5"
             : "border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/40",
           disabled && "cursor-not-allowed opacity-60",
         )}
       >
-        <Upload className="h-8 w-8 text-muted-foreground" aria-hidden />
-        <span className="text-sm font-medium">{title}</span>
-        <span className="max-w-sm text-xs text-muted-foreground">{hint}</span>
+        <Upload
+          className={cn(
+            "text-muted-foreground",
+            size === "compact" ? "h-5 w-5 shrink-0" : "h-8 w-8",
+          )}
+          aria-hidden
+        />
+        <span className={cn("font-medium", size === "compact" ? "text-xs" : "text-sm")}>
+          {title}
+        </span>
+        <span
+          className={cn(
+            "text-muted-foreground",
+            size === "compact" ? "hidden text-[11px] sm:inline" : "max-w-sm text-xs",
+          )}
+        >
+          {hint}
+        </span>
       </label>
     </div>
   );

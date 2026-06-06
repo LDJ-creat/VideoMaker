@@ -26,6 +26,7 @@ type AssetFilter = "all" | "image" | "video" | "text";
 type AssetInputPanelProps = {
   projectId: string;
   assets: ProjectAsset[];
+  embedded?: boolean;
   className?: string;
   onAssetsChanged?: () => void;
 };
@@ -89,6 +90,7 @@ function AssetCard({ asset }: { asset: ProjectAsset }) {
 export function AssetInputPanel({
   projectId,
   assets,
+  embedded = false,
   className,
   onAssetsChanged,
 }: AssetInputPanelProps) {
@@ -137,6 +139,71 @@ export function AssetInputPanel({
     }
   };
 
+  const body = (
+    <>
+      <FileDropzone
+        accept="image/*,video/*,.txt,.md,text/plain,text/markdown"
+        multiple
+        disabled={busy}
+        title="上传用户素材"
+        hint="点击选择或拖拽图片、视频或文案（.txt / .md）到此处，支持批量上传"
+        onFiles={(files) => void handleUpload(files)}
+      />
+
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <Tabs
+          value={assetFilter}
+          onValueChange={(value) => setAssetFilter(value as AssetFilter)}
+          className="shrink-0"
+        >
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="all">全部 ({assets.length})</TabsTrigger>
+            <TabsTrigger value="image">图片 ({imageCount})</TabsTrigger>
+            <TabsTrigger value="video">视频 ({videoCount})</TabsTrigger>
+            <TabsTrigger value="text">文案 ({textCount})</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <PaginatedGrid
+          items={filteredAssets}
+          pageSize={ASSET_PAGE_SIZE}
+          resetKey={`${assetFilter}-${filteredAssets.map((asset) => asset.id).join(",")}`}
+          getKey={(asset) => asset.id}
+          renderItem={(asset) => <AssetCard asset={asset} />}
+          emptyMessage={
+            assetFilter === "all"
+              ? "暂无素材，请上传图片、视频或文案。"
+              : assetFilter === "image"
+                ? "暂无图片素材。"
+                : assetFilter === "video"
+                  ? "暂无视频素材。"
+                  : "暂无文案素材。"
+          }
+        />
+      </div>
+
+      {status && (
+        <p className="shrink-0 text-sm text-muted-foreground" role="status">
+          {status}
+        </p>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        <div>
+          <p className="text-sm font-medium">用户素材</p>
+          <p className="text-xs text-muted-foreground">
+            Brief 描述创作意图，图片/视频/文案素材将一起用于统一理解
+          </p>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
   return (
     <Card className={cn("flex h-full flex-col", className)}>
       <CardHeader className="shrink-0">
@@ -145,54 +212,7 @@ export function AssetInputPanel({
           Brief 描述创作意图，图片/视频/文案素材将一起用于统一理解
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-        <FileDropzone
-          accept="image/*,video/*,.txt,.md,text/plain,text/markdown"
-          multiple
-          disabled={busy}
-          title="上传用户素材"
-          hint="点击选择或拖拽图片、视频或文案（.txt / .md）到此处，支持批量上传"
-          onFiles={(files) => void handleUpload(files)}
-        />
-
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <Tabs
-            value={assetFilter}
-            onValueChange={(value) => setAssetFilter(value as AssetFilter)}
-            className="shrink-0"
-          >
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="all">全部 ({assets.length})</TabsTrigger>
-              <TabsTrigger value="image">图片 ({imageCount})</TabsTrigger>
-              <TabsTrigger value="video">视频 ({videoCount})</TabsTrigger>
-              <TabsTrigger value="text">文案 ({textCount})</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <PaginatedGrid
-            items={filteredAssets}
-            pageSize={ASSET_PAGE_SIZE}
-            resetKey={`${assetFilter}-${filteredAssets.map((asset) => asset.id).join(",")}`}
-            getKey={(asset) => asset.id}
-            renderItem={(asset) => <AssetCard asset={asset} />}
-            emptyMessage={
-              assetFilter === "all"
-                ? "暂无素材，请上传图片、视频或文案。"
-                : assetFilter === "image"
-                  ? "暂无图片素材。"
-                  : assetFilter === "video"
-                    ? "暂无视频素材。"
-                    : "暂无文案素材。"
-            }
-          />
-        </div>
-
-        {status && (
-          <p className="shrink-0 text-sm text-muted-foreground" role="status">
-            {status}
-          </p>
-        )}
-      </CardContent>
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4">{body}</CardContent>
     </Card>
   );
 }
