@@ -1,0 +1,31 @@
+{
+  "extractedFacts": [
+    {
+      "id": "fact-agent-1",
+      "kind": "key_message",
+      "text": "产品特写展示",
+      "source": "asset:asset-video-1@0-3s"
+    }
+  ],
+  "candidateMoments": [
+    {
+      "id": "moment-asset-video-1-0-3000",
+      "assetId": "asset-video-1",
+      "startSec": 0.0,
+      "endSec": 3.0,
+      "description": "手持产品特写",
+      "tags": ["product"],
+      "visualTags": ["product", "close-up"],
+      "highlightScore": 0.82,
+      "suggestedSegmentRoles": ["hook"]
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset-video-1",
+      "description": "产品使用实拍",
+      "tags": ["product", "demo"]
+    }
+  ],
+  "toneSummary": "实用、直接"
+}

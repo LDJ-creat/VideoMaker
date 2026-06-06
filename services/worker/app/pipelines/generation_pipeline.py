@@ -19,6 +19,7 @@ from app.providers.completion_registry import (
 from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
+from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.agents.packaging_designer import run_packaging_designer
@@ -127,15 +128,7 @@ def build_asset_inventory(
     user_brief: dict[str, Any],
     assets: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    brief = {
-        "topic": user_brief.get("topic"),
-        "productName": user_brief.get("productName"),
-        "sellingPoints": list(user_brief.get("sellingPoints", [])),
-        "targetAudience": user_brief.get("targetAudience"),
-        "tone": user_brief.get("tone"),
-        "mustMention": list(user_brief.get("mustMention", [])),
-        "avoidMention": list(user_brief.get("avoidMention", [])),
-    }
+    brief = normalize_user_brief(user_brief)
 
     normalized_assets = []
     for asset in assets:
@@ -150,48 +143,7 @@ def build_asset_inventory(
             normalized["durationSec"] = float(asset["durationSec"])
         normalized_assets.append(normalized)
 
-    extracted_facts = []
-    fact_index = 1
-    for point in brief["sellingPoints"]:
-        extracted_facts.append(
-            {
-                "id": f"fact-{fact_index}",
-                "kind": "selling_point",
-                "text": point,
-                "source": "brief.sellingPoints",
-            }
-        )
-        fact_index += 1
-    if brief.get("targetAudience"):
-        extracted_facts.append(
-            {
-                "id": f"fact-{fact_index}",
-                "kind": "audience",
-                "text": brief["targetAudience"],
-                "source": "brief.targetAudience",
-            }
-        )
-        fact_index += 1
-    for text in brief["mustMention"]:
-        extracted_facts.append(
-            {
-                "id": f"fact-{fact_index}",
-                "kind": "constraint",
-                "text": text,
-                "source": "brief.mustMention",
-            }
-        )
-        fact_index += 1
-    for text in brief["avoidMention"]:
-        extracted_facts.append(
-            {
-                "id": f"fact-{fact_index}",
-                "kind": "constraint",
-                "text": text,
-                "source": "brief.avoidMention",
-            }
-        )
-        fact_index += 1
+    extracted_facts = build_baseline_extracted_facts(brief)
 
     candidate_moments = []
     for asset in normalized_assets:
@@ -211,7 +163,7 @@ def build_asset_inventory(
     inventory = {
         "id": f"inventory-{project_id}",
         "projectId": project_id,
-        "userBrief": {key: value for key, value in brief.items() if value is not None},
+        "userBrief": brief,
         "assets": normalized_assets,
         "extractedFacts": extracted_facts,
         "candidateMoments": candidate_moments,
@@ -238,6 +190,7 @@ def run_agent_generation(
     knowledge_context: dict[str, Any] | None = None,
     database_path: Path | None = None,
     sample_analysis: dict[str, Any] | None = None,
+    gateway_store: Any | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     if inventory is None:
         if inventory_baseline is None:
@@ -248,6 +201,7 @@ def run_agent_generation(
             context=context,
             generation_id=generation_id,
             video_structure=structure,
+            gateway_store=gateway_store,
         )
 
     if skip_slot_mapping:

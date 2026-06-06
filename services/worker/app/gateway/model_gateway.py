@@ -256,6 +256,39 @@ class ModelGateway:
             {"role": "user", "content": user_content},
         ]
 
+    @staticmethod
+    def build_asset_inventory_messages(
+        *,
+        system_prompt: str,
+        text_message: dict[str, Any],
+        media_parts: list[dict[str, Any]] | None = None,
+        json_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Build chat messages for direct multimodal user asset inventory analysis."""
+        system_parts = [system_prompt]
+        if json_only:
+            system_parts.append("Respond with valid JSON only.")
+
+        user_content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": json.dumps(text_message, ensure_ascii=False),
+            },
+        ]
+        for part in media_parts or []:
+            if not isinstance(part, dict):
+                continue
+            part_type = part.get("type")
+            if part_type == "video_url" and isinstance(part.get("video_url"), dict):
+                user_content.append(part)
+            elif part_type == "image_url" and isinstance(part.get("image_url"), dict):
+                user_content.append(part)
+
+        return [
+            {"role": "system", "content": "\n\n".join(system_parts)},
+            {"role": "user", "content": user_content},
+        ]
+
     def complete_json_messages(
         self,
         messages: list[dict[str, Any]],

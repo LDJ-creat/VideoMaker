@@ -14,7 +14,7 @@ from app.pipelines.direct_video_structure_pipeline import (
     resolve_sample_video_path,
     run_direct_video_structure_pipeline,
 )
-from app.pipelines.analysis_route import resolve_structure_analysis_route
+from app.pipelines.asset_understanding_route import resolve_asset_understanding_route
 from app.perception.sample_facts import (
     merge_visual_facts_into_sample_analysis,
     persist_sample_analysis,
@@ -60,6 +60,7 @@ from app.runtime.checkpoint import (
     should_skip_generation_stage,
 )
 from app.runtime.task_context import TaskContext
+from app.gateway.providers.base import GatewayError
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError, default_fixture_llm
 from app.validation.structure_validator import StructureValidationError
 
@@ -68,6 +69,7 @@ EmitFn = Callable[..., dict[str, Any]]
 _AGENT_FAILURES = (
     LLMToolValidationError,
     LLMToolConfigError,
+    GatewayError,
     StructureValidationError,
     KeyframeEncodingError,
     ValueError,
@@ -638,17 +640,30 @@ class P0DemoPipeline:
                 progress=10,
                 message="Analyzing user brief and uploaded assets",
             )
+            asset_route = "legacy"
             try:
                 inventory_baseline = build_asset_inventory(
                     project_id=project_id,
                     user_brief=user_brief,
                     assets=assets,
                 )
+                gateway_store = (
+                    ModelGatewayStore(self._database_path, self._storage_root)
+                    if self._database_path is not None
+                    else None
+                )
+                asset_route = (
+                    resolve_asset_understanding_route(gateway_store)
+                    if gateway_store is not None
+                    else "legacy"
+                )
                 inventory = run_asset_understanding(
                     runner,
                     inventory=inventory_baseline,
                     context=context,
                     generation_id=generation_id,
+                    video_structure=structure,
+                    gateway_store=gateway_store,
                 )
             except _AGENT_FAILURES as exc:
                 emit(
@@ -656,7 +671,14 @@ class P0DemoPipeline:
                     stage="analyzing_assets",
                     progress=10,
                     message="Asset understanding failed",
-                    error={"code": "agent_failed", "message": str(exc)},
+                    error={
+                        "code": (
+                            "direct_multimodal_asset_failed"
+                            if asset_route in ("direct_multimodal", "direct_multimodal_batched")
+                            else "agent_failed"
+                        ),
+                        "message": str(exc),
+                    },
                 )
                 return {"ok": False, "error": str(exc)}
 
@@ -733,6 +755,11 @@ class P0DemoPipeline:
                 message="Mapping structure slots to assets",
             )
             try:
+                gateway_store = (
+                    ModelGatewayStore(self._database_path, self._storage_root)
+                    if self._database_path is not None
+                    else None
+                )
                 inventory, mapping_slot_matches, gap_report, plan = run_agent_generation(
                     runner,
                     structure=structure,
@@ -744,6 +771,7 @@ class P0DemoPipeline:
                     knowledge_context=knowledge_context,
                     database_path=self._database_path,
                     sample_analysis=sample_analysis_for_gen,
+                    gateway_store=gateway_store,
                 )
                 slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:

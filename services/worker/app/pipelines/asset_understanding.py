@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.content_strategist import run_content_strategist
+from app.pipelines.asset_understanding_route import resolve_asset_understanding_route
+from app.pipelines.direct_asset_understanding import (
+    read_text_asset_content,
+    resolve_asset_path as _shared_resolve_asset_path,
+    run_direct_asset_understanding,
+)
+from app.pipelines.user_brief import normalize_user_brief
 from app.agents.runner import AgentRunner
 from app.runtime.task_context import TaskContext
 from app.tools.opencv_tool import OpenCVTool
@@ -433,7 +440,7 @@ def _apply_visual_tags_to_assets(
     return updated_assets
 
 
-def run_asset_understanding(
+def run_legacy_asset_understanding(
     runner: AgentRunner,
     *,
     inventory: dict[str, Any],
@@ -442,24 +449,51 @@ def run_asset_understanding(
     opencv: OpenCVTool | None = None,
     video_structure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    normalized_inventory = dict(inventory)
+    normalized_inventory["userBrief"] = normalize_user_brief(inventory.get("userBrief", {}))
+
     context.emit_event(
         stage="analyzing_assets",
         progress=10,
-        message="Analyzing user brief and uploaded assets",
+        message="Analyzing user brief and uploaded assets (legacy)",
     )
+
+    project_id = str(normalized_inventory["projectId"])
+    storage_root = Path(context.storage_root)
+    text_asset_contents: list[dict[str, Any]] = []
+    for asset in normalized_inventory.get("assets", []):
+        if not isinstance(asset, dict) or asset.get("type") != "text":
+            continue
+        media_path = _shared_resolve_asset_path(
+            storage_root,
+            project_id,
+            str(asset.get("uri", "")),
+        )
+        if media_path is None:
+            continue
+        text_asset_contents.append(
+            {
+                "assetId": asset["id"],
+                "textContent": read_text_asset_content(media_path),
+            }
+        )
+    if text_asset_contents:
+        strategist_inventory = dict(normalized_inventory)
+        strategist_inventory["textAssetContents"] = text_asset_contents
+    else:
+        strategist_inventory = normalized_inventory
 
     enriched = run_content_strategist(
         runner,
-        inventory=inventory,
+        inventory=strategist_inventory,
         context=context,
         progress=12,
         generation_id=generation_id,
         video_structure=video_structure,
     )
+    enriched.pop("textAssetContents", None)
 
     opencv_tool = opencv or OpenCVTool()
-    project_id = str(enriched["projectId"])
-    storage_root = Path(context.storage_root)
     candidate_moments: list[dict[str, Any]] = []
 
     for asset in enriched.get("assets", []):
@@ -499,6 +533,21 @@ def run_asset_understanding(
                     opencv=opencv_tool,
                 )
             )
+        elif asset_type == "text":
+            text_preview = ""
+            if media_path is not None:
+                text_preview = read_text_asset_content(media_path, max_chars=500)
+            candidate_moments.append(
+                {
+                    "id": moment_id(asset_id, 0.0, 0.1),
+                    "assetId": asset_id,
+                    "startSec": 0.0,
+                    "endSec": 0.1,
+                    "description": text_preview or asset.get("description", "") or f"text {asset_id}",
+                    "tags": list(asset.get("tags", [])),
+                    "highlightScore": 0.6,
+                }
+            )
 
     candidate_moments.sort(key=lambda item: item.get("highlightScore", 0.0), reverse=True)
     candidate_moments = candidate_moments[:TOP_MOMENT_COUNT]
@@ -520,8 +569,37 @@ def run_asset_understanding(
         list(enriched.get("assets", [])),
         candidate_moments,
     )
+    enriched["assetUnderstandingRoute"] = "legacy"
 
     validation = validate_contract("asset-inventory", enriched)
     if not validation.valid:
         raise ValueError(f"Invalid AssetInventory payload: {validation.errors}")
     return enriched
+
+
+def run_asset_understanding(
+    runner: AgentRunner,
+    *,
+    inventory: dict[str, Any],
+    context: TaskContext,
+    generation_id: str | None = None,
+    opencv: OpenCVTool | None = None,
+    video_structure: dict[str, Any] | None = None,
+    gateway_store: Any | None = None,
+) -> dict[str, Any]:
+    if gateway_store is not None and resolve_asset_understanding_route(gateway_store) == "direct_multimodal":
+        return run_direct_asset_understanding(
+            runner,
+            inventory=inventory,
+            context=context,
+            generation_id=generation_id,
+            video_structure=video_structure,
+        )
+    return run_legacy_asset_understanding(
+        runner,
+        inventory=inventory,
+        context=context,
+        generation_id=generation_id,
+        opencv=opencv,
+        video_structure=video_structure,
+    )

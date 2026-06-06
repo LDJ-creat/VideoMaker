@@ -3,12 +3,21 @@ from __future__ import annotations
 from typing import Any
 
 from app.agents.runner import AgentRunner
+from app.pipelines.user_brief import normalize_user_brief
 from app.runtime.task_context import TaskContext
 from app.validation.schema_loader import validate_contract
 
 
 TASK_KEY = "content_strategist"
-VALID_FACT_KINDS = {"selling_point", "audience", "scene", "constraint", "other"}
+VALID_FACT_KINDS = {
+    "selling_point",
+    "key_message",
+    "goal",
+    "audience",
+    "scene",
+    "constraint",
+    "other",
+}
 
 
 def _coerce_fact_id(value: Any) -> str:
@@ -105,66 +114,7 @@ def _merge_extracted_facts(
     return merged
 
 
-def _segment_vo_hints(video_structure: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(video_structure, dict):
-        return []
-    narrative = video_structure.get("narrative")
-    if not isinstance(narrative, dict):
-        return []
-    hints: list[dict[str, Any]] = []
-    for segment in narrative.get("segments") or []:
-        if not isinstance(segment, dict):
-            continue
-        hint: dict[str, Any] = {
-            "role": segment.get("role"),
-            "emotionTone": segment.get("emotionTone"),
-        }
-        vo_style = segment.get("voStyle")
-        if isinstance(vo_style, dict):
-            hint["voStyle"] = vo_style
-        visual_spec = segment.get("visualSpec")
-        if isinstance(visual_spec, dict):
-            hint["visualSpec"] = {
-                key: visual_spec.get(key)
-                for key in ("shotScale", "cameraMotion", "colorMood", "onScreenText")
-                if visual_spec.get(key) is not None
-            }
-        if any(hint.get(key) for key in ("emotionTone", "voStyle", "visualSpec")):
-            hints.append(hint)
-    return hints
-
-
-def _structure_generation_hints(video_structure: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(video_structure, dict):
-        return {}
-    hints: dict[str, Any] = {}
-    vo_hints = _segment_vo_hints(video_structure)
-    if vo_hints:
-        hints["sampleVoHints"] = vo_hints
-
-    rhythm = video_structure.get("rhythm")
-    if isinstance(rhythm, dict):
-        rhythm_hint: dict[str, Any] = {}
-        if rhythm.get("tempo"):
-            rhythm_hint["tempo"] = rhythm.get("tempo")
-        beat_points = rhythm.get("beatPoints")
-        if isinstance(beat_points, list) and beat_points:
-            rhythm_hint["beatPointCount"] = len(beat_points)
-        if rhythm_hint:
-            hints["sampleRhythmHints"] = rhythm_hint
-
-    packaging = video_structure.get("packaging")
-    if isinstance(packaging, dict):
-        packaging_hint: dict[str, Any] = {}
-        if packaging.get("visualDensity"):
-            packaging_hint["visualDensity"] = packaging.get("visualDensity")
-        title_cards = packaging.get("titleCards")
-        if isinstance(title_cards, list) and title_cards:
-            packaging_hint["titleCardCount"] = len(title_cards)
-        if packaging_hint:
-            hints["samplePackagingHints"] = packaging_hint
-
-    return hints
+from app.pipelines.brief_structure_hints import structure_generation_hints
 
 
 def run_content_strategist(
@@ -176,11 +126,18 @@ def run_content_strategist(
     generation_id: str | None = None,
     video_structure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    user_brief = normalize_user_brief(inventory.get("userBrief", {}))
+    merged = dict(inventory)
+    merged["userBrief"] = user_brief
+
     inputs: dict[str, Any] = {
-        "userBrief": inventory.get("userBrief", {}),
+        "userBrief": user_brief,
         "assets": inventory.get("assets", []),
     }
-    inputs.update(_structure_generation_hints(video_structure))
+    text_contents = inventory.get("textAssetContents")
+    if isinstance(text_contents, list) and text_contents:
+        inputs["textAssetContents"] = text_contents
+    inputs.update(structure_generation_hints(video_structure))
 
     output = runner.run(
         "content_strategist",
@@ -193,12 +150,11 @@ def run_content_strategist(
         post_validate=_validate_content_strategist_output,
     )
 
-    user_brief = inventory.get("userBrief", {})
+    user_brief = merged["userBrief"]
     avoid_mention = list(user_brief.get("avoidMention", []))
     agent_facts = _filter_avoid_mention(list(output.get("extractedFacts", [])), avoid_mention)
     baseline_facts = list(inventory.get("extractedFacts", []))
 
-    merged = dict(inventory)
     merged["extractedFacts"] = _merge_extracted_facts(baseline_facts, agent_facts)
     if output.get("toneSummary") and isinstance(user_brief, dict):
         brief = dict(user_brief)
