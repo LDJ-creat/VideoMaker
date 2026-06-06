@@ -121,6 +121,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-03-knowledge-deposition-plan.md` | Karpathy-style structure skills, promote, recommend/bind, progressive disclosure in generation | `docs/demos/knowledge-deposition-e2e-checklist.md` |
 | `2026-06-04-multi-sample-analysis-plan.md` | Upload-batch, parallel analyze, sample selection, structure synthesis, generation runs | `docs/demos/multi-sample-e2e-test-plan.md` |
 | `2026-06-07-direct-multimodal-sample-analysis-plan.md` | `videoUnderstanding` provider, direct multimodal sample analysis route, preferences toggle | `docs/demos/direct-multimodal-analysis-e2e-checklist.md` |
+| `2026-06-07-direct-multimodal-asset-understanding-and-brief-v2-plan.md` | UserBrief v2, direct multimodal asset inventory analyst, text asset upload, legacy fallback | `docs/demos/direct-multimodal-asset-understanding-e2e-checklist.md` |
 | `2026-06-06-sample-analysis-cost-resilience-plan.md` | Batch vision incremental persist/retry, keyframe sampling, segment vision dedup, analysis depth | `docs/demos/sample-analysis-depth-e2e-checklist.md` § 成本与韧性 |
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 
@@ -215,6 +216,9 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_SEGMENT_VISION_MIN_COVERAGE` | Skip segment-level vision when batch digest time coverage meets ratio | `0.6` |
 | `VIDEOMAKER_VIDEO_UNDERSTANDING_MAX_MB` | Max sample file size for direct multimodal structure analysis | `50` |
 | `VIDEOMAKER_VIDEO_UNDERSTANDING_MAX_SEC` | Max sample duration for direct multimodal structure analysis | `300` |
+| `VIDEOMAKER_ASSET_UNDERSTANDING_MAX_MEDIA_COUNT` | Max video/image attachments per direct multimodal asset call | `6` |
+| `VIDEOMAKER_ASSET_UNDERSTANDING_MAX_TOTAL_MB` | Max total video/image MB per direct multimodal asset call | `80` |
+| `VIDEOMAKER_ASSET_TEXT_MAX_CHARS` | Max UTF-8 chars read from text assets during understanding | `8000` |
 | `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
 
