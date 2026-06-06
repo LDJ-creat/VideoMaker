@@ -76,3 +76,22 @@ def load_sample_keyframes(
         )
     items.sort(key=lambda item: (item["timeSec"], -item["score"]))
     return items
+
+
+def pick_sample_poster_url(
+    storage_root: Path,
+    *,
+    project_id: str,
+    sample_id: str,
+) -> str | None:
+    """Best-scoring keyframe JPEG for sharp list thumbnails (not video downscale)."""
+    keyframes = load_sample_keyframes(
+        storage_root,
+        project_id=project_id,
+        sample_id=sample_id,
+    )
+    if not keyframes:
+        return None
+    best = max(keyframes, key=lambda item: float(item.get("score", 0.0)))
+    preview = best.get("previewUrl")
+    return str(preview) if preview else None

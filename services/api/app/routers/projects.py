@@ -23,6 +23,7 @@ from app.services.sample_selection_store import SampleSelectionStore
 from app.services.upload_batch_store import UploadBatchStore
 from app.services.variant_registry import get_variant_label, resolve_requested_variants
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
+from app.services.sample_keyframes import pick_sample_poster_url
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
@@ -118,6 +119,7 @@ class SampleSummaryResponse(BaseModel):
     sourceUrl: str | None = None
     fileName: str | None = None
     previewUrl: str | None = None
+    posterUrl: str | None = Field(default=None, alias="posterUrl")
     uploadBatchId: str | None = Field(default=None, alias="uploadBatchId")
 
     model_config = {"populate_by_name": True}
@@ -144,6 +146,7 @@ def _sample_summary(
     sample: dict[str, Any],
     *,
     batch_store: UploadBatchStore | None = None,
+    storage_root: Path | None = None,
 ) -> dict[str, Any]:
     video_uri = sample.get("videoUri")
     file_name = Path(video_uri).name if video_uri else None
@@ -153,6 +156,13 @@ def _sample_summary(
         batch = batch_store.get_batch(str(upload_batch_id))
         if batch is not None:
             batch_created_at = batch.get("createdAt")
+    poster_url: str | None = None
+    if storage_root is not None and sample.get("structure") is not None:
+        poster_url = pick_sample_poster_url(
+            storage_root,
+            project_id=project_id,
+            sample_id=str(sample["id"]),
+        )
     return {
         "id": sample["id"],
         "status": sample["status"],
@@ -162,6 +172,7 @@ def _sample_summary(
         "sourceUrl": sample.get("sourceUrl"),
         "fileName": file_name,
         "previewUrl": sample_media_path(project_id, sample["id"]) if video_uri else None,
+        "posterUrl": poster_url,
         "uploadBatchId": upload_batch_id,
         "batchCreatedAt": batch_created_at,
         "taskId": sample.get("taskId"),
@@ -477,10 +488,16 @@ def list_project_samples(project_id: str, request: Request) -> dict[str, Any]:
     store = _project_store(request)
     _ensure_project(store, project_id)
     batch_store = _batch_store(request)
+    storage_root: Path = request.app.state.storage_root
     samples = store.list_samples(project_id)
     return {
         "samples": [
-            _sample_summary(project_id, sample, batch_store=batch_store)
+            _sample_summary(
+                project_id,
+                sample,
+                batch_store=batch_store,
+                storage_root=storage_root,
+            )
             for sample in samples
         ]
     }
@@ -503,7 +520,12 @@ def get_active_sample(project_id: str, request: Request) -> dict[str, Any]:
         sample = store.get_latest_sample_with_video(project_id)
     if sample is None:
         raise HTTPException(status_code=404, detail="No sample with video file for project")
-    return _sample_summary(project_id, sample, batch_store=batch_store)
+    return _sample_summary(
+        project_id,
+        sample,
+        batch_store=batch_store,
+        storage_root=request.app.state.storage_root,
+    )
 
 
 @router.post(
