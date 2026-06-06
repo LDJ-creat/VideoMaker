@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Query, Request, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.asset_upload_limits import validate_asset_upload_size
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
 from app.services.knowledge_recommender import KnowledgeRecommender
@@ -52,13 +53,18 @@ class SampleFromUrlRequest(BaseModel):
 
 
 class UserBriefPayload(BaseModel):
+    content_category: str | None = Field(default=None, alias="contentCategory")
     topic: str | None = None
+    creative_goal: str | None = Field(default=None, alias="creativeGoal")
+    subject_name: str | None = Field(default=None, alias="subjectName")
     productName: str | None = Field(default=None, alias="productName")
+    key_points: list[str] = Field(default_factory=list, alias="keyPoints")
     sellingPoints: list[str] = Field(default_factory=list, alias="sellingPoints")
     targetAudience: str | None = Field(default=None, alias="targetAudience")
     tone: str | None = None
     mustMention: list[str] = Field(default_factory=list, alias="mustMention")
     avoidMention: list[str] = Field(default_factory=list, alias="avoidMention")
+    supplemental_notes: str | None = Field(default=None, alias="supplementalNotes")
 
     model_config = {"populate_by_name": True}
 
@@ -287,14 +293,17 @@ def _pipeline_runner(request: Request) -> PipelineRunner:
     return request.app.state.pipeline_runner
 
 
-def _infer_asset_type(filename: str, content_type: str | None) -> str:
+def _infer_asset_type(filename: str, content_type: str | None) -> str | None:
+    lowered = (filename or "").lower()
     guessed, _ = mimetypes.guess_type(filename)
-    mime = content_type or guessed or ""
+    mime = (content_type or guessed or "").lower()
     if mime.startswith("video/"):
         return "video"
     if mime.startswith("image/"):
         return "image"
-    return "text"
+    if mime.startswith("text/") or lowered.endswith((".txt", ".md", ".markdown")):
+        return "text"
+    return None
 
 
 @router.get("", response_model=ProjectListResponse)
@@ -551,19 +560,35 @@ async def upload_asset(
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    raw_bytes = await file.read()
+    asset_type = _infer_asset_type(file.filename or "", file.content_type)
+    if asset_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported asset file type; upload video, image, or text (.txt/.md)",
+        )
+    validate_asset_upload_size(asset_type, len(raw_bytes))
+
     asset_id = str(uuid.uuid4())
     suffix = Path(file.filename or "asset.bin").suffix
     relative_path = f"assets/{asset_id}/source{suffix}"
     artifact_store = _artifact_store(request)
     destination = artifact_store.resolve_project_path(project_id, relative_path)
-    destination.write_bytes(await file.read())
+    destination.write_bytes(raw_bytes)
 
-    asset_type = _infer_asset_type(file.filename or "", file.content_type)
+    description = file.filename
+    if asset_type == "text":
+        try:
+            preview = raw_bytes.decode("utf-8").strip()
+            if preview:
+                description = preview[:120] + ("…" if len(preview) > 120 else "")
+        except UnicodeDecodeError:
+            description = file.filename
     created = _project_store(request).add_asset(
         project_id=project_id,
         asset_type=asset_type,
         uri=str(destination),
-        description=file.filename,
+        description=description,
     )
     return {"id": created["id"]}
 
