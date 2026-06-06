@@ -18,6 +18,19 @@ from app.providers.completion_registry import (
 )
 from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
+from app.pipelines.generation_strategy import is_short_form_strategy, resolve_generation_strategy
+from app.pipelines.script_draft import (
+    empty_script_draft,
+    load_script_draft,
+    master_is_approved,
+    save_script_draft,
+    storyboard_is_approved,
+)
+from app.pipelines.short_form_direct import (
+    filter_short_form_completion_actions,
+    simplify_storyboard_for_short_form,
+)
+from app.pipelines.duration_target import normalize_duration_target
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
@@ -275,6 +288,230 @@ def run_agent_generation(
     )
 
 
+def run_mapping_and_gap(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    variant: str = "default",
+    revise_context: ReviseContext | None = None,
+    knowledge_context: dict[str, Any] | None = None,
+    database_path: Path | None = None,
+    sample_analysis: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
+    context.emit_event(
+        stage="mapping_slots",
+        progress=35,
+        message="Mapping structure slots to user assets",
+    )
+    slot_matches = run_slot_mapper(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        context=context,
+        generation_id=generation_id,
+        variant_overrides=merge_agent_overrides(variant, "slot_mapper", revise_context),
+        knowledge_context=knowledge_context,
+    )
+    resolved_knowledge = knowledge_context
+    _, weak_ids, _missing_ids = classify_slot_matches(structure, slot_matches)
+    if database_path is not None and len(weak_ids) >= 2 and knowledge_context is not None:
+        from app.knowledge.context_resolver import resolve_knowledge_context
+
+        resolved_knowledge = resolve_knowledge_context(
+            storage_root=context.storage_root,
+            database_path=database_path,
+            project_id=context.project_id,
+            level=1,
+            weak_slot_count=len(weak_ids),
+            video_structure=structure,
+            sample_analysis=sample_analysis,
+        )
+    context.emit_event(
+        stage="planning_completion",
+        progress=45,
+        message="Planning gap completion providers",
+    )
+    planning_gap_report = provisional_gap_report(structure, slot_matches)
+    video_quota = VideoGenQuota.from_structure(
+        structure,
+        gap_report=planning_gap_report,
+    )
+    gap_report = run_gap_planner(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        slot_matches=slot_matches,
+        context=context,
+        generation_id=generation_id,
+        variant=variant,
+        quota=video_quota,
+        knowledge_context=resolved_knowledge,
+    )
+    return slot_matches, gap_report, resolved_knowledge
+
+
+def draft_master_script(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    gap_report: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    generation_root: Path,
+    variant: str,
+    duration_target: dict[str, Any],
+    knowledge_context: dict[str, Any] | None = None,
+    revise_context: ReviseContext | None = None,
+) -> dict[str, Any]:
+    context.emit_event(
+        stage="drafting_master_script",
+        progress=46,
+        message="Drafting master narration script",
+    )
+    writer_output = run_storyboard_writer(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        context=context,
+        generation_id=generation_id,
+        variant=variant,
+        agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
+        knowledge_context=knowledge_context,
+        phase="master_only",
+        duration_target=duration_target,
+    )
+    draft = load_script_draft(generation_root) or empty_script_draft(
+        generation_id=generation_id,
+        project_id=str(inventory.get("projectId", context.project_id)),
+        variant=variant,
+        duration_target_sec=float(duration_target.get("targetSec", 0.0)),
+    )
+    draft["masterNarration"] = str(writer_output.get("masterNarration") or "")
+    draft["masterNarrationStatus"] = "draft"
+    draft["storyboard"] = []
+    draft["storyboardStatus"] = "draft"
+    draft["generationStrategy"] = resolve_generation_strategy(float(duration_target.get("targetSec", 30.0)))
+    draft["durationTargetSec"] = float(duration_target.get("targetSec", 30.0))
+    return save_script_draft(generation_root, draft)
+
+
+def draft_storyboard_script(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    gap_report: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    generation_root: Path,
+    variant: str,
+    duration_target: dict[str, Any],
+    knowledge_context: dict[str, Any] | None = None,
+    revise_context: ReviseContext | None = None,
+) -> dict[str, Any]:
+    draft = load_script_draft(generation_root)
+    if draft is None or not master_is_approved(draft):
+        raise ValueError("Master narration must be approved before drafting storyboard")
+    context.emit_event(
+        stage="drafting_storyboard",
+        progress=50,
+        message="Drafting storyboard scenes from approved master script",
+    )
+    writer_output = run_storyboard_writer(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        context=context,
+        generation_id=generation_id,
+        variant=variant,
+        agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
+        knowledge_context=knowledge_context,
+        phase="storyboard_from_master",
+        master_narration=str(draft.get("masterNarration") or ""),
+        duration_target=duration_target,
+    )
+    draft = dict(draft)
+    draft["storyboard"] = list(writer_output.get("storyboard") or [])
+    draft["storyboardStatus"] = "draft"
+    return save_script_draft(generation_root, draft)
+
+
+def run_planning_from_script_draft(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    slot_matches: list[dict[str, Any]],
+    gap_report: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    generation_root: Path,
+    variant: str = "default",
+    revise_context: ReviseContext | None = None,
+    knowledge_context: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    draft = load_script_draft(generation_root)
+    if draft is None or not storyboard_is_approved(draft):
+        raise ValueError("Storyboard must be approved before planning completion")
+    master_narration = str(draft.get("masterNarration") or "")
+    storyboard = [dict(scene) for scene in draft.get("storyboard") or [] if isinstance(scene, dict)]
+    strategy = str(
+        draft.get("generationStrategy")
+        or resolve_generation_strategy(
+            float(draft.get("durationTargetSec") or structure.get("metadata", {}).get("durationSec", 30.0))
+        )
+    )
+    target_sec = float(
+        draft.get("durationTargetSec")
+        or structure.get("metadata", {}).get("durationSec", 30.0)
+    )
+    if is_short_form_strategy(strategy):
+        storyboard = simplify_storyboard_for_short_form(
+            storyboard,
+            target_sec=target_sec,
+        )
+
+    snapshot = load_revise_snapshot(generation_root)
+    packaging_plan: dict[str, Any]
+    if revise_context is not None and not revise_context.rerun_packaging and snapshot:
+        packaging_plan = dict(snapshot.get("packagingPlan") or {})
+    else:
+        context.emit_event(
+            stage="planning_completion",
+            progress=55,
+            message="Designing packaging plan",
+        )
+        packaging_plan = run_packaging_designer(
+            runner,
+            structure=structure,
+            storyboard=storyboard,
+            context=context,
+            generation_id=generation_id,
+            variant=variant,
+            agent_overrides=merge_agent_overrides(variant, "packaging_designer", revise_context),
+        )
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant=variant,
+        master_narration=master_narration,
+        generation_strategy=strategy,
+        duration_target_sec=target_sec,
+    )
+    return inventory, slot_matches, gap_report, plan
+
+
 def run_planning_completion(
     runner: AgentRunner,
     *,
@@ -364,6 +601,8 @@ def assemble_generation_plan(
     packaging_plan: dict[str, Any],
     variant: str = "default",
     master_narration: str | None = None,
+    generation_strategy: str | None = None,
+    duration_target_sec: float | None = None,
 ) -> dict[str, Any]:
     slots_by_id = {slot["id"]: slot for slot in structure.get("slots", [])}
     matches_by_slot = {match["slotId"]: match for match in slot_matches}
@@ -405,6 +644,20 @@ def assemble_generation_plan(
     narration_actions = build_narration_actions(storyboard, skip_slot_ids=tts_from_gap)
     completion_actions = visual_actions + narration_actions
 
+    resolved_strategy = generation_strategy or resolve_generation_strategy(
+        float(
+            duration_target_sec
+            if duration_target_sec is not None
+            else structure.get("metadata", {}).get("durationSec", 30.0)
+        )
+    )
+    if is_short_form_strategy(resolved_strategy) and storyboard:
+        primary_slot = str(storyboard[0].get("slotId") or "")
+        completion_actions = filter_short_form_completion_actions(
+            completion_actions,
+            primary_slot_id=primary_slot,
+        )
+
     timeline = _build_timeline(
         storyboard=storyboard,
         slot_matches=matches_by_slot,
@@ -428,12 +681,15 @@ def assemble_generation_plan(
         "inventoryId": inventory["id"],
         "gapReportId": gap_report["id"],
         "variant": variant,
+        "generationStrategy": resolved_strategy,
         "masterNarration": master,
         "storyboard": storyboard,
         "timeline": timeline,
         "packagingPlan": packaging_plan,
         "completionActions": completion_actions,
     }
+    if duration_target_sec is not None:
+        plan["durationTargetSec"] = round(float(duration_target_sec), 2)
     validation = validate_contract("generation-plan", plan)
     if not validation.valid:
         raise ValueError(f"Invalid GenerationPlan payload: {validation.errors}")

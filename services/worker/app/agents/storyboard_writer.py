@@ -97,6 +97,34 @@ def _normalize_storyboard_scenes(
     return normalized
 
 
+def _assert_master_only(payload: dict[str, Any]) -> dict[str, Any]:
+    master = str(payload.get("masterNarration") or "").strip()
+    if not master:
+        raise ValueError("storyboard_writer master_only output must include non-empty masterNarration")
+    return {"masterNarration": master}
+
+
+def _assert_storyboard_from_master(
+    payload: dict[str, Any],
+    *,
+    structure: dict[str, Any],
+    master_narration: str,
+) -> dict[str, Any]:
+    storyboard = payload.get("storyboard")
+    if not isinstance(storyboard, list):
+        raise ValueError("storyboard_writer storyboard_from_master output must include storyboard array")
+    normalized = _normalize_storyboard_scenes(storyboard, structure=structure)
+    master = str(master_narration or payload.get("masterNarration") or "").strip()
+    if not master:
+        raise ValueError("approved masterNarration is required for storyboard_from_master")
+    _, aligned = apply_master_narration_to_storyboard(
+        master_narration=master,
+        storyboard=normalized,
+        structure=structure,
+    )
+    return {"storyboard": aligned}
+
+
 def _assert_storyboard(
     payload: dict[str, Any],
     *,
@@ -134,6 +162,9 @@ def run_storyboard_writer(
     variant: str = "default",
     agent_overrides: dict[str, Any] | None = None,
     knowledge_context: dict[str, Any] | None = None,
+    phase: str = "full",
+    master_narration: str | None = None,
+    duration_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     if agent_overrides:
@@ -143,9 +174,27 @@ def run_storyboard_writer(
         "inventory": inventory,
         "gapReport": gap_report,
         "variantOverrides": variant_overrides,
+        "phase": phase,
     }
+    if duration_target is not None:
+        inputs["durationTarget"] = duration_target
+    if master_narration is not None:
+        inputs["masterNarration"] = master_narration
     if knowledge_context:
         inputs["knowledgeContext"] = knowledge_context
+
+    if phase == "master_only":
+        post_validate = lambda payload: _assert_master_only(payload)
+    elif phase == "storyboard_from_master":
+        approved_master = str(master_narration or "").strip()
+        post_validate = lambda payload: _assert_storyboard_from_master(
+            payload,
+            structure=structure,
+            master_narration=approved_master,
+        )
+    else:
+        post_validate = lambda payload: _assert_storyboard(payload, structure=structure)
+
     output = runner.run(
         "storyboard_writer",
         task=TASK_KEY,
@@ -154,6 +203,6 @@ def run_storyboard_writer(
         context=context,
         progress=progress,
         generation_id=generation_id,
-        post_validate=lambda payload: _assert_storyboard(payload, structure=structure),
+        post_validate=post_validate,
     )
     return output

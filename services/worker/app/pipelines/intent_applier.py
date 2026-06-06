@@ -16,6 +16,8 @@ LOGICAL_TO_PIPELINE: dict[str, str] = {
 PIPELINE_STAGE_ORDER = (
     "analyzing_assets",
     "mapping_slots",
+    "drafting_master_script",
+    "drafting_storyboard",
     "planning_completion",
     "generating_material",
     "building_timeline",

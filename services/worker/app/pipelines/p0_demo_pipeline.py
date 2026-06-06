@@ -31,12 +31,24 @@ from app.gateway.model_gateway import ModelGateway
 from app.pipelines.generation_pipeline import (
     FixtureMaterialGateway,
     build_asset_inventory,
+    draft_master_script,
+    draft_storyboard_script,
     is_fixture_material_gateway,
     is_material_stage_done,
     run_agent_generation,
     run_generating_material,
+    run_mapping_and_gap,
     run_planning_completion,
+    run_planning_from_script_draft,
 )
+from app.pipelines.duration_target import normalize_duration_target, scale_structure_to_target_duration
+from app.pipelines.generation_strategy import is_short_form_strategy
+from app.pipelines.script_draft import (
+    load_script_draft,
+    master_is_approved,
+    storyboard_is_approved,
+)
+from app.pipelines.short_form_direct import validate_short_form_material_gateway
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.intent_applier import apply_intents_to_context
@@ -103,6 +115,38 @@ def _load_sample_analysis(
 def _generation_inputs_hash(user_brief: dict[str, Any], assets: list[dict[str, Any]]) -> str:
     payload = json.dumps({"brief": user_brief, "assets": assets}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _human_review_mode_enabled(explicit: bool | None = None) -> bool:
+    if explicit is not None:
+        return explicit
+    return os.getenv("VIDEOMAKER_HUMAN_REVIEW_MODE", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _pause_for_review(
+    emit: EmitFn,
+    checkpoint: GenerationCheckpoint,
+    checkpoint_path: Path,
+    *,
+    gate: str,
+    stage: str,
+    message: str,
+    progress: int,
+) -> dict[str, Any]:
+    checkpoint.awaitingGate = gate
+    checkpoint.save(checkpoint_path)
+    emit(
+        status="awaiting_review",
+        stage=stage,
+        progress=progress,
+        message=message,
+    )
+    return {"ok": True, "paused": True, "gate": gate}
 
 
 class P0DemoPipeline:
@@ -569,6 +613,7 @@ class P0DemoPipeline:
         variant: str = "default",
         sample_selection: dict[str, Any] | None = None,
         generation_run_id: str | None = None,
+        human_review_mode: bool | None = None,
     ) -> dict[str, Any]:
         project_root = self._storage_root / "projects" / project_id
         generation_root = generation_artifact_root(project_root, generation_id)
@@ -587,6 +632,25 @@ class P0DemoPipeline:
             resume = False
         elif not checkpoint.inputsHash:
             checkpoint.inputsHash = inputs_hash
+
+        if human_review_mode is not None:
+            human_review = human_review_mode
+        elif resume and checkpoint.generationId:
+            human_review = checkpoint.humanReviewMode
+        else:
+            human_review = _human_review_mode_enabled(None)
+        checkpoint.humanReviewMode = human_review
+
+        duration_target = normalize_duration_target(user_brief, structure)
+        structure = scale_structure_to_target_duration(structure, float(duration_target["targetSec"]))
+        (generation_root / "structure-scaled.json").write_text(
+            json.dumps(structure, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (generation_root / "duration-target.json").write_text(
+            json.dumps(duration_target, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
         context = TaskContext(
             project_id=project_id,
@@ -739,6 +803,165 @@ class P0DemoPipeline:
                 progress=55,
                 message="(resumed) generation plan ready",
             )
+        elif human_review:
+            if should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
+                gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
+                slot_matches_payload = json.loads(
+                    (generation_root / "slot-matches.json").read_text(encoding="utf-8")
+                )
+                slot_matches = list(slot_matches_payload.get("slotMatches", []))
+                emit(
+                    status="running",
+                    stage="mapping_slots",
+                    progress=35,
+                    message="(resumed) slot mapping ready",
+                )
+            else:
+                emit(
+                    status="running",
+                    stage="mapping_slots",
+                    progress=35,
+                    message="Mapping structure slots to assets",
+                )
+                try:
+                    slot_matches, gap_report, knowledge_context = run_mapping_and_gap(
+                        runner,
+                        structure=structure,
+                        inventory=inventory,
+                        context=context,
+                        generation_id=generation_id,
+                        variant=variant,
+                        revise_context=revise_context,
+                        knowledge_context=knowledge_context,
+                        database_path=self._database_path,
+                        sample_analysis=sample_analysis_for_gen,
+                    )
+                except _AGENT_FAILURES as exc:
+                    emit(
+                        status="failed",
+                        stage="mapping_slots",
+                        progress=35,
+                        message="Slot mapping failed",
+                        error={"code": "agent_failed", "message": str(exc)},
+                    )
+                    return {"ok": False, "error": str(exc)}
+
+                (generation_root / "asset-inventory.json").write_text(
+                    json.dumps(inventory, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                (generation_root / "slot-matches.json").write_text(
+                    json.dumps({"slotMatches": slot_matches}, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                (generation_root / "gap-report.json").write_text(
+                    json.dumps(gap_report, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                checkpoint.mark_stage_complete("mapping_slots")
+                checkpoint.save(checkpoint_path)
+
+            script_draft = load_script_draft(generation_root)
+            try:
+                if not master_is_approved(script_draft):
+                    if not should_skip_generation_stage(
+                        "drafting_master_script", checkpoint, generation_root, resume=resume
+                    ):
+                        draft_master_script(
+                            runner,
+                            structure=structure,
+                            inventory=inventory,
+                            gap_report=gap_report,
+                            context=context,
+                            generation_id=generation_id,
+                            generation_root=generation_root,
+                            variant=variant,
+                            duration_target=duration_target,
+                            knowledge_context=knowledge_context,
+                            revise_context=revise_context,
+                        )
+                        checkpoint.mark_stage_complete("drafting_master_script")
+                        checkpoint.save(checkpoint_path)
+                    return _pause_for_review(
+                        emit,
+                        checkpoint,
+                        checkpoint_path,
+                        gate="master_review",
+                        stage="awaiting_master_review",
+                        message="Review and approve master narration script",
+                        progress=47,
+                    )
+
+                checkpoint.awaitingGate = None
+                script_draft = load_script_draft(generation_root)
+                if not storyboard_is_approved(script_draft):
+                    if not should_skip_generation_stage(
+                        "drafting_storyboard", checkpoint, generation_root, resume=resume
+                    ) or not (script_draft and script_draft.get("storyboard")):
+                        draft_storyboard_script(
+                            runner,
+                            structure=structure,
+                            inventory=inventory,
+                            gap_report=gap_report,
+                            context=context,
+                            generation_id=generation_id,
+                            generation_root=generation_root,
+                            variant=variant,
+                            duration_target=duration_target,
+                            knowledge_context=knowledge_context,
+                            revise_context=revise_context,
+                        )
+                        checkpoint.mark_stage_complete("drafting_storyboard")
+                        checkpoint.save(checkpoint_path)
+                    return _pause_for_review(
+                        emit,
+                        checkpoint,
+                        checkpoint_path,
+                        gate="storyboard_review",
+                        stage="awaiting_storyboard_review",
+                        message="Review and approve storyboard script",
+                        progress=52,
+                    )
+
+                checkpoint.awaitingGate = None
+                emit(
+                    status="running",
+                    stage="producing_media",
+                    progress=56,
+                    message="Building generation plan from approved scripts",
+                )
+                inventory, slot_matches, gap_report, plan = run_planning_from_script_draft(
+                    runner,
+                    structure=structure,
+                    inventory=inventory,
+                    slot_matches=slot_matches,
+                    gap_report=gap_report,
+                    context=context,
+                    generation_id=generation_id,
+                    generation_root=generation_root,
+                    variant=variant,
+                    revise_context=revise_context,
+                    knowledge_context=knowledge_context,
+                )
+            except _AGENT_FAILURES as exc:
+                emit(
+                    status="failed",
+                    stage="planning_completion",
+                    progress=55,
+                    message="Script planning failed",
+                    error={"code": "agent_failed", "message": str(exc)},
+                )
+                return {"ok": False, "error": str(exc)}
+
+            plan["id"] = generation_id
+            strategy = str(plan.get("generationStrategy") or "")
+            checkpoint.generationStrategy = strategy or None
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("planning_completion")
+            checkpoint.save(checkpoint_path)
         elif should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             slot_matches_payload = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
@@ -890,6 +1113,12 @@ class P0DemoPipeline:
                     material_gap_report = json.loads(
                         gap_report_path.read_text(encoding="utf-8"),
                     )
+                material_gateway = self._build_material_gateway()
+                if is_short_form_strategy(str(plan.get("generationStrategy") or "")):
+                    validate_short_form_material_gateway(
+                        gateway=material_gateway,
+                        plan=plan,
+                    )
                 plan, _material_results = run_generating_material(
                     plan=plan,
                     inventory=inventory,
@@ -897,7 +1126,7 @@ class P0DemoPipeline:
                     structure=structure,
                     generation_root=generation_root,
                     render_root=render_root,
-                    gateway=self._build_material_gateway(),
+                    gateway=material_gateway,
                     emit_progress=material_progress,
                     register_artifact=context.register_artifact,
                     material_state_path=material_state_path,

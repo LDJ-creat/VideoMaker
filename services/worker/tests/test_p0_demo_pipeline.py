@@ -110,6 +110,7 @@ def test_p0_demo_pipeline_fixture_e2e_dual_variant_and_revise_without_hf_cli(
             ],
             emit=emit,
             variant=variant,
+            human_review_mode=False,
         )
         assert result["ok"] is True
         assert result["plan"]["variant"] == variant

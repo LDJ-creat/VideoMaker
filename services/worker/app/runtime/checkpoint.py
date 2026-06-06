@@ -30,7 +30,10 @@ ANALYSIS_STAGES = (
 GENERATION_STAGES = (
     "analyzing_assets",
     "mapping_slots",
+    "drafting_master_script",
+    "drafting_storyboard",
     "planning_completion",
+    "generating_material",
     "building_timeline",
     "rendering",
 )
@@ -97,6 +100,9 @@ class GenerationCheckpoint:
     completedStages: list[str] = field(default_factory=list)
     failedStage: str | None = None
     inputsHash: str | None = None
+    awaitingGate: str | None = None
+    generationStrategy: str | None = None
+    humanReviewMode: bool = True
     updatedAt: str = field(default_factory=_utc_now_iso)
 
     @classmethod
@@ -112,6 +118,9 @@ class GenerationCheckpoint:
             completedStages=list(data.get("completedStages", [])),
             failedStage=data.get("failedStage"),
             inputsHash=data.get("inputsHash"),
+            awaitingGate=data.get("awaitingGate"),
+            generationStrategy=data.get("generationStrategy"),
+            humanReviewMode=bool(data.get("humanReviewMode", True)),
             updatedAt=str(data.get("updatedAt", _utc_now_iso())),
         )
 
@@ -276,10 +285,26 @@ def is_generation_stage_done(stage: str, generation_root: Path, *, render_root: 
         data = _read_json(generation_root / "slot-matches.json")
         return isinstance(data, dict) and "slotMatches" in data
 
+    if stage == "drafting_master_script":
+        draft = _read_json(generation_root / "script-draft.json")
+        return (
+            isinstance(draft, dict)
+            and str(draft.get("masterNarration") or "").strip() != ""
+        )
+
+    if stage == "drafting_storyboard":
+        draft = _read_json(generation_root / "script-draft.json")
+        storyboard = draft.get("storyboard") if isinstance(draft, dict) else None
+        return isinstance(storyboard, list) and len(storyboard) > 0
+
     if stage == "planning_completion":
         gap = _read_json(generation_root / "gap-report.json")
         plan = _read_json(generation_root / "generation-plan.json")
         return isinstance(gap, dict) and isinstance(plan, dict) and "timeline" in plan
+
+    if stage == "generating_material":
+        state = _read_json(generation_root / "material-state.json")
+        return isinstance(state, dict) and "completedActionIds" in state
 
     if stage == "building_timeline":
         plan = _read_json(generation_root / "generation-plan.json")

@@ -121,6 +121,7 @@ def main() -> int:
                 variant=str(payload.get("variant", "default")),
                 sample_selection=payload.get("sampleSelection"),
                 generation_run_id=payload.get("generationRunId"),
+                human_review_mode=payload.get("humanReviewMode"),
             )
         elif mode == "run_revise":
             result = pipeline.run_revise(

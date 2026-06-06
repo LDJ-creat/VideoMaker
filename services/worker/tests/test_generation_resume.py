@@ -4,10 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.pipelines.p0_demo_pipeline import P0DemoPipeline, _generation_inputs_hash
 
 
-def test_run_generation_resume_skips_inventory_and_planning(tmp_path: Path) -> None:
+def test_run_generation_resume_skips_inventory_and_planning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_FIXTURE_MODE", "true")
     project_id = "project-1"
     generation_id = "gen-1"
     generation_root = tmp_path / "projects" / project_id / "generations" / generation_id

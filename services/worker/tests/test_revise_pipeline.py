@@ -91,6 +91,7 @@ def _write_completed_generation(
                     "building_timeline",
                     "rendering",
                 ],
+                "humanReviewMode": False,
             },
             indent=2,
         ),
@@ -132,7 +133,12 @@ def test_seed_revise_generation_copies_source_and_writes_edit_intent(tmp_path: P
     edit_intent = json.loads((target_root / "edit-intent.json").read_text(encoding="utf-8"))
     assert edit_intent["intents"] == intents
     checkpoint = json.loads((target_root / "checkpoint.json").read_text(encoding="utf-8"))
-    assert checkpoint["completedStages"] == ["analyzing_assets", "mapping_slots"]
+    assert checkpoint["completedStages"] == [
+        "analyzing_assets",
+        "mapping_slots",
+        "drafting_master_script",
+        "drafting_storyboard",
+    ]
 
 
 def test_run_revise_reexecutes_storyboard_and_packaging_stages(

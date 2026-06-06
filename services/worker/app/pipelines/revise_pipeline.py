@@ -20,6 +20,8 @@ EmitFn = Callable[..., dict[str, Any]]
 ARTIFACTS_BY_STAGE: dict[str, tuple[str, ...]] = {
     "analyzing_assets": ("asset-inventory.json",),
     "mapping_slots": ("slot-matches.json",),
+    "drafting_master_script": ("script-draft.json",),
+    "drafting_storyboard": ("script-draft.json",),
     "planning_completion": ("gap-report.json", "generation-plan.json"),
     "generating_material": ("material-state.json",),
     "building_timeline": (),

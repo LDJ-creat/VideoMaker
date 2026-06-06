@@ -71,6 +71,16 @@ def normalize_user_brief(raw: dict[str, Any] | None) -> dict[str, Any]:
     supplemental = str(source.get("supplementalNotes") or "").strip()
     if supplemental:
         normalized["supplementalNotes"] = supplemental
+    duration_target = source.get("durationTarget")
+    if isinstance(duration_target, dict) and duration_target.get("targetSec") is not None:
+        normalized["durationTarget"] = {
+            "targetSec": float(duration_target["targetSec"]),
+        }
+        for key in ("minSec", "maxSec", "recommendedSec"):
+            if duration_target.get(key) is not None:
+                normalized["durationTarget"][key] = float(duration_target[key])
+        if duration_target.get("source") in {"sample", "user", "default"}:
+            normalized["durationTarget"]["source"] = duration_target["source"]
     return normalized
 
 
