@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isDuplicateText,
+  pickSamplePosterUrl,
   pickSegmentKeyframe,
   resolveSegmentKeyframePreview,
 } from "@/lib/keyframePreview";
@@ -31,6 +32,25 @@ describe("keyframePreview", () => {
     ];
     const picked = pickSegmentKeyframe(keyframes, 5, 25);
     expect(picked?.relativePath).toBe("keyframes/b.jpg");
+  });
+
+  it("picks highest-scoring keyframe as list poster", () => {
+    expect(
+      pickSamplePosterUrl([
+        {
+          timeSec: 1,
+          score: 0.4,
+          relativePath: "keyframes/a.jpg",
+          previewUrl: "/a.jpg",
+        },
+        {
+          timeSec: 2,
+          score: 0.9,
+          relativePath: "keyframes/b.jpg",
+          previewUrl: "/b.jpg",
+        },
+      ]),
+    ).toBe("/b.jpg");
   });
 
   it("builds preview url from evidence summary", () => {

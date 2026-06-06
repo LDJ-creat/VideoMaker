@@ -312,6 +312,8 @@ export type ActiveSampleSummary = {
   sourceUrl?: string;
   fileName?: string;
   previewUrl?: string;
+  /** Sharp keyframe JPEG; preferred over video for list thumbnails */
+  posterUrl?: string;
   uploadBatchId?: string | null;
   batchCreatedAt?: string | null;
   taskId?: string | null;

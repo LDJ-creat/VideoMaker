@@ -84,3 +84,12 @@ export function isDuplicateText(primary: string, secondary: string): boolean {
   const b = normalize(secondary);
   return Boolean(a && b && a === b);
 }
+
+/** Pick highest-scoring keyframe for sample list poster thumbnails. */
+export function pickSamplePosterUrl(keyframes: SampleKeyframe[]): string | null {
+  if (keyframes.length === 0) return null;
+  const best = keyframes.reduce((winner, frame) =>
+    frame.score > winner.score ? frame : winner,
+  );
+  return best.previewUrl ?? null;
+}
