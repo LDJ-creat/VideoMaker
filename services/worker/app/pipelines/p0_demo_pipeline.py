@@ -60,7 +60,13 @@ from app.pipelines.revise_pipeline import (
 )
 from app.knowledge.context_resolver import resolve_knowledge_context
 from app.knowledge.deposit import deposit_knowledge_draft
-from app.pipelines.sample_pipeline import SampleAnalysisPipeline
+from app.pipelines.sample_analysis_progress import (
+    DIRECT_KNOWLEDGE_PROGRESS,
+    DIRECT_STRUCTURE_PROGRESS_SAVED,
+    DIRECT_STRUCTURE_PROGRESS_START,
+    DIRECT_STRUCTURE_PROGRESS_VALIDATE,
+    make_sample_pipeline_publisher,
+)
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
 from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
@@ -295,6 +301,7 @@ class P0DemoPipeline:
             cookies_path=cookies_path,
             resume=resume,
             skip_keyframe_extraction=(route == "direct_multimodal"),
+            event_publisher=make_sample_pipeline_publisher(emit, route),
         )
         final_event = sample_run_result.get("finalEvent", {})
         if final_event.get("status") == "failed":
@@ -340,7 +347,7 @@ class P0DemoPipeline:
                 emit(
                     status="running",
                     stage="extracting_structure_direct",
-                    progress=91,
+                    progress=DIRECT_STRUCTURE_PROGRESS_SAVED,
                     message="(resumed) direct multimodal structure already extracted",
                 )
             else:
@@ -365,7 +372,7 @@ class P0DemoPipeline:
                     emit(
                         status="failed",
                         stage="extracting_structure_direct",
-                        progress=90,
+                        progress=DIRECT_STRUCTURE_PROGRESS_VALIDATE,
                         message="Direct multimodal structure extraction failed",
                         error=error,
                     )
@@ -375,7 +382,7 @@ class P0DemoPipeline:
                         "finalEvent": {
                             "status": "failed",
                             "stage": "extracting_structure_direct",
-                            "progress": 90,
+                            "progress": DIRECT_STRUCTURE_PROGRESS_VALIDATE,
                             "message": "Direct multimodal structure extraction failed",
                             "error": error,
                         },
@@ -389,7 +396,7 @@ class P0DemoPipeline:
                     emit(
                         status="failed",
                         stage="extracting_structure_direct",
-                        progress=90,
+                        progress=DIRECT_STRUCTURE_PROGRESS_VALIDATE,
                         message="Direct multimodal structure extraction failed",
                         error=error,
                     )
@@ -399,7 +406,7 @@ class P0DemoPipeline:
                         "finalEvent": {
                             "status": "failed",
                             "stage": "extracting_structure_direct",
-                            "progress": 90,
+                            "progress": DIRECT_STRUCTURE_PROGRESS_VALIDATE,
                             "message": "Direct multimodal structure extraction failed",
                             "error": error,
                         },
@@ -562,14 +569,14 @@ class P0DemoPipeline:
             emit(
                 status="running",
                 stage="rendering_knowledge_draft",
-                progress=96,
+                progress=DIRECT_KNOWLEDGE_PROGRESS,
                 message="(resumed) knowledge draft already rendered",
             )
         elif structure is not None:
             emit(
                 status="running",
                 stage="rendering_knowledge_draft",
-                progress=96,
+                progress=DIRECT_KNOWLEDGE_PROGRESS,
                 message="Rendering knowledge skill draft",
             )
             try:
@@ -588,7 +595,7 @@ class P0DemoPipeline:
                 emit(
                     status="running",
                     stage="rendering_knowledge_draft",
-                    progress=96,
+                    progress=DIRECT_KNOWLEDGE_PROGRESS,
                     message=f"Knowledge draft skipped: {exc}",
                 )
 

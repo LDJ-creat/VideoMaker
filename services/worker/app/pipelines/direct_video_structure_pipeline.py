@@ -8,6 +8,11 @@ from typing import Any
 from app.agents.runner import AgentRunner
 from app.agents.video_structure_analyst import run_video_structure_analyst
 from app.perception.sample_facts import persist_sample_analysis
+from app.pipelines.sample_analysis_progress import (
+    DIRECT_STRUCTURE_PROGRESS_SAVED,
+    DIRECT_STRUCTURE_PROGRESS_START,
+    DIRECT_STRUCTURE_PROGRESS_VALIDATE,
+)
 from app.runtime.checkpoint import AnalysisCheckpoint
 from app.runtime.task_context import TaskContext
 from app.validation.structure_quality import evaluate_structure_quality
@@ -51,7 +56,7 @@ def run_direct_video_structure_pipeline(
         emit(
             status="running",
             stage="extracting_structure_direct",
-            progress=90,
+            progress=DIRECT_STRUCTURE_PROGRESS_START,
             message="Direct multimodal structure extraction",
         )
 
@@ -63,8 +68,16 @@ def run_direct_video_structure_pipeline(
         project_id=project_id,
         source_video_id=source_video_id,
         analysis_root=analysis_root,
-        progress=90,
+        progress=DIRECT_STRUCTURE_PROGRESS_START + 3,
     )
+
+    if emit is not None:
+        emit(
+            status="running",
+            stage="extracting_structure_direct",
+            progress=DIRECT_STRUCTURE_PROGRESS_VALIDATE,
+            message="Validating direct multimodal structure output",
+        )
 
     quality = evaluate_structure_quality(structure)
     analysis_quality = dict(structure.get("analysisQuality") or {})
@@ -96,7 +109,7 @@ def run_direct_video_structure_pipeline(
         emit(
             status="running",
             stage="extracting_structure_direct",
-            progress=91,
+            progress=DIRECT_STRUCTURE_PROGRESS_SAVED,
             message="Direct multimodal structure saved",
         )
 

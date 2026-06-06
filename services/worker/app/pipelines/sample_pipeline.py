@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -91,8 +92,14 @@ class SampleAnalysisPipeline:
         *,
         resume: bool = False,
         skip_keyframe_extraction: bool = False,
+        event_publisher: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        context = TaskContext(project_id=project_id, task_id=task_id, storage_root=self._storage_root)
+        context = TaskContext(
+            project_id=project_id,
+            task_id=task_id,
+            storage_root=self._storage_root,
+            event_publisher=event_publisher,
+        )
         sample_root = context.artifacts.resolve(Path("samples") / sample_id)
         analysis_rel_dir = Path("samples") / sample_id / "analysis"
         analysis_root = context.artifacts.resolve(analysis_rel_dir)
