@@ -209,13 +209,26 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [skillMarkdown, setSkillMarkdown] = useState<string | null>(null);
+  const [skillLoading, setSkillLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
 
   const loadEntries = useCallback(async () => {
     try {
       const result = await listKnowledgeEntries({ q: query || undefined });
-      setEntries(result.data.entries);
+      const nextEntries = result.data.entries;
+      setEntries(nextEntries);
+      if (nextEntries.length === 0) {
+        setSelectedId(null);
+        setSkillMarkdown(null);
+        return;
+      }
+      setSelectedId((current) => {
+        if (current && nextEntries.some((entry) => entry.id === current)) {
+          return current;
+        }
+        return nextEntries[0]!.id;
+      });
     } catch (error) {
       setStatus(getErrorMessage(error));
     }
@@ -225,16 +238,38 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
     void loadEntries();
   }, [loadEntries]);
 
-  const handleOpen = async (entryId: string) => {
-    setSelectedId(entryId);
-    try {
-      const result = await getKnowledgeEntry(entryId);
-      const skillResult = await getKnowledgeSkill(entryId);
-      setSkillMarkdown(skillResult.data.markdown);
-      setSelectedId(result.data.id);
-    } catch (error) {
-      setStatus(getErrorMessage(error));
+  useEffect(() => {
+    if (!selectedId) {
+      setSkillMarkdown(null);
+      return;
     }
+    let cancelled = false;
+    setSkillLoading(true);
+    void (async () => {
+      try {
+        const skillResult = await getKnowledgeSkill(selectedId);
+        if (!cancelled) {
+          setSkillMarkdown(skillResult.data.markdown);
+          setStatus(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStatus(getErrorMessage(error));
+          setSkillMarkdown(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setSkillLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
+  const handleOpen = (entryId: string) => {
+    setSelectedId(entryId);
   };
 
   return (
@@ -257,12 +292,16 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
                 key={entry.id}
                 role="button"
                 tabIndex={0}
-                className="w-full cursor-pointer rounded-lg border border-border p-3 text-left hover:bg-muted/40"
-                onClick={() => void handleOpen(entry.id)}
+                className={`w-full cursor-pointer rounded-lg border p-3 text-left hover:bg-muted/40 ${
+                  selectedId === entry.id
+                    ? "border-primary bg-muted/30"
+                    : "border-border"
+                }`}
+                onClick={() => handleOpen(entry.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    void handleOpen(entry.id);
+                    handleOpen(entry.id);
                   }
                 }}
               >
@@ -294,8 +333,22 @@ export function KnowledgeLibraryView({ onSelect }: KnowledgeLibraryViewProps) {
           </div>
         </CardContent>
       </Card>
-      {selectedId && skillMarkdown && (
-        <KnowledgeMarkdownPreview markdown={skillMarkdown} />
+      {entries.length > 0 && (
+        skillLoading || !skillMarkdown ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Skill 预览</CardTitle>
+              <CardDescription>支持标题、列表、粗体与代码块渲染</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                {skillLoading ? "加载 Skill 预览…" : "暂无 Skill 内容。"}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <KnowledgeMarkdownPreview markdown={skillMarkdown} />
+        )
       )}
       {status && <p className="text-sm text-destructive lg:col-span-2">{status}</p>}
     </div>
