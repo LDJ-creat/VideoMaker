@@ -4,8 +4,9 @@
 2. Run analyze → confirm `sample-analysis.json` contains `audioProfile` and optional `keyframeBatchDigests`.
 3. Open sample analysis tab → script technique differs from structure evidence primary text.
 4. Structure slots show diverse roles + non-empty `migrationTemplate`.
-5. No `critical:` warnings in `analysisQuality.warnings`; knowledge promote succeeds.
-6. Start generation → storyboard `visual` uses concrete camera language from `visualSpec`.
+5. No `critical:` warnings in `analysisQuality.warnings`; **`promoteReady: true`** and **`version: p1-v3`**; knowledge promote succeeds.
+6. Workbench 结构证据面板展示四轨 Tab（文本/视觉/听觉/策略），读取 v3 块字段。
+7. Start generation → storyboard `visual` uses concrete camera language from `visualSpec` or `visual.conceptVisualMap`.
 
 ## 成本与韧性验收
 

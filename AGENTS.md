@@ -124,6 +124,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-07-direct-multimodal-asset-understanding-and-brief-v2-plan.md` | UserBrief v2, direct multimodal asset inventory analyst, text asset upload, legacy fallback | `docs/demos/direct-multimodal-asset-understanding-e2e-checklist.md` |
 | `2026-06-06-sample-analysis-cost-resilience-plan.md` | Batch vision incremental persist/retry, keyframe sampling, segment vision dedup, analysis depth | `docs/demos/sample-analysis-depth-e2e-checklist.md` § 成本与韧性 |
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
+| `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 
 ## Current Implementation State
 
@@ -327,7 +328,7 @@ Global yt-dlp cookies: `storage/global/cookies/` (shared across projects).
 
 Use these core contracts as module boundaries:
 
-- `VideoStructure` is the authoritative result of sample structure extraction.
+- `VideoStructure` is the authoritative result of sample structure extraction (**version `p1-v3` only**; blocks `context` / `verbal` / `visual` / `audio` / `transfer` + migration chain `narrative` / `rhythm` / `slots` / `evidence`). `sample-analysis.json` is slim by default; full audio/digest via `?include=audioFull,digestFull`.
 - `AssetInventory` describes the user brief and available materials.
 - `GapReport` describes matched, weak, and missing structure slots.
 - `GenerationPlan` describes storyboard, completion actions, packaging, and timeline.
