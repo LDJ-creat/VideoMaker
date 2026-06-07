@@ -60,6 +60,7 @@
               "text_completion",
               "packaging_completion",
               "asset_reuse",
+              "stock_media_search",
               "hyperframes_material",
               "image_generation",
               "video_generation",
@@ -72,6 +73,7 @@
             "type": "string",
             "enum": [
               "asset_reuse",
+              "stock_media_search",
               "hyperframes_material",
               "image_generation",
               "video_generation",
@@ -81,7 +83,9 @@
             ]
           },
           "rationale": { "type": "string" },
-          "artifactRef": { "$ref": "artifact-ref.schema.json" }
+          "artifactRef": { "$ref": "artifact-ref.schema.json" },
+          "stockSearchQuery": { "$ref": "stock-search-query.schema.json" },
+          "stockAttribution": { "$ref": "stock-attribution.schema.json" }
         },
         "additionalProperties": false
       }

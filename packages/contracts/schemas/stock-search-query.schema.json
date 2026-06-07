@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/stock-search-query.schema.json",
+  "title": "StockSearchQuery",
+  "type": "object",
+  "required": ["primaryQuery", "fallbackQueries", "locale"],
+  "properties": {
+    "primaryQuery": { "type": "string", "minLength": 1 },
+    "fallbackQueries": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "maxItems": 5
+    },
+    "locale": { "type": "string", "enum": ["en"] },
+    "negativeTerms": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 8
+    },
+    "preferVideo": { "type": "boolean" },
+    "orientation": { "type": "string", "enum": ["landscape", "portrait", "square"] }
+  },
+  "additionalProperties": false
+}

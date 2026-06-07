@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/stock-attribution.schema.json",
+  "title": "StockAttribution",
+  "type": "object",
+  "required": ["source", "mediaId", "pageUrl", "photographer", "query"],
+  "properties": {
+    "source": { "type": "string", "enum": ["pexels"] },
+    "mediaId": { "type": "integer", "minimum": 1 },
+    "pageUrl": { "type": "string", "minLength": 1 },
+    "photographer": { "type": "string", "minLength": 1 },
+    "query": { "type": "string", "minLength": 1 },
+    "mediaType": { "type": "string", "enum": ["photo", "video"] }
+  },
+  "additionalProperties": false
+}

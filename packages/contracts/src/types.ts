@@ -487,6 +487,7 @@ export type CompletionStrategy =
   | "text_completion"
   | "packaging_completion"
   | "asset_reuse"
+  | "stock_media_search"
   | "hyperframes_material"
   | "image_generation"
   | "video_generation"
@@ -494,12 +495,31 @@ export type CompletionStrategy =
 
 export type CompletionProvider =
   | "asset_reuse"
+  | "stock_media_search"
   | "hyperframes_material"
   | "image_generation"
   | "video_generation"
   | "tts"
   | "text_completion"
   | "packaging_completion";
+
+export type StockSearchQuery = {
+  primaryQuery: string;
+  fallbackQueries: string[];
+  locale: "en";
+  negativeTerms?: string[];
+  preferVideo?: boolean;
+  orientation?: "landscape" | "portrait" | "square";
+};
+
+export type StockAttribution = {
+  source: "pexels";
+  mediaId: number;
+  pageUrl: string;
+  photographer: string;
+  query: string;
+  mediaType?: "photo" | "video";
+};
 
 export type SlotMatch = {
   slotId: string;
@@ -551,6 +571,9 @@ export type GeneratedBy = {
   model?: string;
   promptVersion?: string;
   template?: string;
+  source?: string;
+  photographer?: string;
+  pageUrl?: string;
 };
 
 export type TimelineClip = {
@@ -613,6 +636,8 @@ export type CompletionAction = {
   provider?: CompletionProvider;
   rationale?: string;
   artifactRef?: ArtifactRef;
+  stockSearchQuery?: StockSearchQuery;
+  stockAttribution?: StockAttribution;
 };
 
 export type GenerationPlan = {
