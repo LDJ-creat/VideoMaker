@@ -16,6 +16,11 @@ from app.services.task_events import now_iso
 
 _DRAFT_META_FALLBACK_KEYS = ("hasBgm", "voPersona", "visualStyle", "rhetoricalPattern")
 
+KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE = (
+    "已有样例视频的结构分析结果，知识库条目只能作为生成时的参考经验，"
+    "无法替换为项目主结构。"
+)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -506,10 +511,7 @@ class KnowledgeStore:
         allow_overwrite: bool = False,
     ) -> dict[str, Any]:
         if not allow_overwrite and self.has_analyzed_sample_structure(project_store, project_id):
-            raise ValueError(
-                "Project already has an analyzed sample structure; "
-                "knowledge applies as reference only"
-            )
+            raise ValueError(KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE)
 
         entry = self.get_entry(entry_id)
         if entry is None or entry.get("status") != "published":

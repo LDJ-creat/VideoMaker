@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.services.knowledge_recommender import KnowledgeRecommender
-from app.services.knowledge_store import KnowledgeStore
+from app.services.knowledge_store import KnowledgeStore, KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE
 from app.services.project_store import ProjectStore
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -33,7 +33,7 @@ class ApplyKnowledgeRequest(BaseModel):
 
 class UpdateSelectionRequest(BaseModel):
     primary_entry_id: str | None = Field(default=None, alias="primaryEntryId")
-    reference_entry_ids: list[str] = Field(default_factory=list, alias="referenceEntryIds")
+    reference_entry_ids: list[str] | None = Field(default=None, alias="referenceEntryIds")
     apply_structure: bool = Field(default=False, alias="applyStructure")
 
     model_config = {"populate_by_name": True}
@@ -156,7 +156,7 @@ def apply_structure_from_knowledge(
             apply_structure=payload.apply_structure,
         )
     except ValueError as exc:
-        status_code = 400 if "reference only" in str(exc) else 404
+        status_code = 400 if str(exc) == KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE else 404
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return {"applied": applied, "selection": selection}
 

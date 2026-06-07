@@ -413,7 +413,7 @@ def test_apply_structure_blocked_when_real_sample_exists(
         json={"entryId": entry_id, "applyStructure": True},
     )
     assert response.status_code == 400
-    assert "reference only" in response.json()["detail"]
+    assert "参考经验" in response.json()["detail"]
 
 
 def test_user_override_not_overwritten_by_ensure(client: TestClient, tmp_path: Path) -> None:

@@ -174,7 +174,20 @@ class KnowledgeRecommender:
     ) -> dict[str, Any]:
         if primary_entry_id:
             self._validate_primary_entry(primary_entry_id)
-        for ref_id in reference_entry_ids or []:
+        existing = self.knowledge_store.get_selection(project_id) or {}
+        if reference_entry_ids is None:
+            refs = [
+                str(item)
+                for item in (existing.get("referenceEntryIds") or [])
+                if str(item) != str(primary_entry_id or "")
+            ]
+        else:
+            refs = [
+                str(item)
+                for item in reference_entry_ids
+                if str(item) != str(primary_entry_id or "")
+            ]
+        for ref_id in refs:
             self._validate_primary_entry(str(ref_id))
 
         if primary_entry_id and apply_structure:
@@ -186,7 +199,7 @@ class KnowledgeRecommender:
         selection = {
             "projectId": project_id,
             "primaryEntryId": primary_entry_id,
-            "referenceEntryIds": reference_entry_ids or [],
+            "referenceEntryIds": refs,
             "mode": "user_override" if primary_entry_id else "none",
             "appliedAsStructure": bool(apply_structure),
         }
