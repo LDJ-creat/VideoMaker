@@ -28,16 +28,18 @@ Each weak/missing item:
 ```
 
 # P1 completion providers
-`hyperframes_material`, `image_generation`, `video_generation`, `tts`, `asset_reuse`.
+`hyperframes_material`, `stock_media_search`, `image_generation`, `video_generation`, `tts`, `asset_reuse`.
 
 Provider selection rules (Python enforces after your output):
 1. Packaging roles (`hook_text`, `benefit_card`, `comparison`) or requiredAssetType includes `packaging` → `hyperframes_material`
 2. Weak match score ≥0.38:
    - matched asset `type=video` → `asset_reuse` (trim existing video only)
-   - matched asset `type=image` on visual slots (`hook_visual`, `product_closeup`, `usage_scene`) with per-slot quota → `video_generation` (image-to-video / i2v); else `image_generation`
-3. Visual slots without a video weak match: per-slot quota → `video_generation` (text-to-video / t2v); else `image_generation` (may chain `hyperframes_material` for motion)
+   - matched asset `type=image` on visual slots with stock eligibility → `stock_media_search` when Pexels configured; else per-slot quota → `video_generation` (i2v) or `image_generation`
+3. Visual slots without a video weak match: when stock eligible → `stock_media_search`; else per-slot quota → `video_generation` (t2v) or `image_generation` (may chain `hyperframes_material` for motion)
 4. Non-visual slots whose `scriptIntent` needs spoken VO → `tts` (narration only; **not** a substitute for hook/product visual slots)
 5. Else → `hyperframes_material`
+
+**Stock media constraints:** Never suggest `stock_media_search` for `product_closeup` or product-bound slots (specific SKU / 本品 / productName in scriptIntent). Pexels search queries are generated later by `stock_query_author` during material execution — your job is gap diagnosis and provider type only.
 
 **Narration vs visual:** Per-slot TTS/narration is planned separately from visual gap fixes. Your `suggestedFixes` should focus on **visual** completion (`video_generation`, `image_generation`, `hyperframes_material`, `asset_reuse`). Do not pick `tts` for visual roles (`hook_visual`, `product_closeup`, `usage_scene`) when the slot still needs a picture or video clip — narration can run alongside `video_generation` on the same slot.
 
