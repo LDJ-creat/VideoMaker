@@ -13,11 +13,13 @@ Environment:
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
 import httpx
 
+from app.gateway.config import resolve_max_poll_sec
 from app.gateway.providers.base import GatewayError, ProviderConfig
 from app.gateway.providers.video_types import VideoJobResult, VideoProvider
 
@@ -29,12 +31,12 @@ class GenericJobVideoProvider:
         *,
         client: httpx.Client | None = None,
         poll_interval_sec: float = 3.0,
-        max_poll_sec: int = 300,
+        max_poll_sec: int | None = None,
     ) -> None:
         self.config = config
         self._client = client
         self.poll_interval_sec = poll_interval_sec
-        self.max_poll_sec = max_poll_sec
+        self.max_poll_sec = max_poll_sec if max_poll_sec is not None else resolve_max_poll_sec()
         self.last_latency_ms: int | None = None
 
     def _get_client(self) -> httpx.Client:
@@ -191,8 +193,9 @@ def create_video_provider(
     *,
     client: httpx.Client | None = None,
     poll_interval_sec: float = 3.0,
-    max_poll_sec: int = 300,
+    max_poll_sec: int | None = None,
 ) -> VideoProvider:
+    resolved_poll_sec = max_poll_sec if max_poll_sec is not None else resolve_max_poll_sec()
     from app.gateway.providers.dashscope_video import (
         DashScopeWanVideoProvider,
         resolve_video_driver,
@@ -204,14 +207,14 @@ def create_video_provider(
             config,
             client=client,
             poll_interval_sec=max(poll_interval_sec, 15.0),
-            max_poll_sec=max_poll_sec,
+            max_poll_sec=resolved_poll_sec,
         )
     if resolved == "generic_job":
         return GenericJobVideoProvider(
             config,
             client=client,
             poll_interval_sec=poll_interval_sec,
-            max_poll_sec=max_poll_sec,
+            max_poll_sec=resolved_poll_sec,
         )
     raise GatewayError(
         code="unsupported_driver",

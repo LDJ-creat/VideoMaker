@@ -72,8 +72,8 @@ def test_dashscope_submit_and_poll_downloads_video(monkeypatch) -> None:
     post_body = client.post.call_args.kwargs["json"]
     assert post_body["parameters"]["duration"] == 10
     assert "img_url" not in post_body["input"]
-    assert post_body["model"] == "wan2.6-t2v"
-    assert post_body["parameters"]["size"] == "1280*720"
+    assert post_body["model"] == "wan2.7-t2v"
+    assert post_body["parameters"]["resolution"] == "720P"
 
 
 def test_dashscope_i2v_submit_includes_base64_image(monkeypatch, tmp_path) -> None:

@@ -242,6 +242,89 @@ class FFmpegTool:
             }
         return {"path": str(resolved_output)}
 
+    def concat_clips(
+        self,
+        clip_paths: list[str | Path],
+        output_path: str | Path,
+    ) -> dict[str, Any]:
+        """Concatenate homogenous H.264/AAC clips via ffmpeg concat demuxer."""
+        inputs = [Path(path).resolve() for path in clip_paths]
+        if not inputs:
+            return {
+                "code": "ffmpeg_concat_empty",
+                "message": "No clips provided for concat",
+                "retryable": False,
+                "details": {},
+            }
+        resolved_output = Path(output_path).resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        if len(inputs) == 1:
+            resolved_output.write_bytes(inputs[0].read_bytes())
+            return {"path": str(resolved_output)}
+
+        list_path = resolved_output.parent / f"{resolved_output.stem}-concat-list.txt"
+        lines = [f"file '{path.as_posix()}'" for path in inputs]
+        list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        copy_command = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_path),
+            "-c",
+            "copy",
+            str(resolved_output),
+        ]
+        try:
+            copy_result = self._command_runner(copy_command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+
+        if copy_result.returncode == 0 and resolved_output.is_file() and resolved_output.stat().st_size > 0:
+            list_path.unlink(missing_ok=True)
+            return {"path": str(resolved_output)}
+
+        reencode_command = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_path),
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            str(resolved_output),
+        ]
+        try:
+            reencode_result = self._command_runner(reencode_command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+        finally:
+            list_path.unlink(missing_ok=True)
+
+        if reencode_result.returncode != 0:
+            return _retryable_tool_error(
+                "ffmpeg_concat_failed",
+                "ffmpeg concat failed",
+                {"stderr": reencode_result.stderr or copy_result.stderr},
+            )
+        if not resolved_output.is_file() or resolved_output.stat().st_size == 0:
+            return {
+                "code": "ffmpeg_concat_empty_output",
+                "message": "ffmpeg concat produced no output",
+                "retryable": True,
+                "details": {},
+            }
+        return {"path": str(resolved_output)}
+
     @staticmethod
     def _parse_fps(raw_fps: str) -> float:
         if "/" in raw_fps:

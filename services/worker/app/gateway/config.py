@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 
 from app.gateway.providers.base import ProviderConfig
 
@@ -9,6 +10,14 @@ try:
 except ImportError:  # pragma: no cover - tests may construct GatewayConfig directly
     ModelGatewayStore = None  # type: ignore[misc, assignment]
     ProviderCredentials = None  # type: ignore[misc, assignment]
+
+
+def resolve_max_poll_sec() -> int:
+    raw = os.getenv("VIDEO_MAX_POLL_SEC", "600").strip()
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 600
 
 
 @dataclass(frozen=True)
@@ -20,7 +29,7 @@ class GatewayConfig:
     image: ProviderConfig
     video_driver: str
     video: ProviderConfig
-    max_poll_sec: int = 300
+    max_poll_sec: int = field(default_factory=resolve_max_poll_sec)
     poll_interval_sec: float = 3.0
 
     @classmethod
@@ -34,6 +43,7 @@ class GatewayConfig:
             image=_to_provider_config(credentials["image"]),
             video_driver=credentials["video"].driver,
             video=_to_provider_config(credentials["video"]),
+            max_poll_sec=resolve_max_poll_sec(),
         )
 
 
