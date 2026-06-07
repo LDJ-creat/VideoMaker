@@ -11,6 +11,9 @@ _ASR_RANGE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:to|-)\s*(\d+(?:\.\d+)?)")
 _SHOT_BOUNDARY_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _LOW_VALUE_EVIDENCE_PATTERN = re.compile(r"\d+\s+overlapping\s+shot\s+boundaries", re.IGNORECASE)
 _SLOT_ROLE_ALIASES = {
+    "demonstration": "demonstration",
+    "demo": "demonstration",
+    "tutorial": "demonstration",
     "attention_grabber": "hook_visual",
     "intro": "hook_visual",
     "pain_point": "proof",
@@ -378,6 +381,7 @@ def _normalize_slot_role(role: str) -> str:
         "hook_text",
         "product_closeup",
         "usage_scene",
+        "demonstration",
         "benefit_card",
         "comparison",
         "proof",

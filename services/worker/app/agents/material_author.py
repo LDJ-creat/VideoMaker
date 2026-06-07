@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from app.tools.llm_tool import LLMTool
+from app.tools.llm_tool import LLMTool, LLMToolValidationError
+from app.validation.material_spec_coercer import coerce_material_spec_output
+from app.validation.schema_loader import validate_contract
 
 if TYPE_CHECKING:
     from app.agents.runner import AgentRunner
@@ -24,6 +27,23 @@ def load_prompt() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
+def _validate_material_output(
+    payload: dict[str, Any],
+    *,
+    slot: dict[str, Any],
+    asset_refs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    coerced = coerce_material_spec_output(payload, slot=slot, asset_refs=asset_refs)
+    validation = validate_contract(SCHEMA_NAME, coerced)
+    if not validation.valid:
+        raise LLMToolValidationError(
+            f"LLM output failed schema validation for '{SCHEMA_NAME}'",
+            raw_output=json.dumps(payload, ensure_ascii=False),
+            validation_errors=validation.errors,
+        )
+    return coerced
+
+
 def run_material_author(
     llm: LLMTool,
     *,
@@ -40,7 +60,8 @@ def run_material_author(
     }
     if asset_refs:
         inputs["assetRefs"] = asset_refs
-    return llm.generate_json(TASK_KEY, inputs, SCHEMA_NAME)
+    payload = llm.generate_json(TASK_KEY, inputs, None)
+    return _validate_material_output(payload, slot=slot, asset_refs=asset_refs)
 
 
 def run_material_author_with_runner(
@@ -64,9 +85,14 @@ def run_material_author_with_runner(
     return runner.run(
         "material_author",
         task=TASK_KEY,
-        schema_name=SCHEMA_NAME,
+        schema_name=None,
         inputs=inputs,
         context=context,
         progress=progress,
         generation_id=generation_id,
+        post_validate=lambda output: _validate_material_output(
+            output,
+            slot=slot,
+            asset_refs=asset_refs,
+        ),
     )

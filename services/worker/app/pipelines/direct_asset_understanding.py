@@ -20,6 +20,8 @@ TEXT_MIME_BY_SUFFIX = {
 }
 
 _ROUTE_WARNING = "analysis_route:direct_multimodal"
+_BRIEF_ONLY_ASSET_ID = "brief-context"
+_VALID_SEGMENT_ROLES = {"hook", "mid", "cta"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -220,6 +222,118 @@ def build_agent_text_message(
     return message
 
 
+def _normalize_highlight_score(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    if score > 1.0:
+        score = score / 10.0 if score <= 10.0 else 1.0
+    return max(0.0, min(1.0, score))
+
+
+def _normalize_segment_roles(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    raw_roles: list[Any]
+    if isinstance(value, str):
+        raw_roles = [value]
+    elif isinstance(value, list):
+        raw_roles = value
+    else:
+        return None
+    roles = [str(role).strip() for role in raw_roles if str(role).strip()]
+    filtered = [role for role in roles if role in _VALID_SEGMENT_ROLES]
+    return filtered or None
+
+
+def coerce_extracted_facts(facts: list[Any]) -> list[dict[str, Any]]:
+    coerced: list[dict[str, Any]] = []
+    for index, fact in enumerate(facts):
+        if not isinstance(fact, dict):
+            continue
+        item = dict(fact)
+        if not str(item.get("id", "")).strip():
+            kind = str(item.get("kind", "other")).strip() or "other"
+            item["id"] = f"fact-{kind}-{index + 1}"
+        if not str(item.get("source", "")).strip():
+            item["source"] = "agent"
+        coerced.append(item)
+    return coerced
+
+
+def coerce_candidate_moments(
+    moments: list[Any],
+    *,
+    asset_ids: list[str],
+) -> list[dict[str, Any]]:
+    fallback_asset_id = asset_ids[0] if asset_ids else _BRIEF_ONLY_ASSET_ID
+    coerced: list[dict[str, Any]] = []
+    for index, moment in enumerate(moments):
+        if not isinstance(moment, dict):
+            continue
+        item = dict(moment)
+        asset_id = str(item.get("assetId", "")).strip()
+        if not asset_id or (asset_ids and asset_id not in asset_ids):
+            asset_id = fallback_asset_id
+        item["assetId"] = asset_id
+
+        start_sec = item.get("startSec")
+        end_sec = item.get("endSec")
+        try:
+            start = max(0.0, float(start_sec if start_sec is not None else 0.0))
+        except (TypeError, ValueError):
+            start = 0.0
+        try:
+            end = max(start, float(end_sec if end_sec is not None else start + 0.1))
+        except (TypeError, ValueError):
+            end = start + 0.1
+        item["startSec"] = start
+        item["endSec"] = end
+
+        if not str(item.get("id", "")).strip():
+            item["id"] = f"moment-{asset_id}-{start:.2f}-{end:.2f}-{index + 1}"
+        if not str(item.get("description", "")).strip():
+            item["description"] = "Candidate moment"
+        item["tags"] = [
+            str(tag).strip()
+            for tag in (item.get("tags") or [])
+            if str(tag).strip()
+        ]
+
+        normalized_score = _normalize_highlight_score(item.get("highlightScore"))
+        if normalized_score is not None:
+            item["highlightScore"] = normalized_score
+        else:
+            item.pop("highlightScore", None)
+
+        normalized_roles = _normalize_segment_roles(item.get("suggestedSegmentRoles"))
+        if normalized_roles is not None:
+            item["suggestedSegmentRoles"] = normalized_roles
+        else:
+            item.pop("suggestedSegmentRoles", None)
+
+        coerced.append(item)
+    return coerced
+
+
+def coerce_asset_agent_output(
+    payload: dict[str, Any],
+    *,
+    asset_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    coerced = dict(payload)
+    ids = list(asset_ids or [])
+    coerced["extractedFacts"] = coerce_extracted_facts(list(coerced.get("extractedFacts") or []))
+    coerced["candidateMoments"] = coerce_candidate_moments(
+        list(coerced.get("candidateMoments") or []),
+        asset_ids=ids,
+    )
+    return coerced
+
+
 def build_media_parts(packed_items: list[PackedMediaItem]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
     for item in packed_items:
@@ -269,7 +383,11 @@ def merge_asset_inventories(
             continue
         if partial.get("toneSummary") and not tone_summary:
             tone_summary = str(partial["toneSummary"])
-        for fact in partial.get("extractedFacts") or []:
+        partial_coerced = coerce_asset_agent_output(
+            partial,
+            asset_ids=list(assets_by_id.keys()),
+        )
+        for fact in partial_coerced.get("extractedFacts") or []:
             if not isinstance(fact, dict):
                 continue
             key = (str(fact.get("kind")), str(fact.get("text")))
@@ -277,7 +395,7 @@ def merge_asset_inventories(
                 continue
             seen_facts.add(key)
             facts.append(dict(fact))
-        for moment in partial.get("candidateMoments") or []:
+        for moment in partial_coerced.get("candidateMoments") or []:
             if not isinstance(moment, dict):
                 continue
             moment_id = str(moment.get("id", ""))

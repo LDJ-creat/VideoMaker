@@ -67,6 +67,7 @@ from app.pipelines.sample_analysis_progress import (
     DIRECT_STRUCTURE_PROGRESS_VALIDATE,
     make_sample_pipeline_publisher,
 )
+from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
 from app.render.hyperframes_backend import HyperFramesRenderBackend
 from app.tools.hyperframes_tool import build_fixture_hyperframes_tool

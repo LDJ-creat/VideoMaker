@@ -9,6 +9,7 @@ from app.gateway.model_gateway import ModelGateway
 from app.pipelines.direct_asset_understanding import (
     build_agent_text_message,
     build_media_parts,
+    coerce_asset_agent_output,
 )
 from app.pipelines.user_brief import normalize_user_brief
 from app.runtime.agent_run_store import AgentRunLog
@@ -21,7 +22,12 @@ SCHEMA_NAME = "asset-inventory"
 _MAX_REPAIR_ATTEMPTS = 1
 
 
-def _validate_agent_output(payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_agent_output(
+    payload: dict[str, Any],
+    *,
+    asset_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    payload = coerce_asset_agent_output(payload, asset_ids=asset_ids)
     probe = {
         "id": "inventory-probe",
         "projectId": "probe",
@@ -83,6 +89,7 @@ def run_asset_inventory_analyst(
         video_structure=video_structure,
     )
     repair_errors: list[str] | None = None
+    asset_ids = [item.asset_id for item in packed_items]
 
     for attempt in range(_MAX_REPAIR_ATTEMPTS + 1):
         attempt_message = dict(text_message)
@@ -101,7 +108,10 @@ def run_asset_inventory_analyst(
                     context=context,
                     progress=progress,
                     generation_id=generation_id,
-                    post_validate=_validate_agent_output,
+                    post_validate=lambda output: _validate_agent_output(
+                        output,
+                        asset_ids=asset_ids,
+                    ),
                 )
             else:
                 system_prompt = runner.prompt_loader.load("asset_inventory_analyst")
@@ -112,7 +122,7 @@ def run_asset_inventory_analyst(
                     packed_items=packed_items,
                     context=context,
                 )
-                output = _validate_agent_output(output)
+                output = _validate_agent_output(output, asset_ids=asset_ids)
             return output
         except LLMToolValidationError as exc:
             valid = False
