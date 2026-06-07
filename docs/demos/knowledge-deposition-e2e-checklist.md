@@ -145,7 +145,7 @@ npm run typecheck; npm run test
 | B.3 | 推荐知识面板 | 录入区 **推荐知识** | 显示 **「已自动选用：{title}」** + 匹配理由 tags | ☐ |
 | B.4 | Selection API | `GET .../knowledge/selection` | `primaryEntryId` = 场景 A 的 entryId，`mode=auto` | ☐ |
 | B.5 | Recommend API | `POST .../knowledge/recommend` | 返回 `candidates` Top-K + `suggestedPrimaryId`；**不重复 bind**（selection 不变） | ☐ |
-| B.6 | 开始生成计划 | **开始生成计划** | `201`，任务进入进度 | ☐ |
+| B.6 | 开始生成视频 | **开始生成视频** | `201`，任务进入进度 | ☐ |
 | B.7 | Samples 列表 | `GET .../samples` 或 UI | 存在 `sourceKind=knowledge` 的 analyzed 样例 | ☐ |
 | B.8 | 生成完成 | 缺口 / 结构槽 / 结果 | GapReport、GenerationPlan 正常产出 | ☐ |
 | B.9 | Brief 不匹配对照 | 新建项目 + Brief 主题 B | 仍 bind Top-1，但 score/reasons 不同（可接受） | ☐ |
@@ -165,7 +165,7 @@ npm run typecheck; npm run test
 | C.1 | 保存 Brief（主题 A） | 录入 | 推荐面板显示已选用 knowledge（**reference**） | ☐ |
 | C.2 | 手动应用结构 | **应用为项目结构** | **失败** 或 400，提示 knowledge 仅作参考 | ☐ |
 | C.3 | structure-from-knowledge API | `POST .../structure-from-knowledge`<br>`{"entryId":"...","applyStructure":true}` | `400`，含 `reference only` | ☐ |
-| C.4 | 开始生成 | 开始生成计划 | 成功 | ☐ |
+| C.4 | 开始生成 | 开始生成视频 | 成功 | ☐ |
 | C.5 | 结构槽内容 | 结构槽面板 | 与 **真实样例** VideoStructure 一致（非 knowledge JSON） | ☐ |
 | C.6 | DB 优先级 | 若 knowledge sample 的 `updated_at` 更新 | `get_latest_sample_structure` 仍返回 **真实样例** structure | ☐ |
 
@@ -203,7 +203,7 @@ npm run typecheck; npm run test
 | # | 步骤 | 操作 | 预期结果 | ✓ |
 |---|------|------|----------|---|
 | F.1 | 确保项目已 bind knowledge | 场景 B 或 D | selection 有 primaryEntryId | ☐ |
-| F.2 | 跑完整生成 | 开始生成计划 → 等待完成 | 无 knowledge 相关 hard fail | ☐ |
+| F.2 | 跑完整生成 | 开始生成视频 → 等待完成 | 无 knowledge 相关 hard fail | ☐ |
 | F.3 | Agent Runs | 结果页 → Agent Runs 抽屉 | 存在 `slot_mapper` / `storyboard_writer` / `gap_planner` run | ☐ |
 | F.4 | 检查 input_summary | agent run 日志或 SQLite `agent_runs` | inputs 含 `knowledgeContext` 或等价 keys | ☐ |
 | F.5 | L2 触发（弱匹配多） | 使用素材缺口较大的 Brief/资产 | weak slots ≥2 时 primary content 为 **完整 skill MD**（含 `## 适用场景` 等标题） | ☐ |

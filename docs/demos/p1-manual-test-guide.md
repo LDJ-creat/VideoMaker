@@ -232,7 +232,7 @@ API：`GET /api/projects/{id}/assets` 返回元数据；完整 inventory 在 gen
 | --- | --- | --- |
 | F1 | **录入** 底部 **生成变体**（VariantPicker） | 默认勾选 **高点击版** + **高转化版** |
 | F2 | 取消一个变体后生成 | 仅启动所选 variant 的 task |
-| F3 | 点击 **开始生成计划** | 返回 **2 个** generationId + taskId（默认全选时） |
+| F3 | 点击 **开始生成视频** | 返回 **2 个** generationId + taskId（默认全选时） |
 | F4 | **进度** 面板 | **MultiTaskProgressPanel** 并排跟踪两个任务 |
 | F5 | 阶段标签 | 含 **槽位匹配、缺口规划、生成分镜、构建时间线**；素材阶段含 **AI 生图 / 生视频 / 合成配音 / 渲染包装片段** |
 | F6 | SSE 断连测试（可选） | 关 DevTools 网络再恢复；polling 兜底仍更新 |
@@ -320,7 +320,7 @@ storage/projects/{projectId}/generations/{generationId}/
 
 | 场景 | 操作 | 期望 |
 | --- | --- | --- |
-| 无结构就生成 | 跳过样例分析直接 **开始生成计划** | API 400 + 明确提示先分析 |
+| 无结构就生成 | 跳过样例分析直接 **开始生成视频** | API 400 + 明确提示先分析 |
 | 无 Key（Live） | 启动分析/生成 | failed + gateway_not_configured |
 | 视频配额 | 同一 slot 触发第 2 次生视频 | video_quota_exceeded |
 | LLM schema 失败 | （难模拟） | LLMValidationError + 可重试 |

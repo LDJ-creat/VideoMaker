@@ -34,5 +34,5 @@ Set `VIDEOMAKER_USE_FIXTURE_FALLBACK=false` in `apps/web/.env.local` when runnin
 2. Upload a local sample **or** import a URL — URL import shows the same task progress UI.
 3. Click **开始样例分析** for local uploads (URL import runs analysis automatically).
 4. Review analysis, structure slots, then save brief and upload assets.
-5. Click **开始生成计划** and watch SSE progress through mapping, planning, and render.
+5. Click **开始生成视频** and watch SSE progress through mapping, planning, and render.
 6. Refresh the browser during a running task — progress resumes via `GET /api/tasks/{taskId}`.

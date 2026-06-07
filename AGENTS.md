@@ -194,6 +194,9 @@ GET /api/settings/cookies
 POST /api/settings/cookies/upload
 GET /api/settings/model-gateway
 PUT /api/settings/model-gateway
+GET /api/settings/stock-media
+PUT /api/settings/stock-media
+POST /api/settings/stock-media/test
 ```
 
 Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; use global settings routes.
@@ -227,8 +230,14 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_DURATION_TARGET_MAX_SEC` | Max user-configurable target duration (seconds) | `600` |
 | `VIDEOMAKER_SHORT_FORM_VIDEO_GEN` | Allow one full short-form `video_generation` job | `1` |
 | `VIDEOMAKER_HUMAN_REVIEW_MODE` | Pause generation for master/storyboard approval (API default `true`; set `false` for CI/fixture one-shot) | `true` |
+| `VIDEOMAKER_PEXELS_API_KEY` | Pexels API Authorization header for stock media search | empty (skip stock layer) |
+| `VIDEOMAKER_STOCK_MEDIA_ENABLED` | Enable Pexels stock search in gap completion | `true` |
+| `VIDEOMAKER_STOCK_MATCH_MIN_SCORE` | Minimum relevance score to accept a Pexels candidate | `0.55` |
+| `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
 
-Gap completion: image weak matches on visual slots → `video_generation` (i2v); video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
+Pexels API key also persists in SQLite `stock_media_providers` (encrypted with `storage/global/model-gateway.key`). Worker subprocesses receive `VIDEOMAKER_PEXELS_API_KEY` from API `pipeline_runner` when env is unset.
+
+Gap completion priority for eligible visual slots (`usage_scene`, generic `hook_visual`; never `product_closeup`): user video weak match → `asset_reuse`; else when Pexels configured → `stock_media_search` (LLM `stock_query_author` + deterministic fallback); else `video_generation` / `image_generation`. Stock miss falls back to AIGC without failing the generation. Video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
 
 **Samples, generations, and revise:**
 
