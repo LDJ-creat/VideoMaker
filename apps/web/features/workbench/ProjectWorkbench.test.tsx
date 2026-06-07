@@ -394,9 +394,9 @@ describe("ProjectWorkbench", () => {
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "开始生成计划" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "开始生成视频" })).toBeEnabled(),
     );
-    await user.click(screen.getByRole("button", { name: "开始生成计划" }));
+    await user.click(screen.getByRole("button", { name: "开始生成视频" }));
 
     await waitFor(() => expect(capturedOnAllGenerationTerminal).toBeDefined());
 

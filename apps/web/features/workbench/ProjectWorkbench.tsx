@@ -1015,7 +1015,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 disabled={busy}
                 onClick={() => void handleStartGeneration()}
               >
-                开始生成计划
+                开始生成视频
               </Button>
             </>
           ) : (
@@ -1028,7 +1028,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 开始样例分析
               </Button>
               <Button type="button" disabled title="请先完成样例分析">
-                开始生成计划
+                开始生成视频
               </Button>
             </>
           )}

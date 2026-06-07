@@ -46,7 +46,7 @@ export function formatP1TaskError(error: ToolError): FormattedTaskError | null {
         title: "AI 视频生成失败",
         hint:
           error.message?.includes("404")
-            ? "视频 API 返回 404：请确认模型服务中「视频」Provider 的 Base URL 为 DashScope，且模型为 Wan 视频模型（如 wan2.6-t2v / wan2.6-i2v-flash），不要使用生图模型。"
+            ? "视频 API 返回 404：请确认模型服务中「视频」Provider 的 Base URL 为 DashScope，且模型为 Wan 视频模型（如 wan2.7-t2v / wan2.6-i2v-flash），不要使用生图模型。"
             : "请检查视频 Provider 配置、API Key 与模型名称，或在环境变量中设置 VIDEOMAKER_VIDEO_GEN_FALLBACK=image_generation 启用降级。",
         technical: error.message,
       };
