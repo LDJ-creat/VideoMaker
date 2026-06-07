@@ -55,19 +55,21 @@ export function SampleVideoCard({
   if (variant === "filmstrip") {
     const isCompact = density === "compact";
     const thumbSize: SampleThumbnailSize = isCompact ? "sm" : "md";
-    return (
-      <button
-        type="button"
-        className={cn(
-          "flex w-full items-center text-left transition-colors",
-          isCompact ? "gap-2 rounded-md border p-1.5" : "gap-3 rounded-lg border p-2",
-          selected
-            ? "border-primary border-l-4 bg-primary/5 ring-1 ring-primary/30"
-            : "border-border hover:border-primary/40",
-          className,
-        )}
-        onClick={() => onSelect?.(sample.id)}
-      >
+    const shellClassName = cn(
+      isCompact ? "rounded-md border" : "rounded-lg border",
+      selected
+        ? "border-primary border-l-4 bg-primary/5 ring-1 ring-primary/30"
+        : "border-border",
+      footer ? "w-full space-y-2 p-2" : isCompact ? "gap-2 p-1.5" : "gap-3 p-2",
+      !footer && onSelect && "hover:border-primary/40",
+      className,
+    );
+    const rowClassName = cn(
+      "flex w-full items-center text-left transition-colors",
+      isCompact ? "gap-2" : "gap-3",
+    );
+    const rowBody = (
+      <>
         <SampleThumbnail
           previewUrl={sample.previewUrl}
           posterUrl={sample.posterUrl}
@@ -99,7 +101,37 @@ export function SampleVideoCard({
             </span>
           </div>
         </div>
-      </button>
+      </>
+    );
+
+    if (footer) {
+      return (
+        <div className={shellClassName}>
+          {onSelect ? (
+            <button
+              type="button"
+              className={cn(rowClassName, "rounded-md hover:bg-muted/40")}
+              onClick={() => onSelect(sample.id)}
+            >
+              {rowBody}
+            </button>
+          ) : (
+            <div className={rowClassName}>{rowBody}</div>
+          )}
+          {footer}
+        </div>
+      );
+    }
+
+    const Wrapper = onSelect ? "button" : "div";
+    return (
+      <Wrapper
+        type={onSelect ? "button" : undefined}
+        className={cn(shellClassName, "flex", rowClassName)}
+        onClick={onSelect ? () => onSelect(sample.id) : undefined}
+      >
+        {rowBody}
+      </Wrapper>
     );
   }
 

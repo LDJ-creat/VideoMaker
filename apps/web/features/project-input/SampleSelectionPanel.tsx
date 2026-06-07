@@ -6,6 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SampleVideoCard } from "@/features/project-input/SampleVideoCard";
+import {
+  SelectionCandidateZone,
+  SelectionCurrentZone,
+} from "@/features/project-input/SelectionPanelZones";
 import type {
   ActiveSampleSummary,
   ProjectSampleSelection,
@@ -194,25 +198,31 @@ export function SampleSelectionPanel({
         </span>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium">主样例</p>
-        {primarySample ? (
-          <SampleVideoCard sample={primarySample} variant="filmstrip" selected />
-        ) : (
-          <p className="text-sm text-muted-foreground">尚未选择主样例</p>
-        )}
-      </div>
-
-      {referenceSamples.length > 0 && (
+      <SelectionCurrentZone description="生成时将使用以下样例作为结构来源">
         <div className="space-y-2">
-          <p className="text-sm font-medium">参考样例</p>
-          <div className="space-y-2">
-            {referenceSamples.map((sample) => (
-              <SampleVideoCard key={sample.id} sample={sample} variant="filmstrip" />
-            ))}
-          </div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            主样例
+          </p>
+          {primarySample ? (
+            <SampleVideoCard sample={primarySample} variant="filmstrip" selected />
+          ) : (
+            <p className="text-sm text-muted-foreground">尚未选择主样例</p>
+          )}
         </div>
-      )}
+
+        {referenceSamples.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              参考样例
+            </p>
+            <div className="space-y-2">
+              {referenceSamples.map((sample) => (
+                <SampleVideoCard key={sample.id} sample={sample} variant="filmstrip" />
+              ))}
+            </div>
+          </div>
+        )}
+      </SelectionCurrentZone>
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -222,7 +232,7 @@ export function SampleSelectionPanel({
           disabled={loading}
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? "收起候选" : `展开全部样例（${displaySamples.length}）`}
+          {expanded ? "收起候选列表" : `展开全部样例（${displaySamples.length}）`}
         </Button>
         <Button
           type="button"
@@ -236,56 +246,65 @@ export function SampleSelectionPanel({
       </div>
 
       {expanded && (
-        <ul className="space-y-2">
-          {displaySamples.map((sample) => {
-            const isPrimary = sample.id === selection?.primarySampleId;
-            const isReference = selection?.referenceSampleIds?.includes(sample.id);
-            const inBatch = batchCandidateIds.has(sample.id);
-            return (
-              <li key={sample.id}>
-                <SampleVideoCard
-                  sample={sample}
-                  variant="filmstrip"
-                  selected={isPrimary}
-                  footer={
-                    <div className="space-y-2 pt-1">
-                      <div className="flex flex-wrap gap-1">
-                        {inBatch && <Badge variant="secondary">当前批次</Badge>}
-                        {isPrimary && <Badge>主样例</Badge>}
-                        {isReference && <Badge variant="outline">参考</Badge>}
-                        {!sample.hasStructure && (
-                          <Badge variant="outline">需先分析</Badge>
+        <SelectionCandidateZone
+          title="全部样例"
+          count={displaySamples.length}
+          onCollapse={() => setExpanded(false)}
+        >
+          <ul className="space-y-2">
+            {displaySamples.map((sample) => {
+              const isPrimary = sample.id === selection?.primarySampleId;
+              const isReference = selection?.referenceSampleIds?.includes(sample.id);
+              const inBatch = batchCandidateIds.has(sample.id);
+              return (
+                <li key={sample.id}>
+                  <SampleVideoCard
+                    sample={sample}
+                    variant="filmstrip"
+                    selected={isPrimary}
+                    className={isPrimary || isReference ? undefined : "opacity-90"}
+                    footer={
+                      <div className="space-y-2 pt-1">
+                        <div className="flex flex-wrap gap-1">
+                          {inBatch && <Badge variant="secondary">当前批次</Badge>}
+                          {isPrimary && <Badge>主样例</Badge>}
+                          {isReference && <Badge variant="outline">参考</Badge>}
+                          {!sample.hasStructure && (
+                            <Badge variant="outline">需先分析</Badge>
+                          )}
+                        </div>
+                        {!isPrimary && (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={loading}
+                              onClick={() => void handleSelectPrimary(sample.id)}
+                            >
+                              设为主样例
+                            </Button>
+                            {sample.hasStructure && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={isReference ? "secondary" : "outline"}
+                                disabled={loading}
+                                onClick={() => void toggleReference(sample.id)}
+                              >
+                                {isReference ? "取消参考" : "加入参考"}
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={isPrimary ? "default" : "outline"}
-                          disabled={loading}
-                          onClick={() => void handleSelectPrimary(sample.id)}
-                        >
-                          设为主样例
-                        </Button>
-                        {!isPrimary && sample.hasStructure && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={isReference ? "secondary" : "outline"}
-                            disabled={loading}
-                            onClick={() => void toggleReference(sample.id)}
-                          >
-                            {isReference ? "取消参考" : "加入参考"}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  }
-                />
-              </li>
-            );
-          })}
-        </ul>
+                    }
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </SelectionCandidateZone>
       )}
 
       {status && (
