@@ -196,7 +196,7 @@ export function useMultiTaskProgress({
       disposed = true;
       for (const cleanup of cleanups) cleanup();
     };
-  }, [applyEvent, enabled, taskIdsKey, tasks, watchKey]);
+  }, [applyEvent, enabled, taskIdsKey, watchKey]);
 
   const allTerminal = useMemo(() => {
     if (tasks.length === 0) return false;

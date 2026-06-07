@@ -237,7 +237,10 @@ export type GenerationResponse = GenerationPlan & {
 export type LatestGenerationEntry = {
   generationId: string;
   variant: string;
-  plan: GenerationResponse;
+  /** Absent when generation failed before a plan artifact was persisted. */
+  plan?: GenerationResponse;
+  taskId?: string;
+  status?: string;
   /** Present when renders/{generationId}/output.mp4 exists on the API storage volume. */
   renderVideoUrl?: string;
 };

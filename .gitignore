@@ -6,7 +6,9 @@ __pycache__/
 .pytest_cache/
 .pytest-tmp/
 .pytest-tmp-run/
-
+.pytest-tmp-shared/
+.pytest-tmp2/
+_tmp_*.py
 # Build outputs
 .next/
 dist/

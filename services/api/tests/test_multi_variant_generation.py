@@ -192,3 +192,5 @@ def test_latest_generations_returns_one_entry_per_variant(
         assert entry["generationId"] == requested["generationId"]
         assert entry["plan"]["variant"] == requested["variant"]
         assert entry["plan"].get("gapReport") is not None
+        assert entry["taskId"] == requested["taskId"]
+        assert entry["status"] in {"pending", "running", "succeeded", "failed"}

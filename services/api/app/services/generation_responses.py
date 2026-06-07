@@ -69,20 +69,27 @@ def build_latest_generations_response(
 
     generations: list[dict[str, Any]] = []
     for record in sorted(records, key=sort_key):
-        plan = build_generation_plan_response(record)
-        variant = record.get("variant") or plan.get("variant") or "default"
+        variant = str(record.get("variant") or "default")
         entry: dict[str, Any] = {
             "generationId": record["id"],
             "variant": variant,
-            "plan": plan,
+            "taskId": record.get("taskId"),
+            "status": record.get("status"),
         }
-        if storage_root is not None:
-            video_url = generation_render_video_url(
-                storage_root,
-                str(record["projectId"]),
-                str(record["id"]),
+        if record.get("plan") is not None:
+            plan = build_generation_plan_response(
+                record,
+                storage_root=storage_root,
             )
-            if video_url:
-                entry["renderVideoUrl"] = video_url
+            entry["variant"] = record.get("variant") or plan.get("variant") or variant
+            entry["plan"] = plan
+            if storage_root is not None:
+                video_url = generation_render_video_url(
+                    storage_root,
+                    str(record["projectId"]),
+                    str(record["id"]),
+                )
+                if video_url:
+                    entry["renderVideoUrl"] = video_url
         generations.append(entry)
     return {"generations": generations}

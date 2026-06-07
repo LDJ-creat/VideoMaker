@@ -335,7 +335,9 @@ export function ScriptReviewPanel({
       <Card>
         <CardHeader>
           <CardTitle>脚本审核</CardTitle>
-          <CardDescription>生成任务暂停后将在此展示可编辑脚本。</CardDescription>
+          <CardDescription>
+            当前没有变体处于审核暂停点。人类审核仅在生成流水线暂停于总脚本或分镜阶段时生效；已完成或失败的任务请在「进度」面板查看或重试。
+          </CardDescription>
         </CardHeader>
       </Card>
     );

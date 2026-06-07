@@ -613,7 +613,14 @@ class ProjectStore:
                 SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
                        status, task_id, variant, generation_run_id
                 FROM generations
-                WHERE project_id = ? AND plan_json IS NOT NULL
+                WHERE project_id = ?
+                  AND (
+                    plan_json IS NOT NULL
+                    OR (
+                      task_id IS NOT NULL
+                      AND status IN ('failed', 'running', 'pending', 'cancelled')
+                    )
+                  )
                 ORDER BY updated_at DESC
                 """,
                 (project_id,),
