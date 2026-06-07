@@ -48,6 +48,7 @@ class DemoPipeline(Protocol):
         variant: str = "default",
         sample_selection: dict[str, Any] | None = None,
         generation_run_id: str | None = None,
+        human_review_mode: bool | None = None,
     ) -> dict[str, Any]: ...
 
     def run_revise(
@@ -90,6 +91,7 @@ def _augment_worker_env(env: dict[str, str]) -> dict[str, str]:
     """Ensure worker subprocess can find repo-local HyperFrames CLI and repo paths."""
     repo_root = _repo_root()
     env.setdefault("VIDEOMAKER_REPO_ROOT", str(repo_root))
+    env.setdefault("VIDEO_MAX_POLL_SEC", os.environ.get("VIDEO_MAX_POLL_SEC", "600"))
     node_bin = repo_root / "node_modules" / ".bin"
     if node_bin.is_dir():
         path_key = "PATH" if os.name == "nt" else "Path"
@@ -140,6 +142,18 @@ class SubprocessDemoPipeline:
             "databasePath": str(self._database_path),
         }
 
+    def _inject_stock_media_env(self, env: dict[str, str]) -> None:
+        if env.get("VIDEOMAKER_PEXELS_API_KEY", "").strip():
+            return
+        try:
+            from stock_media.store import StockMediaStore
+
+            creds = StockMediaStore(self._database_path, self._storage_root).get_credentials()
+            if creds is not None and creds.api_key.strip():
+                env["VIDEOMAKER_PEXELS_API_KEY"] = creds.api_key.strip()
+        except Exception:
+            logger.debug("stock media credentials unavailable for worker env", exc_info=True)
+
     def _log_worker_output(self, payload: dict[str, Any], completed: subprocess.CompletedProcess[str]) -> None:
         task_id = payload.get("taskId", "unknown")
         mode = payload.get("mode", "unknown")
@@ -166,6 +180,7 @@ class SubprocessDemoPipeline:
         env = _augment_worker_env(os.environ.copy())
         shared_root = _shared_root()
         env["PYTHONPATH"] = os.pathsep.join([str(self._worker_root), str(shared_root)])
+        self._inject_stock_media_env(env)
 
         logger.info(
             "starting worker subprocess task_id=%s mode=%s python=%s",
@@ -257,6 +272,7 @@ class SubprocessDemoPipeline:
         variant: str = "default",
         sample_selection: dict[str, Any] | None = None,
         generation_run_id: str | None = None,
+        human_review_mode: bool | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             **self._payload_base(),

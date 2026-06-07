@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS model_gateway_providers (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS stock_media_providers (
+  provider TEXT PRIMARY KEY,
+  api_key_ciphertext BLOB,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS knowledge_entries (
   id TEXT PRIMARY KEY,
   status TEXT NOT NULL,

@@ -12,15 +12,17 @@ def main() -> None:
     log_dir = configure_logging(storage_root)
     print(f"VideoMaker API logs: {log_dir / 'api.log'} (worker: {log_dir / 'worker.log'})")
 
-    # Only watch application source. Runtime writes under storage/ must not trigger reload.
+    # Watch API app + shared Python modules (model_gateway, stock_media, …).
+    # Runtime writes under storage/ must not trigger reload.
     app_dir = Path(__file__).resolve().parent
+    shared_dir = app_dir.parents[1] / "shared"
 
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",
         port=8000,
         reload=True,
-        reload_dirs=[str(app_dir)],
+        reload_dirs=[str(app_dir), str(shared_dir)],
         # Dev reload waits for open connections (e.g. task SSE from the web UI).
         # Without a cap, "Waiting for connections to close" can hang until Ctrl+C.
         timeout_graceful_shutdown=2,

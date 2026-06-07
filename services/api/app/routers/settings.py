@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
@@ -10,8 +11,10 @@ from app.services.cookie_store import CookieStore, UploadMode
 from app.services.model_gateway_probe import probe_model_gateway_provider
 from app.services.model_gateway_service import ModelGatewayService
 from app.services.model_gateway_status import get_model_gateway_status
+from app.services.stock_media_service import StockMediaService
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
 _PROVIDER_NAMES = frozenset({"text", "vision", "videoUnderstanding", "tts", "image", "video"})
 
@@ -106,6 +109,18 @@ class ModelGatewaySettingsUpdate(BaseModel):
         return value
 
 
+class StockMediaSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    api_key: str | None = Field(default=None, alias="apiKey")
+
+
+class StockMediaProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    api_key: str | None = Field(default=None, alias="apiKey")
+
+
 def _cookie_store(request: Request) -> CookieStore:
     return CookieStore(request.app.state.storage_root)
 
@@ -113,6 +128,11 @@ def _cookie_store(request: Request) -> CookieStore:
 def _model_gateway_service(request: Request) -> ModelGatewayService:
     database: Database = request.app.state.db
     return ModelGatewayService(database, request.app.state.storage_root)
+
+
+def _stock_media_service(request: Request) -> StockMediaService:
+    database: Database = request.app.state.db
+    return StockMediaService(database, request.app.state.storage_root)
 
 
 @router.get("/cookies", response_model=CookieStatusResponse)
@@ -181,6 +201,42 @@ def put_model_gateway_settings(
             provider_updates=updates or None,
             preference_updates=preference_updates,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-media")
+def get_stock_media_settings(request: Request) -> dict[str, Any]:
+    return _stock_media_service(request).get_status()
+
+
+@router.put("/stock-media")
+def put_stock_media_settings(
+    request: Request,
+    body: StockMediaSettingsUpdate,
+) -> dict[str, Any]:
+    if body.api_key is None:
+        raise HTTPException(status_code=400, detail="apiKey is required")
+    try:
+        return _stock_media_service(request).update_settings(api_key=body.api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to persist stock media settings")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save Pexels API key",
+        ) from exc
+
+
+@router.post("/stock-media/test")
+def post_stock_media_test(
+    request: Request,
+    body: StockMediaProbeRequest | None = None,
+) -> dict[str, Any]:
+    inline_key = body.api_key if body is not None else None
+    try:
+        return _stock_media_service(request).probe(api_key=inline_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

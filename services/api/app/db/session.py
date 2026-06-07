@@ -124,6 +124,17 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
+    if "stock_media_providers" not in tables:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS stock_media_providers (
+              provider TEXT PRIMARY KEY,
+              api_key_ciphertext BLOB,
+              updated_at TEXT NOT NULL
+            );
+            """
+        )
+
     if "generation_runs" not in tables:
         connection.executescript(
             """
@@ -152,5 +163,7 @@ def initialize_database(database: Database, *, storage_root: Path | None = None)
         _migrate_schema(connection)
     if storage_root is not None:
         from model_gateway.store import ModelGatewayStore
+        from stock_media.store import StockMediaStore
 
         ModelGatewayStore(database.path, storage_root).ensure_initialized()
+        StockMediaStore(database.path, storage_root).ensure_initialized()
