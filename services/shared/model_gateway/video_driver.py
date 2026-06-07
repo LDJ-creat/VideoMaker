@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DEFAULT_DASHSCOPE_T2V_MODEL = "wan2.6-t2v"
+DEFAULT_DASHSCOPE_T2V_MODEL = "wan2.7-t2v"
 DEFAULT_DASHSCOPE_I2V_MODEL = "wan2.6-i2v-flash"
 
 _LEGACY_T2V_MODELS = frozenset(
@@ -58,9 +58,13 @@ def normalize_wan_model_for_mode(model: str, *, mode: str) -> str:
         )
     lowered = trimmed.lower()
     if normalized_mode == "i2v":
+        if "r2v" in lowered:
+            return DEFAULT_DASHSCOPE_I2V_MODEL
         if "t2v" in lowered and "i2v" not in lowered:
             return DEFAULT_DASHSCOPE_I2V_MODEL
         return trimmed
+    if "r2v" in lowered:
+        return DEFAULT_DASHSCOPE_T2V_MODEL
     if "i2v" in lowered and "t2v" not in lowered:
         return DEFAULT_DASHSCOPE_T2V_MODEL
     if lowered in _LEGACY_T2V_MODELS:

@@ -140,7 +140,7 @@ def test_video_dashscope_normalizes_driver_and_image_model(store: ModelGatewaySt
     )
     status = store.get_status()
     assert status["providers"]["video"]["driver"] == "dashscope_wan"
-    assert status["providers"]["video"]["model"] == "wan2.6-t2v"
+    assert status["providers"]["video"]["model"] == "wan2.7-t2v"
     creds = store.get_credentials()
     assert creds["video"].driver == "dashscope_wan"
-    assert creds["video"].model == "wan2.6-t2v"
+    assert creds["video"].model == "wan2.7-t2v"

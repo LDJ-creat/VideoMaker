@@ -10,7 +10,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "videoUnderstanding": "doubao-seed-1-6-250615",
     "tts": "tts-1",
     "image": "dall-e-3",
-    "video": "wan2.6-t2v",
+    "video": "wan2.7-t2v",
 }
 DEFAULT_DRIVERS: dict[str, str] = {
     "text": "openai_compatible",
