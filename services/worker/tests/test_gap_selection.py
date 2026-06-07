@@ -5,6 +5,11 @@ import pytest
 from app.pipelines.gap_selection import VideoGenQuota, select_provider, select_provider_chain
 
 
+@pytest.fixture(autouse=True)
+def _clear_pexels_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VIDEOMAKER_PEXELS_API_KEY", raising=False)
+
+
 def _slot(
     *,
     slot_id: str = "slot-1",
@@ -119,22 +124,29 @@ def test_select_provider_visual_without_weak_match_uses_video() -> None:
     )
 
 
-def test_select_provider_high_conversion_uses_video() -> None:
+def test_select_provider_high_conversion_prefers_stock(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEOMAKER_PEXELS_API_KEY", "test-key")
     slot = _slot(role="hook_visual", importance="must_have")
     overrides = {
-        "preferProviders": ["hyperframes_material", "video_generation", "image_generation"],
-        "videoGenPriority": "high",
+        "preferProviders": [
+            "stock_media_search",
+            "hyperframes_material",
+            "image_generation",
+            "video_generation",
+        ],
+        "stockMediaPriority": "high",
+        "videoGenPriority": "low",
     }
     assert (
         select_provider(
             slot,
             weak_match=None,
             quota=VideoGenQuota(max_slots=3),
-            inventory={},
+            inventory={"userBrief": {"topic": "为人处世"}},
             variant_overrides=overrides,
             impact="high",
         )
-        == "video_generation"
+        == "stock_media_search"
     )
 
 

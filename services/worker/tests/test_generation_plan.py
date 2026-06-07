@@ -341,3 +341,70 @@ def test_assemble_generation_plan_skips_duplicate_tts_when_gap_already_tts() -> 
     tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
     assert len(tts_actions) == 1
     assert tts_actions[0]["id"] == "action-slot-proof"
+
+
+def test_assemble_generation_plan_expands_stock_to_ken_burns_chain() -> None:
+    structure = {
+        "id": "structure-1",
+        "projectId": "project-1",
+        "slots": [
+            {
+                "id": "slot-hook",
+                "segmentId": "seg-1",
+                "role": "hook_visual",
+                "startSec": 0.0,
+                "endSec": 7.0,
+                "importance": "must_have",
+                "requiredAssetType": ["video"],
+            }
+        ],
+    }
+    inventory = build_asset_inventory(
+        project_id="project-1",
+        user_brief={"topic": "饭局接话", "sellingPoints": [], "mustMention": [], "avoidMention": []},
+        assets=[],
+    )
+    gap_report = {
+        "id": "gap-1",
+        "projectId": "project-1",
+        "structureId": structure["id"],
+        "missingSlots": [
+            {
+                "slotId": "slot-hook",
+                "reason": "missing hook visual",
+                "impact": "high",
+                "suggestedFixes": ["stock_media_search", "hyperframes_material"],
+            }
+        ],
+        "weakSlots": [],
+        "summary": "1 missing",
+    }
+    storyboard = [
+        {
+            "id": "scene-hook",
+            "slotId": "slot-hook",
+            "startSec": 0.0,
+            "endSec": 7.0,
+            "visual": "饭局尬笑",
+            "script": "你是不是只会点头微笑？",
+            "source": "generated",
+        }
+    ]
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=[],
+        storyboard=storyboard,
+        packaging_plan={"styleSummary": "demo", "subtitle": {"preset": "clean"}, "titleCards": [], "transitions": []},
+        generation_strategy="long_form_composed",
+    )
+    visual_actions = [
+        action
+        for action in plan["completionActions"]
+        if action.get("provider") != "tts"
+    ]
+    assert [action["id"] for action in visual_actions] == [
+        "action-slot-hook",
+        "action-slot-hook-ken-burns",
+    ]

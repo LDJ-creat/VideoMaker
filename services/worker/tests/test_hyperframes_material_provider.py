@@ -169,6 +169,43 @@ def test_hyperframes_provider_render_failure_returns_structured_error(tmp_path: 
     assert result["error"]["code"] == "hyperframes_missing"
 
 
+def test_hyperframes_provider_builds_ken_burns_from_stock_image(tmp_path: Path) -> None:
+    structure = _load_structure_fixture()
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        material_tool=material_tool,
+    )
+    slot_id = "seg-hook-hook_visual-1"
+    ctx.storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": slot_id,
+            "startSec": 0.0,
+            "endSec": 7.0,
+            "visual": "hook",
+            "script": "hook",
+            "source": "generated",
+        }
+    ]
+    stock_image = ctx.generated_root / f"{slot_id}-stock.jpg"
+    stock_image.write_bytes(b"fake-jpeg")
+    action = {
+        "id": f"action-{slot_id}-ken-burns",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "reason": "ken-burns after stock",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert (ctx.generated_root / f"action-{slot_id}-ken-burns.mp4").exists()
+
+
 def test_hyperframes_provider_missing_runner_returns_error(tmp_path: Path) -> None:
     structure = _load_structure_fixture()
     ctx = _make_hf_ctx(tmp_path, structure=structure)

@@ -4,6 +4,11 @@ from typing import Any
 
 from app.runtime.asset_paths import resolve_match_asset_type
 from app.runtime.video_gen_quota import VideoGenQuota
+from app.stock.stock_eligibility import (
+    completion_slot_for_stock,
+    pexels_configured,
+    stock_media_eligible,
+)
 
 __all__ = [
     "VideoGenQuota",
@@ -54,6 +59,49 @@ def _prefer_image_over_video(variant_overrides: dict[str, Any] | None) -> bool:
     return video_priority == "low" and "image_generation" in prefer
 
 
+def _stock_media_priority(variant_overrides: dict[str, Any] | None) -> str:
+    overrides = variant_overrides or {}
+    return str(overrides.get("stockMediaPriority", "medium")).lower()
+
+
+def _should_try_stock(
+    slot: dict[str, Any],
+    *,
+    inventory: dict[str, Any] | None,
+    variant_overrides: dict[str, Any] | None,
+) -> bool:
+    if not pexels_configured():
+        return False
+    if _stock_media_priority(variant_overrides) == "low":
+        return False
+    brief = (inventory or {}).get("userBrief") or {}
+    brief_dict = brief if isinstance(brief, dict) else {}
+    stock_slot = completion_slot_for_stock(slot, brief=brief_dict)
+    eligible, _reason = stock_media_eligible(
+        stock_slot,
+        brief=brief_dict,
+    )
+    return eligible
+
+
+def _aigc_visual_provider(
+    slot: dict[str, Any],
+    *,
+    weak_match: dict[str, Any] | None,
+    quota: VideoGenQuota,
+    slot_id: str,
+    variant_overrides: dict[str, Any] | None,
+) -> str:
+    score = _weak_match_score(weak_match)
+    if score >= WEAK_MATCH_THRESHOLD and weak_match is not None:
+        if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(variant_overrides):
+            return "video_generation"
+        return "image_generation"
+    if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(variant_overrides):
+        return "video_generation"
+    return "image_generation"
+
+
 def select_provider(
     slot: dict[str, Any],
     *,
@@ -78,18 +126,26 @@ def select_provider(
         if asset_type == "video":
             return "asset_reuse"
         if asset_type == "image" and is_visual_slot(slot):
-            if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(
-                variant_overrides
-            ):
-                return "video_generation"
-            return "image_generation"
+            if _should_try_stock(slot, inventory=inv, variant_overrides=variant_overrides):
+                return "stock_media_search"
+            return _aigc_visual_provider(
+                slot,
+                weak_match=weak_match,
+                quota=quota,
+                slot_id=slot_id,
+                variant_overrides=variant_overrides,
+            )
 
     if is_visual_slot(slot):
-        if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(
-            variant_overrides
-        ):
-            return "video_generation"
-        return "image_generation"
+        if _should_try_stock(slot, inventory=inv, variant_overrides=variant_overrides):
+            return "stock_media_search"
+        return _aigc_visual_provider(
+            slot,
+            weak_match=weak_match,
+            quota=quota,
+            slot_id=slot_id,
+            variant_overrides=variant_overrides,
+        )
 
     if slot_needs_spoken_narration(slot):
         return "tts"
@@ -115,6 +171,8 @@ def select_provider_chain(
         impact=impact,
     )
     chain = [primary]
+    if primary == "stock_media_search" and slot_needs_motion(slot):
+        chain.append("hyperframes_material")
     if primary == "image_generation" and slot_needs_motion(slot):
         chain.append("hyperframes_material")
     return chain
@@ -129,6 +187,8 @@ def provider_rationale(provider: str, slot: dict[str, Any], *, weak_match: dict[
         if weak_match is not None and _weak_match_score(weak_match) >= WEAK_MATCH_THRESHOLD:
             return f"{role} 槽位对图片弱匹配，使用图生视频（i2v）补全分镜"
         return f"{role} 槽位使用文生视频（t2v）生成分镜片段"
+    if provider == "stock_media_search":
+        return f"{role} 槽位优先检索 Pexels 素材库（真实场景 B-roll）"
     if provider == "image_generation":
         return f"{role} 槽位缺少可用视频配额或需静态画面，优先生成图像"
     if provider == "hyperframes_material":

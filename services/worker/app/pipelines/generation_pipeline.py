@@ -622,19 +622,25 @@ def assemble_generation_plan(
         if slot_id not in gap_by_slot:
             continue
         slot_gap = gap_by_slot[slot_id]
-        fixes = list(slot_gap.get("suggestedFixes", []))
-        strategy = fixes[0] if fixes else "hyperframes_material"
-        visual_actions.append(
-            {
-                "id": f"action-{slot_id}",
-                "slotId": slot_id,
-                "strategy": strategy,
-                "provider": strategy,
-                "reason": slot_gap["reason"],
-                "rationale": slot_gap["reason"],
-                "outputRef": f"completion://{slot_id}/{strategy}",
-            }
-        )
+        fixes = list(slot_gap.get("suggestedFixes", [])) or ["hyperframes_material"]
+        for index, strategy in enumerate(fixes):
+            if index == 0:
+                action_id = f"action-{slot_id}"
+            elif strategy == "hyperframes_material" and fixes[0] == "stock_media_search":
+                action_id = f"action-{slot_id}-ken-burns"
+            else:
+                action_id = f"action-{slot_id}-chain-{index}"
+            visual_actions.append(
+                {
+                    "id": action_id,
+                    "slotId": slot_id,
+                    "strategy": strategy,
+                    "provider": strategy,
+                    "reason": slot_gap["reason"],
+                    "rationale": slot_gap["reason"],
+                    "outputRef": f"completion://{slot_id}/{strategy}",
+                }
+            )
 
     tts_from_gap = {
         str(action["slotId"])

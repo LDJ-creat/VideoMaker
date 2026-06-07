@@ -6,6 +6,7 @@ from typing import Any
 from app.agents.material_author import run_material_author_with_runner
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
+from app.validation.material_spec_coercer import build_ken_burns_spec
 
 
 def _slot_by_id(structure: dict[str, Any], slot_id: str) -> dict[str, Any]:
@@ -23,6 +24,40 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
         "importance": slot.get("importance"),
         "requiredAssetType": list(slot.get("requiredAssetType") or []),
     }
+
+
+def _stock_image_refs(generated_root: Path, slot_id: str) -> list[dict[str, Any]] | None:
+    for suffix in (".jpg", ".png", ".webp"):
+        candidate = generated_root / f"{slot_id}-stock{suffix}"
+        if candidate.is_file() and candidate.stat().st_size > 0:
+            return [
+                {
+                    "id": f"stock-{slot_id}",
+                    "type": "image",
+                    "uri": str(candidate.resolve()),
+                    "createdAt": "1970-01-01T00:00:00Z",
+                }
+            ]
+    return None
+
+
+def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
+    for scene in ctx.storyboard:
+        if isinstance(scene, dict) and scene.get("slotId") == slot_id:
+            return max(0.5, float(scene["endSec"]) - float(scene["startSec"]))
+    return 4.0
+
+
+def _resolve_material_asset_refs(
+    action: dict[str, Any],
+    ctx: MaterialContext,
+    *,
+    slot_id: str,
+) -> list[dict[str, Any]] | None:
+    refs = action.get("assetRefs")
+    if isinstance(refs, list) and refs:
+        return refs
+    return _stock_image_refs(ctx.generated_root, slot_id)
 
 
 def expected_hyperframes_output(action: dict[str, Any], generated_root: Path) -> Path:
@@ -45,7 +80,23 @@ class HyperFramesMaterialProvider:
         except ValueError as exc:
             return _failure(action, slot_id, code="slot_not_found", message=str(exc))
 
+        asset_refs = _resolve_material_asset_refs(action, ctx, slot_id=slot_id)
         spec = action.get("materialSpec")
+        if spec is None and str(action_id).endswith("-ken-burns"):
+            stock_video = ctx.generated_root / f"{slot_id}-stock.mp4"
+            if stock_video.is_file() and stock_video.stat().st_size > 0:
+                return _failure(
+                    action,
+                    slot_id,
+                    code="ken_burns_not_needed",
+                    message="Stock video already materialized for slot; skip ken-burns chain step",
+                    retryable=False,
+                )
+            if asset_refs:
+                spec = build_ken_burns_spec(
+                    asset_refs,
+                    duration_sec=_duration_for_slot(ctx, slot_id),
+                )
         if spec is None:
             if ctx.runner is None or ctx.task_context is None:
                 return _failure(
@@ -61,7 +112,7 @@ class HyperFramesMaterialProvider:
                 context=ctx.task_context,
                 variant_overrides=ctx.variant_overrides,
                 brand_colors=ctx.brand_colors,
-                asset_refs=action.get("assetRefs"),
+                asset_refs=asset_refs,
                 generation_id=ctx.generation_id,
             )
 

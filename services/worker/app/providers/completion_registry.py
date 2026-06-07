@@ -15,18 +15,27 @@ from app.providers.material_types import (
     MaterialResult,
     ProgressEmitter,
 )
+from app.providers.stock_media_provider import StockMediaProvider
 from app.providers.tts_provider import TTSProvider
 from app.providers.video_generation_provider import VideoGenerationProvider
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
 from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
 from app.tools.image_gen_tool import ImageGenTool, ToolError
+from app.tools.pexels_tool import PexelsTool
 from app.tools.tts_tool import TTSTool
 from app.tools.video_gen_tool import VideoGenTool
 
-# Executable material providers (AIGC + HyperFrames clip generation).
+# Executable material providers (AIGC + HyperFrames clip generation + stock search).
 MATERIAL_PROVIDERS = frozenset(
-    {"asset_reuse", "image_generation", "video_generation", "tts", "hyperframes_material"}
+    {
+        "asset_reuse",
+        "stock_media_search",
+        "image_generation",
+        "video_generation",
+        "tts",
+        "hyperframes_material",
+    }
 )
 AIGC_PROVIDERS = frozenset({"asset_reuse", "image_generation", "video_generation", "tts"})
 SKIPPED_PROVIDERS = frozenset({"text_completion", "packaging_completion"})
@@ -57,6 +66,12 @@ def expected_output_path(action: dict[str, Any], generated_root: Path) -> Path:
         return generated_root / f"{slot_id}.wav"
     if provider == "asset_reuse":
         return generated_root / f"{slot_id}-reuse.mp4"
+    if provider == "stock_media_search":
+        for suffix in (".mp4", ".jpg", ".png"):
+            candidate = generated_root / f"{slot_id}-stock{suffix}"
+            if candidate.is_file():
+                return candidate
+        return generated_root / f"{slot_id}-stock.mp4"
     if provider == "hyperframes_material":
         action_id = str(action.get("id") or f"action-{slot_id}")
         return generated_root / f"{action_id}.mp4"
@@ -92,6 +107,7 @@ def register_default_providers(ctx: MaterialContext) -> None:
             TTSTool(gateway=ctx.gateway, emit_progress=ctx.emit_progress)
         ),
         "asset_reuse": AssetReuseProvider(),
+        "stock_media_search": StockMediaProvider(pexels_tool=PexelsTool()),
         "hyperframes_material": HyperFramesMaterialProvider(hf_material_tool),
     }
 
@@ -142,10 +158,13 @@ def execute_completion_plan(
                 message=f"No completion provider registered for {provider_name}",
                 retryable=False,
             )
-        if (
-            str(action["id"]) in ctx.completed_action_ids
-            and action_artifact_satisfied(action, ctx.generated_root)
-        ):
+        action_id = str(action["id"])
+        if action_id.endswith("-ken-burns"):
+            stock_video = ctx.generated_root / f"{action['slotId']}-stock.mp4"
+            if stock_video.is_file() and stock_video.stat().st_size > 0:
+                ctx.completed_action_ids.add(action_id)
+                continue
+        if action_id in ctx.completed_action_ids and action_artifact_satisfied(action, ctx.generated_root):
             continue
         provider = ctx.providers.get(provider_name)
         if provider is None:
@@ -200,7 +219,13 @@ def save_material_state(
 
 
 VISUAL_MATERIAL_PROVIDERS = frozenset(
-    {"asset_reuse", "image_generation", "video_generation", "hyperframes_material"}
+    {
+        "asset_reuse",
+        "stock_media_search",
+        "image_generation",
+        "video_generation",
+        "hyperframes_material",
+    }
 )
 
 
@@ -277,6 +302,10 @@ def apply_material_results_to_plan(
         if result and result.get("ok") and result.get("artifactRef"):
             merged["artifactRef"] = result["artifactRef"]
             merged["outputRef"] = result["artifactRef"]["uri"]
+        if result and result.get("stockAttribution"):
+            merged["stockAttribution"] = result["stockAttribution"]
+        if result and result.get("stockSearchQuery"):
+            merged["stockSearchQuery"] = result["stockSearchQuery"]
         updated_actions.append(merged)
     plan["completionActions"] = updated_actions
 
@@ -308,6 +337,20 @@ def apply_material_results_to_plan(
         storyboard=plan.get("storyboard", []),
     )
     return plan
+
+
+def _generated_by_from_result(result: MaterialResult) -> dict[str, Any]:
+    generated = result.get("generatedBy")
+    if isinstance(generated, dict):
+        return dict(generated)
+    provider = str(result.get("provider", ""))
+    payload: dict[str, Any] = {"provider": provider}
+    attribution = result.get("stockAttribution")
+    if isinstance(attribution, dict):
+        payload["source"] = attribution.get("source", "pexels")
+        payload["photographer"] = attribution.get("photographer")
+        payload["pageUrl"] = attribution.get("pageUrl")
+    return payload
 
 
 def _material_source_ref(uri: str, *, render_root: Path | None) -> str:
@@ -391,7 +434,7 @@ def _apply_generated_sources_to_timeline(
         if located is not None:
             track, clip = located
             clip["sourceRef"] = source_ref
-            clip["generatedBy"] = {"provider": str(result.get("provider", ""))}
+            clip["generatedBy"] = _generated_by_from_result(result)
             clip.pop("content", None)
             clip.pop("styleRef", None)
             if is_video and track.get("type") != "video":
@@ -411,7 +454,7 @@ def _apply_generated_sources_to_timeline(
                 if derived_slot != slot_id:
                     continue
                 clip["sourceRef"] = source_ref
-                clip["generatedBy"] = {"provider": str(result.get("provider", ""))}
+                clip["generatedBy"] = _generated_by_from_result(result)
                 if track.get("type") == "text" and artifact.get("type") in {"image", "video"}:
                     clip.pop("content", None)
                     clip.pop("styleRef", None)
