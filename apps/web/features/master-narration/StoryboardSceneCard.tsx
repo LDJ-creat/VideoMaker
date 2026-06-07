@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 const KNOWN_MEDIA_PROVIDERS = new Set([
   "asset_reuse",
+  "stock_media_search",
   "hyperframes_material",
   "image_generation",
   "video_generation",

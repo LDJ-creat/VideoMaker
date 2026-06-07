@@ -552,6 +552,46 @@ export async function createGenerationPlan(
   });
 }
 
+export type StockMediaStatusResponse = {
+  provider: string;
+  configured: boolean;
+  hasApiKey: boolean;
+};
+
+export type StockMediaSettingsUpdate = {
+  apiKey: string;
+};
+
+export type StockMediaProbeResponse = {
+  ok: boolean;
+  provider: string;
+  sampleResultCount?: number;
+};
+
+export async function getStockMediaStatus(): Promise<ApiResult<StockMediaStatusResponse>> {
+  return apiFetch("/api/settings/stock-media");
+}
+
+export async function updateStockMediaSettings(
+  body: StockMediaSettingsUpdate,
+): Promise<ApiResult<StockMediaStatusResponse>> {
+  return apiFetch("/api/settings/stock-media", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function testStockMediaConnection(
+  body?: { apiKey?: string },
+): Promise<ApiResult<StockMediaProbeResponse>> {
+  return apiFetch("/api/settings/stock-media/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 export async function getModelGatewayStatus(): Promise<
   ApiResult<ModelGatewayStatusResponse>
 > {

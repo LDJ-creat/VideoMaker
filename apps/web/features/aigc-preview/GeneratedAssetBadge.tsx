@@ -20,6 +20,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   packaging_completion: "包装补全",
   text_completion: "文案补全",
   asset_reuse: "素材复用",
+  stock_media_search: "Pexels 素材",
 };
 
 type GeneratedAssetBadgeProps = {
@@ -37,10 +38,12 @@ function formatTooltip(
   }
   if (generatedBy && typeof generatedBy === "object") {
     const parts = [
+      generatedBy.photographer && `摄影师 ${generatedBy.photographer}`,
       generatedBy.model && `模型 ${generatedBy.model}`,
       generatedBy.template && `模板 ${generatedBy.template}`,
       generatedBy.promptVersion && `prompt ${generatedBy.promptVersion}`,
-    ].filter(Boolean);
+      generatedBy.pageUrl,
+    ].filter(Boolean) as string[];
     if (parts.length > 0) {
       return parts.join(" · ");
     }

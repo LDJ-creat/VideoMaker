@@ -1,6 +1,7 @@
 "use client";
 
 import { ModelGatewayStatusPanel } from "@/features/settings/ModelGatewayStatusPanel";
+import { StockMediaSettingsPanel } from "@/features/settings/StockMediaSettingsPanel";
 
 export default function SettingsPage() {
   return (
@@ -13,6 +14,7 @@ export default function SettingsPage() {
       </div>
 
       <ModelGatewayStatusPanel defaultExpanded />
+      <StockMediaSettingsPanel defaultExpanded />
     </div>
   );
 }
