@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -150,7 +151,7 @@ class StockMediaProvider:
         per_page = stock_max_candidates()
         min_duration = None
         if target_duration_sec is not None and target_duration_sec > 0:
-            min_duration = max(1, int(target_duration_sec * 0.9))
+            min_duration = max(1, math.ceil(target_duration_sec))
         for query in queries:
             photos = self._pexels.search_photos(
                 query,

@@ -84,7 +84,7 @@ def pick_best_candidate(
                 media_type == "video"
                 and target_duration_sec is not None
                 and float(item.get("duration") or 0.0) > 0
-                and float(item.get("duration") or 0.0) < target_duration_sec * 0.9
+                and float(item.get("duration") or 0.0) < target_duration_sec
             ):
                 continue
             score = score_stock_candidate(
