@@ -125,6 +125,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-06-sample-analysis-cost-resilience-plan.md` | Batch vision incremental persist/retry, keyframe sampling, segment vision dedup, analysis depth | `docs/demos/sample-analysis-depth-e2e-checklist.md` § 成本与韧性 |
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
+| `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
 
 ## Current Implementation State
 
@@ -234,6 +235,10 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_STOCK_MEDIA_ENABLED` | Enable Pexels stock search in gap completion | `true` |
 | `VIDEOMAKER_STOCK_MATCH_MIN_SCORE` | Minimum relevance score to accept a Pexels candidate | `0.55` |
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
+| `VIDEOMAKER_TTS_MODE` | TTS synthesis: `global` (single `master.wav`) or `per_scene` (`{slotId}.wav`) | unset → `long_form_composed` uses `global`, else `per_scene` |
+| `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
+
+Subtitles are rebuilt after material completion from voiceover WAV windows (not storyboard char-weight placeholders). Global TTS writes one `vo-master` clip; timeline may extend to `narrationDurationSec` when narration exceeds the planned duration.
 
 Pexels API key also persists in SQLite `stock_media_providers` (encrypted with `storage/global/model-gateway.key`). Worker subprocesses receive `VIDEOMAKER_PEXELS_API_KEY` from API `pipeline_runner` when env is unset.
 
