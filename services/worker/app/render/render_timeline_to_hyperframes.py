@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.render.aspect_ratio import render_dimensions, subtitle_layout
+
 COMPOSITION_ID = "videomaker-main"
 DEFAULT_WIDTH = 1080
 DEFAULT_HEIGHT = 1920
@@ -96,9 +98,25 @@ def _subtitle_class(style_ref: str) -> str:
     return f"subtitle-{safe}"
 
 
+def _global_voiceover_clip_id(normalized: dict[str, Any]) -> str | None:
+    for track in normalized.get("tracks", []):
+        if not isinstance(track, dict) or track.get("type") != "voiceover":
+            continue
+        clips = [
+            clip
+            for clip in track.get("clips", [])
+            if isinstance(clip, dict) and str(clip.get("id", "")).strip()
+        ]
+        if len(clips) == 1 and str(clips[0].get("id", "")) == "vo-master":
+            return "vo-master"
+    return None
+
+
 def _build_gsap_visibility_script(normalized: dict[str, Any]) -> str:
     """Drive clip visibility explicitly — HF render does not always honor stacked video timing."""
     lines: list[str] = []
+    global_vo_id = _global_voiceover_clip_id(normalized)
+    timeline_end = _format_sec(normalized.get("durationSec", 0))
     for track in normalized.get("tracks", []):
         if not isinstance(track, dict):
             continue
@@ -115,6 +133,8 @@ def _build_gsap_visibility_script(normalized: dict[str, Any]) -> str:
             lines.append(f'tl.set("{selector}", {{ autoAlpha: 1 }}, {start});')
             lines.append(f'tl.set("{selector}", {{ autoAlpha: 0 }}, {end});')
             if track_type in {"video", "voiceover", "bgm"}:
+                if track_type == "voiceover" and global_vo_id and clip_id == global_vo_id:
+                    continue
                 lines.append(
                     f'tl.call(function() {{'
                     f' var node = document.querySelector("{selector}");'
@@ -127,6 +147,20 @@ def _build_gsap_visibility_script(normalized: dict[str, Any]) -> str:
                     f' if (node) try {{ node.pause(); }} catch (_e) {{}}'
                     f' }}, [], {end});'
                 )
+    if global_vo_id:
+        selector = f"#{global_vo_id}"
+        lines.append(
+            f'tl.call(function() {{'
+            f' var node = document.querySelector("{selector}");'
+            f' if (node) try {{ node.currentTime = 0; node.play(); }} catch (_e) {{}}'
+            f' }}, [], 0);'
+        )
+        lines.append(
+            f'tl.call(function() {{'
+            f' var node = document.querySelector("{selector}");'
+            f' if (node) try {{ node.pause(); }} catch (_e) {{}}'
+            f' }}, [], {timeline_end});'
+        )
     return "\n      ".join(lines)
 
 
@@ -244,12 +278,79 @@ def _write_hyperframes_json(composition_dir: Path) -> None:
     )
 
 
-def write_composition(timeline: dict[str, Any], composition_dir: Path, render_root: Path) -> None:
+def _subtitle_styles(aspect_ratio: str) -> str:
+    layout = subtitle_layout(aspect_ratio)
+    bottom = layout["bottomPaddingPx"]
+    side = layout["sidePaddingPx"]
+    font = layout["fontSizePx"]
+    backdrop = layout["backdropHeightPx"]
+    backdrop_bottom = max(24, bottom - 24)
+    return f"""
+    .subtitle-clean {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 {side}px {bottom}px;
+      font-size: {font}px;
+      line-height: 1.35;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    .subtitle-clean::before {{
+      content: "";
+      position: absolute;
+      left: 8%;
+      right: 8%;
+      bottom: {backdrop_bottom}px;
+      height: {backdrop}px;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 12px;
+      z-index: -1;
+    }}
+    .subtitle-bold {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 {max(32, side - 8)}px {max(88, bottom - 10)}px;
+      font-size: {font + 4}px;
+      font-weight: 700;
+      line-height: 1.3;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 3px 10px rgba(0, 0, 0, 0.9);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    .subtitle-minimal {{
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 {side + 8}px {max(80, bottom - 20)}px;
+      font-size: {max(30, font - 4)}px;
+      line-height: 1.4;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    """
+
+
+def write_composition(
+    timeline: dict[str, Any],
+    composition_dir: Path,
+    render_root: Path,
+    *,
+    aspect_ratio: str = "9:16",
+) -> None:
     composition_dir.mkdir(parents=True, exist_ok=True)
     normalized = _normalize_timeline(timeline)
     duration_sec = float(normalized.get("durationSec", 0) or 0)
+    width, height = render_dimensions(aspect_ratio)
     track_indices = _next_track_indices(normalized)
     gsap_script = _build_gsap_visibility_script(normalized)
+    subtitle_css = _subtitle_styles(aspect_ratio)
 
     timeline_path = composition_dir / "timeline.json"
     timeline_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -274,7 +375,7 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width={DEFAULT_WIDTH}, height={DEFAULT_HEIGHT}" />
+  <meta name="viewport" content="width={width}, height={height}" />
   <title>VideoMaker HyperFrames Composition</title>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   <style>
@@ -286,8 +387,8 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
     html,
     body {{
       margin: 0;
-      width: {DEFAULT_WIDTH}px;
-      height: {DEFAULT_HEIGHT}px;
+      width: {width}px;
+      height: {height}px;
       overflow: hidden;
       background: #0b0d12;
       color: #fff;
@@ -316,59 +417,7 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
       text-align: center;
       padding: 48px;
     }}
-    .subtitle-clean {{
-      align-items: flex-end;
-      justify-content: center;
-      padding: 0 48px 120px;
-      font-size: 38px;
-      line-height: 1.35;
-      z-index: 10;
-      pointer-events: none;
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
-    }}
-    .subtitle-clean::before {{
-      content: "";
-      position: absolute;
-      left: 10%;
-      right: 10%;
-      bottom: 96px;
-      height: 72px;
-      background: rgba(0, 0, 0, 0.45);
-      border-radius: 12px;
-      z-index: -1;
-    }}
-    .subtitle-bold {{
-      align-items: flex-end;
-      justify-content: center;
-      padding: 0 40px 110px;
-      font-size: 42px;
-      font-weight: 700;
-      line-height: 1.3;
-      z-index: 10;
-      pointer-events: none;
-      text-shadow: 0 3px 10px rgba(0, 0, 0, 0.9);
-    }}
-    .subtitle-bold::before {{
-      content: "";
-      position: absolute;
-      left: 8%;
-      right: 8%;
-      bottom: 88px;
-      height: 80px;
-      background: rgba(0, 0, 0, 0.6);
-      border-radius: 8px;
-      z-index: -1;
-    }}
-    .subtitle-minimal {{
-      align-items: flex-end;
-      justify-content: center;
-      padding: 0 56px 100px;
-      font-size: 34px;
-      line-height: 1.4;
-      z-index: 10;
-      pointer-events: none;
-      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
-    }}
+    {subtitle_css}
     .video-placeholder,
     .image-placeholder {{
       background: #0b0d12;
@@ -401,8 +450,8 @@ def write_composition(timeline: dict[str, Any], composition_dir: Path, render_ro
     data-composition-id="{COMPOSITION_ID}"
     data-start="0"
     data-duration="{_format_sec(duration_sec)}"
-    data-width="{DEFAULT_WIDTH}"
-    data-height="{DEFAULT_HEIGHT}"
+    data-width="{width}"
+    data-height="{height}"
   >
     {"".join(clip_nodes)}
   </div>

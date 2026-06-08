@@ -527,3 +527,68 @@ def test_execute_tts_action(tmp_path: Path) -> None:
     assert results[0]["ok"] is True
     assert results[0]["artifactRef"]["type"] == "audio"
     assert Path(results[0]["artifactRef"]["uri"]).exists()
+
+
+def test_apply_material_global_voiceover_single_clip(tmp_path: Path) -> None:
+    from app.providers.completion_registry import apply_material_results_to_plan
+    import struct
+    import wave
+
+    wav_path = tmp_path / "generated" / "master.wav"
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(24000)
+        handle.writeframes(struct.pack("<h", 0) * 48000)
+
+    render_root = tmp_path / "renders" / "gen-1"
+    plan = {
+        "ttsMode": "global",
+        "masterNarration": "全片口播测试。",
+        "storyboard": [
+            {
+                "id": "scene-1",
+                "slotId": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 5.0,
+                "script": "ignored in global",
+            }
+        ],
+        "packagingPlan": {
+            "styleSummary": "demo",
+            "subtitle": {"preset": "clean"},
+            "titleCards": [],
+            "transitions": [],
+        },
+        "completionActions": [],
+        "timeline": {
+            "durationSec": 5.0,
+            "tracks": [
+                {"id": "track-text", "type": "text", "clips": []},
+                {"id": "track-voiceover", "type": "voiceover", "clips": []},
+            ],
+        },
+    }
+    results = [
+        {
+            "ok": True,
+            "actionId": "action-master-tts",
+            "slotId": "__master__",
+            "provider": "tts",
+            "artifactRef": {"id": "a1", "type": "audio", "uri": str(wav_path.resolve())},
+        }
+    ]
+    updated = apply_material_results_to_plan(plan, results=results, render_root=render_root)
+    vo_track = next(t for t in updated["timeline"]["tracks"] if t["type"] == "voiceover")
+    assert len(vo_track["clips"]) == 1
+    assert vo_track["clips"][0]["id"] == "vo-master"
+    assert vo_track["clips"][0]["endSec"] == 2.0
+    assert updated.get("narrationDurationSec") == 2.0
+    subtitles = [
+        c
+        for c in next(t for t in updated["timeline"]["tracks"] if t["type"] == "text")["clips"]
+        if str(c.get("id", "")).startswith("subtitle-master")
+    ]
+    assert subtitles
+    assert subtitles[-1]["endSec"] == 2.0

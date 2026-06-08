@@ -37,6 +37,8 @@ class MaterialContext:
     task_context: TaskContext | None = None
     variant_overrides: dict[str, Any] = field(default_factory=dict)
     brand_colors: dict[str, Any] = field(default_factory=dict)
+    aspect_ratio: str = "9:16"
+    master_narration: str = ""
 
     @property
     def project_root(self) -> Path:

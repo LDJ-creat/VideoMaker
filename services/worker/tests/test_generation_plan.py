@@ -241,7 +241,7 @@ def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:
     text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
     scenes_with_script = [s for s in storyboard if str(s.get("script", "")).strip()]
     subtitle_clips = [c for c in text_track["clips"] if str(c.get("id", "")).startswith("subtitle-")]
-    assert len(subtitle_clips) == len(scenes_with_script)
+    assert len(subtitle_clips) >= len(scenes_with_script)
     assert subtitle_clips[0]["styleRef"] == "style://subtitle/clean"
 
 
@@ -408,3 +408,40 @@ def test_assemble_generation_plan_expands_stock_to_ken_burns_chain() -> None:
         "action-slot-hook",
         "action-slot-hook-ken-burns",
     ]
+
+
+def test_build_narration_actions_global_mode() -> None:
+    actions = build_narration_actions(
+        [{"slotId": "slot-1", "script": "分镜文案"}],
+        master_narration="全片口播全文。",
+        tts_mode="global",
+    )
+    assert len(actions) == 1
+    assert actions[0]["id"] == "action-master-tts"
+    assert actions[0]["slotId"] == "__master__"
+
+
+def test_assemble_generation_plan_long_form_uses_global_tts() -> None:
+    structure, inventory = _build_inputs()
+    gap_report = _load_agent_fixture("gap_planner")
+    slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    packaging_plan = _load_agent_fixture("packaging_designer")["packagingPlan"]
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant="default",
+        generation_strategy="long_form_composed",
+        master_narration="全片口播示例文案。",
+    )
+    assert plan.get("ttsMode") == "global"
+    tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
+    assert len(tts_actions) == 1
+    assert tts_actions[0]["slotId"] == "__master__"
+    text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
+    assert not any(str(c.get("id", "")).startswith("subtitle-") for c in text_track["clips"])

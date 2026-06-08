@@ -30,7 +30,8 @@ from app.pipelines.short_form_direct import (
     filter_short_form_completion_actions,
     simplify_storyboard_for_short_form,
 )
-from app.pipelines.duration_target import normalize_duration_target
+from app.pipelines.duration_target import normalize_duration_target, short_form_max_sec
+from app.render.aspect_ratio import resolve_aspect_ratio
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
@@ -49,8 +50,23 @@ def build_narration_actions(
     storyboard: list[dict[str, Any]],
     *,
     skip_slot_ids: set[str] | None = None,
+    master_narration: str = "",
+    tts_mode: str | None = None,
 ) -> list[dict[str, Any]]:
     """Add TTS completion actions for scenes with non-empty script (independent of visual gap)."""
+    if is_global_tts_mode(tts_mode) and str(master_narration).strip():
+        return [
+            {
+                "id": "action-master-tts",
+                "slotId": MASTER_TTS_SLOT_ID,
+                "strategy": "tts",
+                "provider": "tts",
+                "reason": "全片口播合成",
+                "rationale": "全片口播合成",
+                "outputRef": f"completion://{MASTER_TTS_SLOT_ID}/tts",
+            }
+        ]
+
     skipped = skip_slot_ids or set()
     actions: list[dict[str, Any]] = []
     for scene in storyboard:
@@ -76,12 +92,26 @@ def build_narration_actions(
     return actions
 
 
+from app.pipelines.narration_alignment import chunk_subtitle_text, subtitle_time_windows
+from app.pipelines.tts_mode import (
+    MASTER_TTS_SLOT_ID,
+    global_tts_eligible,
+    is_global_tts_mode,
+    resolve_tts_mode,
+)
+
+
 def merge_script_subtitles_into_timeline(
     timeline: dict[str, Any],
     storyboard: list[dict[str, Any]],
     packaging_plan: dict[str, Any],
+    *,
+    skip_subtitles: bool = False,
 ) -> dict[str, Any]:
-    """Append subtitle clips from storyboard.script; voiceover clips are filled after TTS."""
+    """Append per-sentence subtitle clips from storyboard.script."""
+    if skip_subtitles:
+        return timeline
+
     preset = "clean"
     subtitle = packaging_plan.get("subtitle")
     if isinstance(subtitle, dict) and subtitle.get("preset"):
@@ -115,19 +145,30 @@ def merge_script_subtitles_into_timeline(
         script = str(scene.get("script", "")).strip()
         if not slot_id or not script:
             continue
-        subtitle_id = f"subtitle-{slot_id}"
-        if subtitle_id in existing_ids:
-            continue
-        clips.append(
-            {
-                "id": subtitle_id,
-                "startSec": float(scene["startSec"]),
-                "endSec": float(scene["endSec"]),
-                "content": script,
-                "styleRef": style_ref,
-            }
+        chunks = chunk_subtitle_text(script)
+        windows = subtitle_time_windows(
+            float(scene["startSec"]),
+            float(scene["endSec"]),
+            chunks,
         )
-        existing_ids.add(subtitle_id)
+        for index, (start_sec, end_sec, content) in enumerate(windows):
+            subtitle_id = (
+                f"subtitle-{slot_id}"
+                if len(windows) == 1
+                else f"subtitle-{slot_id}-{index + 1}"
+            )
+            if subtitle_id in existing_ids:
+                continue
+            clips.append(
+                {
+                    "id": subtitle_id,
+                    "startSec": round(start_sec, 3),
+                    "endSec": round(end_sec, 3),
+                    "content": content,
+                    "styleRef": style_ref,
+                }
+            )
+            existing_ids.add(subtitle_id)
 
     validation = validate_contract("render-timeline", timeline)
     if not validation.valid:
@@ -642,14 +683,6 @@ def assemble_generation_plan(
                 }
             )
 
-    tts_from_gap = {
-        str(action["slotId"])
-        for action in visual_actions
-        if str(action.get("provider") or action.get("strategy", "")) == "tts"
-    }
-    narration_actions = build_narration_actions(storyboard, skip_slot_ids=tts_from_gap)
-    completion_actions = visual_actions + narration_actions
-
     resolved_strategy = generation_strategy or resolve_generation_strategy(
         float(
             duration_target_sec
@@ -657,6 +690,23 @@ def assemble_generation_plan(
             else structure.get("metadata", {}).get("durationSec", 30.0)
         )
     )
+    master = str(master_narration or "").strip() or derive_master_from_storyboard(storyboard)
+    tts_mode = resolve_tts_mode(
+        {"generationStrategy": resolved_strategy, "masterNarration": master}
+    )
+
+    tts_from_gap = {
+        str(action["slotId"])
+        for action in visual_actions
+        if str(action.get("provider") or action.get("strategy", "")) == "tts"
+    }
+    narration_actions = build_narration_actions(
+        storyboard,
+        skip_slot_ids=tts_from_gap,
+        master_narration=master,
+        tts_mode=tts_mode,
+    )
+    completion_actions = visual_actions + narration_actions
     if is_short_form_strategy(resolved_strategy) and storyboard:
         primary_slot = str(storyboard[0].get("slotId") or "")
         completion_actions = filter_short_form_completion_actions(
@@ -676,9 +726,11 @@ def assemble_generation_plan(
         timeline,
         storyboard,
         packaging_plan,
+        skip_subtitles=global_tts_eligible(
+            {"generationStrategy": resolved_strategy, "masterNarration": master},
+            mode=tts_mode,
+        ),
     )
-
-    master = str(master_narration or "").strip() or derive_master_from_storyboard(storyboard)
 
     plan = {
         "id": f"generation-plan-{structure['projectId']}",
@@ -688,12 +740,25 @@ def assemble_generation_plan(
         "gapReportId": gap_report["id"],
         "variant": variant,
         "generationStrategy": resolved_strategy,
+        "ttsMode": tts_mode,
         "masterNarration": master,
         "storyboard": storyboard,
         "timeline": timeline,
         "packagingPlan": packaging_plan,
         "completionActions": completion_actions,
     }
+    brief = inventory.get("userBrief") if isinstance(inventory.get("userBrief"), dict) else {}
+    resolved_target = float(
+        duration_target_sec
+        if duration_target_sec is not None
+        else (brief.get("durationTarget") or {}).get("targetSec")
+        or structure.get("metadata", {}).get("durationSec", 30.0)
+    )
+    plan["aspectRatio"] = resolve_aspect_ratio(
+        brief,
+        target_sec=resolved_target,
+        short_form_max=short_form_max_sec(),
+    )
     if duration_target_sec is not None:
         plan["durationTargetSec"] = round(float(duration_target_sec), 2)
     validation = validate_contract("generation-plan", plan)
@@ -802,6 +867,8 @@ def run_generating_material(
         task_context=task_context,
         variant_overrides=dict(variant_overrides or {}),
         brand_colors=dict(brand_colors or {}),
+        aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
+        master_narration=str(plan.get("masterNarration") or ""),
     )
     register_default_providers(ctx)
 

@@ -96,7 +96,20 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(tmp_pa
     )
     text_track = next(t for t in updated_plan["timeline"]["tracks"] if t["type"] == "text")
     assert vo_track["clips"]
-    assert any(str(c.get("id", "")).startswith("subtitle-") for c in text_track["clips"])
+    subtitle_clips = [
+        c for c in text_track["clips"] if str(c.get("id", "")).startswith("subtitle-")
+    ]
+    assert subtitle_clips
+    vo_by_slot = {
+        str(c.get("id", "")).removeprefix("vo-"): c for c in vo_track["clips"]
+    }
+    for subtitle in subtitle_clips:
+        subtitle_id = str(subtitle.get("id", ""))
+        slot_id = subtitle_id.removeprefix("subtitle-").split("-")[0]
+        vo_clip = vo_by_slot.get(slot_id)
+        if vo_clip is None:
+            continue
+        assert float(subtitle["endSec"]) <= float(vo_clip["endSec"]) + 0.001
 
     composition_dir = render_root / "composition"
     write_composition(

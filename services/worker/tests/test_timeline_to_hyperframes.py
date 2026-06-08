@@ -224,3 +224,35 @@ def test_write_composition_uses_video_placeholder_without_source_ref(tmp_path: P
 
 def test_subtitle_unknown_preset_falls_back_to_clean_class() -> None:
     assert _subtitle_class("style://subtitle/exotic") == "subtitle-clean"
+
+
+def test_write_composition_global_voiceover_plays_once(tmp_path: Path) -> None:
+    render_root = tmp_path / "render"
+    composition_dir = render_root / "composition"
+    materials_dir = render_root / "materials"
+    materials_dir.mkdir(parents=True, exist_ok=True)
+    (materials_dir / "master.wav").write_bytes(b"RIFF----WAVE")
+
+    timeline = {
+        "durationSec": 12,
+        "tracks": [
+            {
+                "id": "track-voiceover",
+                "type": "voiceover",
+                "clips": [
+                    {
+                        "id": "vo-master",
+                        "startSec": 0.0,
+                        "endSec": 12.0,
+                        "sourceRef": "materials/master.wav",
+                    }
+                ],
+            }
+        ],
+    }
+
+    write_composition(timeline=timeline, composition_dir=composition_dir, render_root=render_root)
+    html = (composition_dir / "index.html").read_text(encoding="utf-8")
+    assert html.count("node.play()") == 1
+    assert html.count("node.pause()") == 1
+    assert "}, [], 12);" in html or "}, [], 12)" in html

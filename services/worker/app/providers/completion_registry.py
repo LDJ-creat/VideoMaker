@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import json
-import wave
 from pathlib import Path
 from typing import Any
+
+from app.pipelines.narration_alignment import align_subtitles_to_voiceover, wav_duration_sec
+from app.pipelines.narration_timeline import sync_timeline_to_narration
+from app.pipelines.tts_mode import (
+    MASTER_TTS_SLOT_ID,
+    VO_MASTER_CLIP_ID,
+    is_global_tts_mode,
+    resolve_tts_mode,
+)
 
 from app.providers.asset_reuse_provider import AssetReuseProvider
 from app.providers.hyperframes_material_provider import HyperFramesMaterialProvider
@@ -63,6 +71,10 @@ def expected_output_path(action: dict[str, Any], generated_root: Path) -> Path:
     if provider == "video_generation":
         return generated_root / f"{slot_id}.mp4"
     if provider == "tts":
+        if slot_id == MASTER_TTS_SLOT_ID:
+            from app.pipelines.tts_mode import MASTER_TTS_WAV_NAME
+
+            return generated_root / MASTER_TTS_WAV_NAME
         return generated_root / f"{slot_id}.wav"
     if provider == "asset_reuse":
         return generated_root / f"{slot_id}-reuse.mp4"
@@ -250,30 +262,24 @@ def _scene_timing_by_slot(storyboard: list[Any]) -> dict[str, tuple[float, float
     return timing
 
 
-def _wav_duration_sec(path: Path) -> float | None:
-    try:
-        with wave.open(str(path), "rb") as handle:
-            rate = handle.getframerate()
-            if rate <= 0:
-                return None
-            return handle.getnframes() / float(rate)
-    except (OSError, wave.Error):
-        return None
-
-
 def _voiceover_end_sec(
     *,
     start_sec: float,
     storyboard_end_sec: float,
     wav_path: Path | None,
+    clamp_to_storyboard: bool = True,
 ) -> float:
-    """Clamp voiceover clip end to storyboard window and actual wav length when shorter."""
-    end_sec = storyboard_end_sec
+    """Resolve voiceover clip end from wav length and optional storyboard clamp."""
     if wav_path is not None and wav_path.is_file():
-        duration = _wav_duration_sec(wav_path)
+        duration = wav_duration_sec(wav_path)
         if duration is not None and duration > 0:
-            end_sec = min(end_sec, start_sec + duration)
-    return max(start_sec, end_sec)
+            wav_end = start_sec + duration
+            if clamp_to_storyboard:
+                return max(start_sec, min(storyboard_end_sec, wav_end))
+            return wav_end
+    if clamp_to_storyboard:
+        return max(start_sec, storyboard_end_sec)
+    return start_sec
 
 
 def apply_material_results_to_plan(
@@ -330,11 +336,23 @@ def apply_material_results_to_plan(
             updated_storyboard.append(merged_scene)
         plan["storyboard"] = updated_storyboard
 
+    tts_mode = str(plan.get("ttsMode") or resolve_tts_mode(plan))
     plan["timeline"] = _apply_generated_sources_to_timeline(
         plan.get("timeline", {}),
         results=results,
         render_root=render_root,
         storyboard=plan.get("storyboard", []),
+        tts_mode=tts_mode,
+    )
+    plan = sync_timeline_to_narration(plan, render_root=render_root)
+    packaging = plan.get("packagingPlan") if isinstance(plan.get("packagingPlan"), dict) else {}
+    plan["timeline"] = align_subtitles_to_voiceover(
+        plan.get("timeline", {}),
+        list(plan.get("storyboard", [])),
+        packaging,
+        render_root=render_root,
+        master_narration=str(plan.get("masterNarration") or ""),
+        tts_mode=tts_mode,
     )
     return plan
 
@@ -402,6 +420,7 @@ def _apply_generated_sources_to_timeline(
     results: list[MaterialResult],
     render_root: Path | None = None,
     storyboard: list[Any] | None = None,
+    tts_mode: str | None = None,
 ) -> dict[str, Any]:
     visual_by_slot: dict[str, MaterialResult] = {}
     tts_by_slot: dict[str, MaterialResult] = {}
@@ -475,13 +494,25 @@ def _apply_generated_sources_to_timeline(
         if isinstance(clip, dict)
     }
 
+    global_mode = is_global_tts_mode(tts_mode)
+    if global_mode:
+        vo_clips[:] = [
+            clip
+            for clip in vo_clips
+            if isinstance(clip, dict) and not str(clip.get("id", "")).startswith("vo-")
+        ]
+        vo_by_id = {
+            str(clip.get("id", "")): clip
+            for clip in vo_clips
+            if isinstance(clip, dict)
+        }
+
     for slot_id, result in tts_by_slot.items():
         artifact = result.get("artifactRef") or {}
         uri = str(artifact.get("uri", "")).strip()
         if not uri:
             continue
         source_ref = _material_source_ref(uri, render_root=render_root)
-        start_sec, storyboard_end_sec = scene_timing.get(slot_id, (0.0, 0.0))
         wav_path: Path | None = None
         if render_root is not None:
             material_candidate = render_root / source_ref
@@ -491,12 +522,27 @@ def _apply_generated_sources_to_timeline(
             uri_path = Path(uri)
             if uri_path.is_file():
                 wav_path = uri_path
-        end_sec = _voiceover_end_sec(
-            start_sec=start_sec,
-            storyboard_end_sec=storyboard_end_sec,
-            wav_path=wav_path,
-        )
-        vo_id = f"vo-{slot_id}"
+
+        if slot_id == MASTER_TTS_SLOT_ID:
+            start_sec = 0.0
+            storyboard_end_sec = 0.0
+            end_sec = _voiceover_end_sec(
+                start_sec=start_sec,
+                storyboard_end_sec=storyboard_end_sec,
+                wav_path=wav_path,
+                clamp_to_storyboard=False,
+            )
+            vo_id = VO_MASTER_CLIP_ID
+        else:
+            start_sec, storyboard_end_sec = scene_timing.get(slot_id, (0.0, 0.0))
+            end_sec = _voiceover_end_sec(
+                start_sec=start_sec,
+                storyboard_end_sec=storyboard_end_sec,
+                wav_path=wav_path,
+                clamp_to_storyboard=True,
+            )
+            vo_id = f"vo-{slot_id}"
+
         vo_clip = vo_by_id.get(vo_id) or {
             "id": vo_id,
             "startSec": start_sec,

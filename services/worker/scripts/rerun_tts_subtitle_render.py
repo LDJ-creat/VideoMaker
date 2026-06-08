@@ -34,10 +34,10 @@ if _SHARED_ROOT.is_dir() and str(_SHARED_ROOT) not in sys.path:
 
 from app.gateway.config import GatewayConfig
 from app.gateway.model_gateway import ModelGateway
-from app.pipelines.generation_pipeline import (
-    build_narration_actions,
-    merge_script_subtitles_into_timeline,
-)
+from app.pipelines.generation_pipeline import build_narration_actions
+from app.pipelines.narration_alignment import align_subtitles_to_voiceover
+from app.pipelines.narration_timeline import sync_timeline_to_narration
+from app.pipelines.tts_mode import resolve_tts_mode
 from app.providers.completion_registry import (
     apply_material_results_to_plan,
     execute_completion_plan,
@@ -106,13 +106,11 @@ def _ensure_video_materials(*, generated_root: Path, render_root: Path) -> None:
             print(f"  Copied {src.name} -> materials/")
 
 
-def _patch_timeline_subtitles_and_video_refs(plan: dict[str, Any]) -> dict[str, Any]:
+def _patch_timeline_video_refs(plan: dict[str, Any]) -> dict[str, Any]:
     storyboard = list(plan.get("storyboard", []))
-    packaging = dict(plan.get("packagingPlan") or {})
     timeline = plan.get("timeline")
     if not isinstance(timeline, dict):
         timeline = {"durationSec": 0.0, "tracks": []}
-    timeline = merge_script_subtitles_into_timeline(timeline, storyboard, packaging)
 
     tracks = timeline.get("tracks", [])
     if isinstance(tracks, list):
@@ -128,11 +126,34 @@ def _patch_timeline_subtitles_and_video_refs(plan: dict[str, Any]) -> dict[str, 
                     if name.endswith(".mp4"):
                         clip["sourceRef"] = f"materials/{name}"
 
-    timeline["durationSec"] = max(
-        (float(scene.get("endSec", 0)) for scene in storyboard if isinstance(scene, dict)),
-        default=float(timeline.get("durationSec", 0) or 0),
-    )
+    scene_ends = [
+        float(scene.get("endSec", 0))
+        for scene in storyboard
+        if isinstance(scene, dict)
+    ]
+    timeline["durationSec"] = max(scene_ends, default=float(timeline.get("durationSec", 0) or 0))
+    if scene_ends and timeline["durationSec"] > 3600:
+        timeline["durationSec"] = max(scene_ends[:-1], default=scene_ends[-1])
     plan["timeline"] = timeline
+    return plan
+
+
+def _finalize_narration_timeline(
+    plan: dict[str, Any],
+    *,
+    render_root: Path,
+) -> dict[str, Any]:
+    tts_mode = str(plan.get("ttsMode") or resolve_tts_mode(plan))
+    plan = sync_timeline_to_narration(plan, render_root=render_root)
+    packaging = dict(plan.get("packagingPlan") or {})
+    plan["timeline"] = align_subtitles_to_voiceover(
+        plan.get("timeline", {}),
+        list(plan.get("storyboard", [])),
+        packaging,
+        render_root=render_root,
+        master_narration=str(plan.get("masterNarration") or ""),
+        tts_mode=tts_mode,
+    )
     return plan
 
 
@@ -191,9 +212,11 @@ def main() -> int:
     narration_actions = build_narration_actions(
         list(plan.get("storyboard", [])),
         skip_slot_ids=tts_from_gap,
+        master_narration=str(plan.get("masterNarration") or ""),
+        tts_mode=str(plan.get("ttsMode") or resolve_tts_mode(plan)),
     )
     plan["completionActions"] = visual_actions + narration_actions
-    plan = _patch_timeline_subtitles_and_video_refs(plan)
+    plan = _patch_timeline_video_refs(plan)
 
     material_state_path = generation_root / "material-state.json"
     quota, completed_ids = load_material_state(material_state_path)
@@ -228,6 +251,7 @@ def main() -> int:
             emit_progress=emit_progress,
             register_artifact=_register_artifact,
             completed_action_ids=completed_ids,
+            master_narration=str(plan.get("masterNarration") or ""),
             providers={
                 "tts": TTSProvider(
                     TTSTool(gateway=gateway, emit_progress=emit_progress),
@@ -257,6 +281,7 @@ def main() -> int:
                 print(f"  OK TTS {result.get('slotId')}: {result.get('artifactRef', {}).get('uri')}")
     else:
         print("Skipped TTS (--skip-tts or no narration actions).")
+        plan = _finalize_narration_timeline(plan, render_root=render_root)
 
     plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Updated {plan_path}")
