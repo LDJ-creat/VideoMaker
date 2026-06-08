@@ -252,7 +252,8 @@ API：`GET /api/projects/{id}/assets` 返回元数据；完整 inventory 在 gen
 | G3 | 时间线 / 结果 | 至少 **1 段 AI 生成视频** clip（Live）或 fixture 占位 artifact |
 | G4 | HyperFrames 包装 | timeline 或 gap 中含 **hyperframes_material** 产物；benefit card / 包装片段 |
 | G5 | 打开 HF preview | `storage/.../generations/{id}/render/preview.html` 可访问（或 UI 外链） |
-| G6 | TTS / 字幕 | `generated/slot*.wav` 非空；`composition/timeline.json` 含 voiceover + text 字幕轨；最终 `output.mp4` **可听到旁白、可见底部分镜字幕**（Live）；fixture 模式至少存在 `.wav` artifact |
+| G6 | TTS / 字幕 | `generated/slot*.wav` 或长片 `generated/master.wav` 非空；`generation-plan.json` 含 `ttsMode`（长片默认 `global`）、material 后 `narrationDurationSec`；字幕 clip 时间窗与 voiceover 一致；`output.mp4` **旁白不被切镜截断、字幕节奏与口播对齐**（Live） |
+| G6b | 口播对齐（>60s） | `timeline` 仅一条 `vo-master`；`durationSec >= narrationDurationSec`；结果页若口播长于 `durationTargetSec` 显示黄色提示；可运行 `services/worker/scripts/rerun_tts_subtitle_render.py` 增量重跑 TTS+对齐+渲染 |
 | G7 | HF CLI 缺失（可选） | 任务可失败或跳过并显示 **HyperFrames 未安装**（`hyperframes_missing`） |
 
 磁盘关键路径：
@@ -264,7 +265,8 @@ storage/projects/{projectId}/generations/{generationId}/
   generation-plan.json
   render-timeline.json
   materials/          # AIGC / HF 片段 + slot*.wav 旁白
-  generated/slot*.wav # TTS 按槽产物
+  generated/slot*.wav # 分镜 TTS（short_form / per_scene）
+  generated/master.wav # 全片 TTS（long_form / global）
   render/preview.html
   render/output.mp4   # 含 voiceover + 字幕混流
   agent-runs/         # 可选
