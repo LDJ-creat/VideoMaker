@@ -5,6 +5,7 @@ import type {
   GapReport,
   GenerationPlan,
   TaskEvent,
+  TaskStatus,
   VideoStructure,
 } from "@videomaker/contracts";
 import {
@@ -99,6 +100,7 @@ import {
   type SampleKeyframeRecord,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
+import { isTaskWatchActive } from "@/lib/taskStatusLabels";
 import {
   loadProjectSession,
   saveProjectSession,
@@ -266,7 +268,21 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const inputWorkbenchRef = useRef<InputWorkbenchPanelHandle>(null);
   const generationSettlementKeyRef = useRef<string | null>(null);
   const activeRunGenerationsRef = useRef<ActiveGeneration[]>([]);
-  const [panel, setPanel] = useState<WorkbenchPanel>("input");
+  /** When false, generation terminal handlers hydrate data but do not auto-switch panels. */
+  const generationAutoNavRef = useRef(false);
+  const panelRef = useRef<WorkbenchPanel>("input");
+  const [panel, setPanelState] = useState<WorkbenchPanel>("input");
+  const setPanel = useCallback((next: WorkbenchPanel, reason?: string) => {
+    if (process.env.NODE_ENV === "development" && reason) {
+      console.info("[Workbench] panel", panelRef.current, "->", next, {
+        reason,
+        lastAction: lastActionRef.current,
+      });
+    }
+    panelRef.current = next;
+    setPanelState(next);
+  }, []);
+  const lastActionRef = useRef<LastPipelineAction>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
   const [analysisSampleId, setAnalysisSampleId] = useState<string | null>(null);
@@ -274,7 +290,17 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     string | null
   >(null);
   const [generationId, setGenerationId] = useState<string | null>(null);
-  const [lastAction, setLastAction] = useState<LastPipelineAction>(null);
+  const [lastAction, setLastActionState] = useState<LastPipelineAction>(null);
+  const setLastAction = useCallback((next: LastPipelineAction) => {
+    lastActionRef.current = next;
+    setLastActionState(next);
+  }, []);
+  const [generationStatusByTaskId, setGenerationStatusByTaskId] = useState<
+    Record<string, TaskStatus>
+  >({});
+  const [settledGenerationEvents, setSettledGenerationEvents] = useState<
+    Record<string, TaskEvent>
+  >({});
   const [busy, setBusy] = useState(false);
 
   const [savedBrief, setSavedBrief] = useState<UserBriefRequest | null | undefined>(
@@ -495,14 +521,31 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setActiveGenerations,
         setRenderVideoByGenerationId,
       });
-      const hasOpenGeneration = data.generations.some(
-        (entry) =>
-          entry.status === "failed" ||
-          entry.status === "running" ||
-          entry.status === "awaiting_review",
+      const statusByTaskId: Record<string, TaskStatus> = {};
+      for (const entry of data.generations) {
+        if (entry.taskId && entry.status) {
+          statusByTaskId[entry.taskId] = entry.status as TaskStatus;
+        }
+      }
+      setGenerationStatusByTaskId(statusByTaskId);
+
+      const hasAwaitingReview = data.generations.some(
+        (entry) => entry.status === "awaiting_review",
       );
-      if (hasOpenGeneration) {
+      const hasRunning = data.generations.some(
+        (entry) => entry.status === "running",
+      );
+      const hasActiveGeneration = hasAwaitingReview || hasRunning;
+      if (hasActiveGeneration) {
         setLastAction("generation");
+        generationAutoNavRef.current = true;
+        if (hasAwaitingReview) {
+          setPanel("script-review", "hydrate:awaiting-review");
+        } else if (hasRunning) {
+          setPanel("progress", "hydrate:running");
+        }
+      } else {
+        generationAutoNavRef.current = false;
       }
       setDataSource(meta.dataSource);
       return data;
@@ -717,16 +760,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       ) {
         void loadGenerationIntoVariants(match.generationId);
       }
+      if (!generationAutoNavRef.current) return;
+
       if (event.status === "awaiting_review") {
-        setPanel("script-review");
+        if (!OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
+          setPanel("script-review", "generation-task-terminal:awaiting-review");
+        }
         return;
       }
       if (event.status !== "succeeded") {
-        setPanel("progress");
+        if (!OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
+          setPanel("progress", "generation-task-terminal:not-succeeded");
+        }
         return;
       }
     },
-    [activeGenerations, loadGenerationIntoVariants],
+    [activeGenerations, loadGenerationIntoVariants, setPanel],
   );
 
   const handleAllGenerationTerminal = useCallback(
@@ -740,6 +789,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       const hasFailedTask = Object.values(events).some(
         (entry) => entry.status === "failed" || entry.status === "cancelled",
       );
+
+      const autoNavigate = generationAutoNavRef.current;
 
       void (async () => {
         const runEntries = activeRunGenerationsRef.current;
@@ -755,8 +806,17 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           if (activeGenerationRunId) {
             void loadGenerationRunProvenance(activeGenerationRunId);
           }
+          if (
+            autoNavigate &&
+            reloaded &&
+            !OUTPUT_RESULT_PANELS.includes(panelRef.current)
+          ) {
+            setPanel("result", "generation-settlement:reloaded");
+            generationAutoNavRef.current = false;
+            return;
+          }
           if (reloaded) {
-            setPanel("result");
+            generationAutoNavRef.current = false;
             return;
           }
         }
@@ -765,7 +825,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         if (activeGenerationRunId) {
           void loadGenerationRunProvenance(activeGenerationRunId);
         }
-        if (!latest) return;
+        if (!latest) {
+          generationAutoNavRef.current = false;
+          return;
+        }
         const generations = latest.generations;
         if (
           hasFailedTask ||
@@ -774,7 +837,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           )
         ) {
           setLastAction("generation");
-          setPanel("progress");
+          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
+            setPanel("progress", "generation-settlement:failed");
+          }
+          generationAutoNavRef.current = false;
           return;
         }
         if (
@@ -784,10 +850,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               entry.status === "running",
           )
         ) {
-          if (generations.some((entry) => entry.status === "awaiting_review")) {
-            setPanel("script-review");
-          } else {
-            setPanel("progress");
+          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
+            if (generations.some((entry) => entry.status === "awaiting_review")) {
+              setPanel("script-review", "generation-settlement:awaiting-review");
+            } else {
+              setPanel("progress", "generation-settlement:running");
+            }
           }
           return;
         }
@@ -798,7 +866,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           if (runEntries.length > 0) {
             await reloadActiveGenerationResults(runEntries);
           }
-          setPanel("result");
+          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
+            setPanel("result", "generation-settlement:all-succeeded");
+          }
+          generationAutoNavRef.current = false;
         }
       })();
     },
@@ -807,6 +878,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       loadGenerationRunProvenance,
       loadProjectResults,
       reloadActiveGenerationResults,
+      setPanel,
     ],
   );
 
@@ -865,19 +937,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const isBatchAnalysisProgress =
     progressAnalysisBatch != null && progressAnalysisBatch.tasks.length > 0;
 
-  const isGenerationProgress =
+  const showMultiVariantGenerationProgress =
     lastAction === "generation" && activeGenerations.length > 0;
-
-  const { event, mode, sseFailureCount, error } = useTaskProgress({
-    taskId:
-      isGenerationProgress || isBatchAnalysisProgress ? null : singleProgressTaskId,
-    enabled:
-      !isGenerationProgress &&
-      !isBatchAnalysisProgress &&
-      Boolean(singleProgressTaskId),
-    watchKey: progressWatchKey,
-    onTerminal: handleTerminal,
-  });
 
   const generationProgressTasks = useMemo(
     () =>
@@ -890,6 +951,33 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [activeGenerations],
   );
 
+  const watchGenerationTasks = useMemo(() => {
+    if (!showMultiVariantGenerationProgress) return false;
+    return activeGenerations.some((entry) => {
+      const cachedStatus = generationStatusByTaskId[entry.taskId];
+      if (cachedStatus) return isTaskWatchActive(cachedStatus);
+      // Unknown status (e.g. session hydrate before API snapshot): do not subscribe yet.
+      return false;
+    });
+  }, [
+    activeGenerations,
+    generationStatusByTaskId,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  const { event, mode, sseFailureCount, error } = useTaskProgress({
+    taskId:
+      showMultiVariantGenerationProgress || isBatchAnalysisProgress
+        ? null
+        : singleProgressTaskId,
+    enabled:
+      !showMultiVariantGenerationProgress &&
+      !isBatchAnalysisProgress &&
+      Boolean(singleProgressTaskId),
+    watchKey: progressWatchKey,
+    onTerminal: handleTerminal,
+  });
+
   const {
     events: generationEvents,
     modes: generationModes,
@@ -897,29 +985,90 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     error: generationProgressError,
   } = useMultiTaskProgress({
     tasks: generationProgressTasks,
-    enabled: isGenerationProgress,
+    enabled: watchGenerationTasks,
     watchKey: progressWatchKey,
     onTaskTerminal: handleGenerationTaskTerminal,
     onAllTerminal: handleAllGenerationTerminal,
   });
 
   useEffect(() => {
-    if (!isGenerationProgress || lastAction !== "generation") return;
+    if (!showMultiVariantGenerationProgress) return;
+    const updates: Record<string, TaskStatus> = {};
+    for (const [taskId, taskEvent] of Object.entries(generationEvents)) {
+      updates[taskId] = taskEvent.status;
+    }
+    if (Object.keys(updates).length === 0) return;
+    setGenerationStatusByTaskId((previous) => ({ ...previous, ...updates }));
+  }, [generationEvents, showMultiVariantGenerationProgress]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    console.info("[Workbench] task-watch", {
+      watchGenerationTasks,
+      showMultiVariantGenerationProgress,
+      taskIds: activeGenerations.map((entry) => entry.taskId),
+      statuses: generationStatusByTaskId,
+    });
+  }, [
+    activeGenerations,
+    generationStatusByTaskId,
+    showMultiVariantGenerationProgress,
+    watchGenerationTasks,
+  ]);
+
+  useEffect(() => {
+    if (watchGenerationTasks || !showMultiVariantGenerationProgress) return;
+    const taskIds = activeGenerations
+      .map((entry) => entry.taskId)
+      .filter((taskId) => taskId.length > 0);
+    if (taskIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const results: Record<string, TaskEvent> = {};
+      for (const taskId of taskIds) {
+        try {
+          const { data } = await getTask(taskId);
+          results[taskId] = data;
+        } catch {
+          /* task may have been purged */
+        }
+      }
+      if (!cancelled) {
+        setSettledGenerationEvents(results);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeGenerations,
+    showMultiVariantGenerationProgress,
+    watchGenerationTasks,
+  ]);
+
+  const displayGenerationEvents = watchGenerationTasks
+    ? generationEvents
+    : settledGenerationEvents;
+
+  useEffect(() => {
+    if (!generationAutoNavRef.current) return;
+    if (!watchGenerationTasks || lastAction !== "generation") return;
+    if (OUTPUT_RESULT_PANELS.includes(panelRef.current)) return;
     const awaiting = Object.values(generationEvents).some(
       (entry) => entry?.status === "awaiting_review",
     );
     if (awaiting) {
-      setPanel("script-review");
+      setPanel("script-review", "generation-events:awaiting-review");
     }
-  }, [generationEvents, isGenerationProgress, lastAction]);
+  }, [generationEvents, lastAction, setPanel, watchGenerationTasks]);
 
   const allGenerationTasksSucceeded = useMemo(() => {
     if (activeGenerations.length === 0) return false;
     return activeGenerations.every((entry) => {
-      const event = generationEvents[entry.taskId];
-      return event?.status === "succeeded";
+      const taskEvent = displayGenerationEvents[entry.taskId];
+      return taskEvent?.status === "succeeded";
     });
-  }, [activeGenerations, generationEvents]);
+  }, [activeGenerations, displayGenerationEvents]);
 
   useEffect(() => {
     if (lastAction !== "generation" || !OUTPUT_RESULT_PANELS.includes(panel)) return;
@@ -1017,6 +1166,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         label: entry.label ?? getVariantLabel(entry.variant),
       }));
       generationSettlementKeyRef.current = null;
+      generationAutoNavRef.current = true;
       clearGenerationResultCache({
         setVariantPlans,
         setGenerationPlan,
@@ -1026,10 +1176,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       });
       activeRunGenerationsRef.current = entries;
       setActiveGenerations(entries);
+      setSettledGenerationEvents({});
+      const initialStatuses: Record<string, TaskStatus> = {};
+      for (const entry of entries) {
+        initialStatuses[entry.taskId] = "queued";
+      }
+      setGenerationStatusByTaskId(initialStatuses);
       setGenerationId(entries[0]?.generationId ?? null);
       setTaskId(null);
       setProgressWatchKey((key) => key + 1);
-      setPanel("progress");
+      setPanel("progress", "generation-started");
     } catch (err) {
       setDataError(getErrorMessage(err));
     } finally {
@@ -1229,7 +1385,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const hasActiveTask = Boolean(
-    taskId || isGenerationProgress || isBatchAnalysisProgress,
+    taskId || watchGenerationTasks || isBatchAnalysisProgress,
   );
 
   const hasLoadedGenerationResults = useMemo(
@@ -1265,7 +1421,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           generationId: entry.generationId,
           variant: entry.variant,
           label: entry.label,
-          taskEvent: generationEvents[entry.taskId] ?? null,
+          taskEvent: displayGenerationEvents[entry.taskId] ?? null,
         }))
         .filter((entry) => {
           const stage = entry.taskEvent?.stage;
@@ -1275,7 +1431,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             stage === "awaiting_storyboard_review"
           );
         }),
-    [activeGenerations, generationEvents],
+    [activeGenerations, displayGenerationEvents],
   );
 
   return (
@@ -1357,7 +1513,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         onSelectPanel={setPanel}
         taskBadge={
           <>
-            {taskId && !isGenerationProgress && !isBatchAnalysisProgress && (
+            {taskId && !showMultiVariantGenerationProgress && !isBatchAnalysisProgress && (
               <Badge variant="outline" className="ml-auto font-normal">
                 单任务进度
               </Badge>
@@ -1367,7 +1523,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 批量分析 {progressAnalysisBatch.tasks.length} 个
               </Badge>
             ) : null}
-            {isGenerationProgress && (
+            {showMultiVariantGenerationProgress && (
               <Badge variant="ai" className="ml-auto">
                 {activeGenerations.length} 个变体任务
               </Badge>
@@ -1429,7 +1585,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   }
                 }}
               />
-            ) : isGenerationProgress ? (
+            ) : showMultiVariantGenerationProgress ? (
               <MultiTaskProgressPanel
                 projectId={projectId}
                 title="生成计划"
@@ -1438,7 +1594,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   .map((entry) => ({
                     taskId: entry.taskId,
                     label: entry.label,
-                    event: generationEvents[entry.taskId] ?? null,
+                    event: displayGenerationEvents[entry.taskId] ?? null,
                     mode: generationModes[entry.taskId] ?? "idle",
                   }))}
                 sseFailureCounts={generationSseFailureCounts}
