@@ -20,6 +20,7 @@ class RenderOptions:
     storage_root: Path
     emit_progress: ProgressEmitter = _noop_progress
     aspect_ratio: str = "9:16"
+    tts_mode: str | None = None
 
 
 @dataclass(slots=True)
