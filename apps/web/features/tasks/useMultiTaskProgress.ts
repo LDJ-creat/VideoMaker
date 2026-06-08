@@ -5,16 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
 import { preferTaskError } from "@/lib/taskEventMerge";
+import { isTaskTerminalStatus } from "@/lib/taskStatusLabels";
 
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 
 const SSE_FAILURE_THRESHOLD = 3;
 const POLL_INTERVAL_MS = 3000;
-const TERMINAL_STATUSES: TaskStatus[] = [
-  "succeeded",
-  "failed",
-  "cancelled",
-];
 
 export type MultiTaskSpec = {
   taskId: string;
@@ -47,10 +43,6 @@ export type UseMultiTaskProgressResult = {
   allTerminal: boolean;
   anyFailed: boolean;
 };
-
-function isTerminal(status: TaskStatus): boolean {
-  return TERMINAL_STATUSES.includes(status);
-}
 
 function buildTaskIdsKey(tasks: MultiTaskSpec[]): string {
   return tasks
@@ -94,7 +86,10 @@ export function useMultiTaskProgress({
     setEvents(merged);
     setError(null);
 
-    if (isTerminal(next.status) && !notifiedTerminalRef.current.has(next.taskId)) {
+    if (
+      isTaskTerminalStatus(next.status) &&
+      !notifiedTerminalRef.current.has(next.taskId)
+    ) {
       notifiedTerminalRef.current.add(next.taskId);
       onTaskTerminalRef.current?.(next);
     }
@@ -104,7 +99,7 @@ export function useMultiTaskProgress({
       tracked.length > 0 &&
       tracked.every((task) => {
         const event = eventsRef.current[task.taskId];
-        return event && isTerminal(event.status);
+        return event && isTaskTerminalStatus(event.status);
       });
     if (allTerminal && !allTerminalNotifiedRef.current) {
       allTerminalNotifiedRef.current = true;
@@ -136,11 +131,31 @@ export function useMultiTaskProgress({
       const taskId = task.taskId;
       setModes((prev) => ({ ...prev, [taskId]: "sse" }));
 
+      let source: EventSource | undefined;
+      let failures = 0;
+      let pollTimer: ReturnType<typeof setInterval> | undefined;
+      let taskStopped = false;
+
+      const stopTaskWatch = () => {
+        if (taskStopped) return;
+        taskStopped = true;
+        source?.close();
+        source = undefined;
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = undefined;
+        }
+        setModes((prev) => ({ ...prev, [taskId]: "completed" }));
+      };
+
       const pollOnce = async () => {
-        if (disposed) return;
+        if (disposed || taskStopped) return;
         try {
           const { data } = await getTask(taskId);
           applyEvent(data);
+          if (isTaskTerminalStatus(data.status)) {
+            stopTaskWatch();
+          }
         } catch (err) {
           setError(err instanceof Error ? err.message : "轮询任务失败");
         }
@@ -148,13 +163,12 @@ export function useMultiTaskProgress({
 
       void pollOnce();
 
-      const source = new EventSource(getTaskEventsUrl(taskId));
-      let failures = 0;
-      let pollTimer: ReturnType<typeof setInterval> | undefined;
+      source = new EventSource(getTaskEventsUrl(taskId));
 
       const switchToPolling = () => {
-        if (disposed) return;
-        source.close();
+        if (disposed || taskStopped) return;
+        source?.close();
+        source = undefined;
         setModes((prev) => ({ ...prev, [taskId]: "polling" }));
         void pollOnce();
         pollTimer = setInterval(() => {
@@ -163,6 +177,7 @@ export function useMultiTaskProgress({
       };
 
       const registerSseFailure = () => {
+        if (taskStopped) return;
         failures += 1;
         setSseFailureCounts((prev) => ({
           ...prev,
@@ -174,10 +189,14 @@ export function useMultiTaskProgress({
       };
 
       source.addEventListener("task", (message: MessageEvent) => {
+        if (taskStopped) return;
         try {
           const parsed = JSON.parse(message.data as string) as TaskEvent;
           applyEvent(parsed);
           failures = 0;
+          if (isTaskTerminalStatus(parsed.status)) {
+            stopTaskWatch();
+          }
         } catch {
           registerSseFailure();
         }
@@ -187,8 +206,7 @@ export function useMultiTaskProgress({
       };
 
       cleanups.push(() => {
-        source.close();
-        if (pollTimer) clearInterval(pollTimer);
+        stopTaskWatch();
       });
     }
 
@@ -202,7 +220,7 @@ export function useMultiTaskProgress({
     if (tasks.length === 0) return false;
     return tasks.every((task) => {
       const event = events[task.taskId];
-      return event && isTerminal(event.status);
+      return event && isTaskTerminalStatus(event.status);
     });
   }, [events, tasks]);
 

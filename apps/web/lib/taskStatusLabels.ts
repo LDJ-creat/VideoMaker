@@ -45,3 +45,9 @@ export function getTaskStatusBadgeVariant(
 export function isTaskTerminalStatus(status: TaskStatus | string): boolean {
   return status === "succeeded" || status === "failed" || status === "cancelled";
 }
+
+/** Task statuses that should keep SSE / polling subscriptions alive. */
+export function isTaskWatchActive(status: TaskStatus | string | undefined): boolean {
+  if (!status) return false;
+  return !isTaskTerminalStatus(status);
+}
