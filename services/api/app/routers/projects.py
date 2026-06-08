@@ -5,7 +5,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
@@ -54,6 +54,16 @@ class SampleFromUrlRequest(BaseModel):
     url: str
 
 
+class DurationTargetPayload(BaseModel):
+    target_sec: float = Field(alias="targetSec")
+    min_sec: float | None = Field(default=None, alias="minSec")
+    max_sec: float | None = Field(default=None, alias="maxSec")
+    recommended_sec: float | None = Field(default=None, alias="recommendedSec")
+    source: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
 class UserBriefPayload(BaseModel):
     content_category: str | None = Field(default=None, alias="contentCategory")
     topic: str | None = None
@@ -67,6 +77,8 @@ class UserBriefPayload(BaseModel):
     mustMention: list[str] = Field(default_factory=list, alias="mustMention")
     avoidMention: list[str] = Field(default_factory=list, alias="avoidMention")
     supplemental_notes: str | None = Field(default=None, alias="supplementalNotes")
+    duration_target: DurationTargetPayload | None = Field(default=None, alias="durationTarget")
+    aspect_ratio: Literal["9:16", "16:9", "1:1"] | None = Field(default=None, alias="aspectRatio")
 
     model_config = {"populate_by_name": True}
 
