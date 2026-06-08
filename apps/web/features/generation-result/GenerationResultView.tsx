@@ -15,12 +15,24 @@ import {
 import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import { generationRenderVideoUrl } from "@/lib/artifactUrl";
 
+const VIDEO_PROBE_INTERVAL_MS = 2000;
+const VIDEO_PROBE_MAX_ATTEMPTS = 15;
+
 type GenerationResultViewProps = {
   plan: GenerationPlan;
   /** From API when renders/.../output.mp4 exists; skips client probe when set. */
   videoHref?: string;
   showTimeline?: boolean;
 };
+
+async function probeVideoUrl(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: "HEAD" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function GenerationResultView({
   plan,
@@ -41,25 +53,42 @@ export function GenerationResultView({
       return;
     }
     let cancelled = false;
-    fetch(probeTarget, { method: "HEAD" })
-      .then((response) => {
-        if (!cancelled && response.ok) {
-          setProbedVideoUrl(probeTarget);
-        } else if (!cancelled) {
-          setProbedVideoUrl(null);
+    let attempt = 0;
+
+    const runProbe = async () => {
+      while (!cancelled && attempt < VIDEO_PROBE_MAX_ATTEMPTS) {
+        if (await probeVideoUrl(probeTarget)) {
+          if (!cancelled) {
+            setProbedVideoUrl(probeTarget);
+          }
+          return;
         }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setProbedVideoUrl(null);
+        attempt += 1;
+        if (attempt >= VIDEO_PROBE_MAX_ATTEMPTS || cancelled) {
+          if (!cancelled) {
+            setProbedVideoUrl(null);
+          }
+          return;
         }
-      });
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, VIDEO_PROBE_INTERVAL_MS);
+        });
+      }
+    };
+
+    void runProbe();
     return () => {
       cancelled = true;
     };
   }, [probeTarget]);
 
   const playableVideoUrl = apiVideoUrl ?? probedVideoUrl;
+  const narrationDurationSec = plan.narrationDurationSec;
+  const durationTargetSec = plan.durationTargetSec;
+  const narrationLongerThanTarget =
+    narrationDurationSec != null &&
+    durationTargetSec != null &&
+    narrationDurationSec > durationTargetSec + 0.05;
 
   return (
     <div className="space-y-4">
@@ -68,9 +97,16 @@ export function GenerationResultView({
           <CardTitle>生成结果</CardTitle>
           <CardDescription>
             变体 {plan.variant} · {plan.storyboard.length} 个分镜场景
+            {plan.ttsMode ? ` · 口播 ${plan.ttsMode === "global" ? "全片" : "分镜"}` : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {narrationLongerThanTarget ? (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+              口播时长 {narrationDurationSec.toFixed(1)}s 长于目标时长{" "}
+              {durationTargetSec.toFixed(1)}s，成片已按口播延长尾镜。
+            </p>
+          ) : null}
           <div className="grid gap-3">
             {plan.storyboard.map((scene) => (
               <div

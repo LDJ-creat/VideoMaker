@@ -56,6 +56,7 @@ type InputWorkbenchPanelProps = {
 export type InputWorkbenchPanelHandle = {
   getBrief: () => UserBriefRequest;
   getDurationTarget: () => DurationTarget | undefined;
+  getAspectRatio: () => UserBriefRequest["aspectRatio"];
 };
 
 function step3StorageKey(projectId: string): string {
@@ -128,6 +129,7 @@ export const InputWorkbenchPanel = forwardRef<
     () => ({
       getBrief: () => briefEditorRef.current?.getBrief() ?? { sellingPoints: [], mustMention: [], avoidMention: [] },
       getDurationTarget: () => generationConfigRef.current?.getDurationTarget(),
+      getAspectRatio: () => generationConfigRef.current?.getAspectRatio(),
     }),
     [],
   );
@@ -138,6 +140,10 @@ export const InputWorkbenchPanel = forwardRef<
     const durationTarget = generationConfigRef.current?.getDurationTarget();
     if (durationTarget) {
       brief.durationTarget = durationTarget;
+    }
+    const aspectRatio = generationConfigRef.current?.getAspectRatio();
+    if (aspectRatio) {
+      brief.aspectRatio = aspectRatio;
     }
     await saveBrief(projectId, brief);
     onSavedBrief(brief);
@@ -205,6 +211,7 @@ export const InputWorkbenchPanel = forwardRef<
           projectId={projectId}
           assets={assets}
           initialTarget={savedBrief?.durationTarget}
+          initialAspectRatio={savedBrief?.aspectRatio}
           selectedVariantIds={selectedVariantIds}
           onVariantChange={onVariantChange}
           variantsDisabled={busy}

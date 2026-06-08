@@ -1,6 +1,6 @@
 "use client";
 
-import type { DurationTarget } from "@videomaker/contracts";
+import type { AspectRatio, DurationTarget } from "@videomaker/contracts";
 import {
   forwardRef,
   useEffect,
@@ -9,10 +9,17 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { VariantPicker } from "@/features/generation-variants/VariantPicker";
 import { AssetInputPanel } from "@/features/project-input/AssetInputPanel";
+import {
+  ASPECT_RATIO_OPTIONS,
+  aspectRatioDefaultHint,
+  aspectRatioLabel,
+  defaultAspectRatioForDuration,
+} from "@/lib/aspectRatioLabels";
 import {
   formatDurationSec,
   generationStrategyHint,
@@ -26,12 +33,14 @@ import { getErrorMessage } from "@/lib/errors";
 
 export type GenerationConfigPanelHandle = {
   getDurationTarget: () => DurationTarget | undefined;
+  getAspectRatio: () => AspectRatio | undefined;
 };
 
 type GenerationConfigPanelProps = {
   projectId: string;
   assets: ProjectAsset[];
   initialTarget?: DurationTarget | null;
+  initialAspectRatio?: AspectRatio | null;
   selectedVariantIds: string[];
   onVariantChange: (variantIds: string[]) => void;
   variantsDisabled?: boolean;
@@ -46,6 +55,7 @@ export const GenerationConfigPanel = forwardRef<
     projectId,
     assets,
     initialTarget,
+    initialAspectRatio,
     selectedVariantIds,
     onVariantChange,
     variantsDisabled,
@@ -58,6 +68,8 @@ export const GenerationConfigPanel = forwardRef<
   const [targetSec, setTargetSec] = useState<string>("");
   const [minSec, setMinSec] = useState<string>("");
   const [maxSec, setMaxSec] = useState<string>("");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
+  const [aspectRatioTouched, setAspectRatioTouched] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,6 +86,15 @@ export const GenerationConfigPanel = forwardRef<
         if (initialTarget?.maxSec != null) {
           setMaxSec(String(initialTarget.maxSec));
         }
+        if (initialAspectRatio) {
+          setAspectRatio(initialAspectRatio);
+          setAspectRatioTouched(true);
+        } else {
+          setAspectRatio(
+            defaultAspectRatioForDuration(initial, data.shortFormMaxSec),
+          );
+          setAspectRatioTouched(false);
+        }
       })
       .catch((err) => {
         if (!cancelled) setStatus(getErrorMessage(err));
@@ -81,15 +102,33 @@ export const GenerationConfigPanel = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [projectId, initialTarget?.maxSec, initialTarget?.minSec, initialTarget?.targetSec]);
+  }, [
+    projectId,
+    initialAspectRatio,
+    initialTarget?.maxSec,
+    initialTarget?.minSec,
+    initialTarget?.targetSec,
+  ]);
 
   const parsedTarget = Number.parseFloat(targetSec);
   const shortFormMax = recommendation?.shortFormMaxSec ?? 60;
   const maxTarget = recommendation?.maxTargetSec ?? 600;
 
+  useEffect(() => {
+    if (aspectRatioTouched || !Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+      return;
+    }
+    setAspectRatio(defaultAspectRatioForDuration(parsedTarget, shortFormMax));
+  }, [aspectRatioTouched, parsedTarget, shortFormMax]);
+
   const strategyHint = useMemo(() => {
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return null;
     return generationStrategyHint(parsedTarget, shortFormMax);
+  }, [parsedTarget, shortFormMax]);
+
+  const aspectHint = useMemo(() => {
+    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return null;
+    return aspectRatioDefaultHint(parsedTarget, shortFormMax);
   }, [parsedTarget, shortFormMax]);
 
   const buildDurationTarget = (): DurationTarget | undefined => {
@@ -109,13 +148,14 @@ export const GenerationConfigPanel = forwardRef<
     return result;
   };
 
-  useImperativeHandle(ref, () => ({ getDurationTarget: buildDurationTarget }), [
-    maxSec,
-    maxTarget,
-    minSec,
-    parsedTarget,
-    recommendation,
-  ]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      getDurationTarget: buildDurationTarget,
+      getAspectRatio: () => aspectRatio,
+    }),
+    [aspectRatio, maxSec, maxTarget, minSec, parsedTarget, recommendation],
+  );
 
   return (
     <div className="space-y-6">
@@ -165,6 +205,32 @@ export const GenerationConfigPanel = forwardRef<
             <p className="text-xs text-muted-foreground">{strategyHint}</p>
           ) : null}
         </div>
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-border bg-muted/10 p-4">
+        <Label>成片画幅</Label>
+        <div className="flex flex-wrap gap-2">
+          {ASPECT_RATIO_OPTIONS.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              size="sm"
+              variant={aspectRatio === option ? "default" : "outline"}
+              onClick={() => {
+                setAspectRatio(option);
+                setAspectRatioTouched(true);
+              }}
+            >
+              {aspectRatioLabel(option)}
+            </Button>
+          ))}
+        </div>
+        {aspectHint ? (
+          <p className="text-xs text-muted-foreground">{aspectHint}</p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          画幅将同步影响渲染分辨率、素材库检索方向与字幕安全区。
+        </p>
       </div>
 
       <VariantPicker

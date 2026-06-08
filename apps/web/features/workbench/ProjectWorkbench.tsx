@@ -7,7 +7,15 @@ import type {
   TaskEvent,
   VideoStructure,
 } from "@videomaker/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import { DataSourceBanner } from "@/components/data-source-banner";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +103,12 @@ import {
   loadProjectSession,
   saveProjectSession,
 } from "@/lib/project-session";
+import { resolveRenderVideoUrl } from "@/lib/resolveRenderVideoUrl";
+import {
+  generationRunPlansAreLoaded,
+  reloadGenerationRunPlansWithRetry,
+  type ActiveGenerationEntry,
+} from "@/lib/reloadGenerationRunResults";
 
 
 type LastPipelineAction = "analysis" | "generation" | "revise" | null;
@@ -124,7 +138,7 @@ function applyLatestGenerations(
     setGapReport: (report: GapReport | null) => void;
     setGapApiPending: (pending: boolean) => void;
     setActiveGenerations: (entries: ActiveGeneration[]) => void;
-    setRenderVideoByGenerationId: (urls: Record<string, string>) => void;
+    setRenderVideoByGenerationId: Dispatch<SetStateAction<Record<string, string>>>;
   },
 ) {
   const plans: Record<string, GenerationPlan> = {};
@@ -133,11 +147,13 @@ function applyLatestGenerations(
     if (entry.plan) {
       plans[entry.generationId] = entry.plan;
     }
-    if (entry.renderVideoUrl) {
-      renderVideos[entry.generationId] = entry.renderVideoUrl;
+    const planVideo = (entry.plan as GenerationResponse | undefined)?.renderVideoUrl;
+    const videoUrl = entry.renderVideoUrl ?? planVideo;
+    if (videoUrl) {
+      renderVideos[entry.generationId] = videoUrl;
     }
   }
-  setters.setRenderVideoByGenerationId(renderVideos);
+  setters.setRenderVideoByGenerationId((prev) => ({ ...prev, ...renderVideos }));
   setters.setVariantPlans(plans);
   setters.setActiveGenerations(
     data.generations.map((entry) => ({
@@ -164,7 +180,78 @@ function applyLatestGenerations(
   }
 }
 
+function applyReloadedGenerationPlans(
+  plans: Record<string, GenerationResponse>,
+  entries: ActiveGenerationEntry[],
+  setters: {
+    setVariantPlans: (plans: Record<string, GenerationPlan>) => void;
+    setGenerationId: (id: string | null) => void;
+    setGenerationPlan: (plan: GenerationPlan | null) => void;
+    setActiveVariantGenerationId: (id: string | null) => void;
+    setGapReport: (report: GapReport | null) => void;
+    setGapApiPending: (pending: boolean) => void;
+    setActiveGenerations: (entries: ActiveGeneration[]) => void;
+    setRenderVideoByGenerationId: Dispatch<SetStateAction<Record<string, string>>>;
+  },
+) {
+  const planMap: Record<string, GenerationPlan> = {};
+  const renderVideos: Record<string, string> = {};
+  for (const [generationId, data] of Object.entries(plans)) {
+    planMap[generationId] = data;
+    if (data.renderVideoUrl) {
+      renderVideos[generationId] = data.renderVideoUrl;
+    }
+  }
+  setters.setVariantPlans(planMap);
+  setters.setRenderVideoByGenerationId((prev) => ({ ...prev, ...renderVideos }));
+  setters.setActiveGenerations(
+    entries.map((entry) => ({
+      generationId: entry.generationId,
+      variant: entry.variant,
+      taskId: entry.taskId,
+      label: entry.label,
+    })),
+  );
+  const primary =
+    entries.find((entry) => planMap[entry.generationId]) ?? entries[0];
+  if (!primary) return;
+  const primaryPlan = planMap[primary.generationId];
+  if (!primaryPlan) return;
+  setters.setGenerationId(primary.generationId);
+  setters.setActiveVariantGenerationId(primary.generationId);
+  setters.setGenerationPlan(primaryPlan);
+  const gap = (primaryPlan as GenerationResponse).gapReport;
+  if (gap) {
+    setters.setGapReport(gap);
+    setters.setGapApiPending(false);
+  } else {
+    setters.setGapReport(null);
+    setters.setGapApiPending(false);
+  }
+}
+
+function clearGenerationResultCache(setters: {
+  setVariantPlans: (plans: Record<string, GenerationPlan>) => void;
+  setGenerationPlan: (plan: GenerationPlan | null) => void;
+  setGapReport: (report: GapReport | null) => void;
+  setRenderVideoByGenerationId: Dispatch<SetStateAction<Record<string, string>>>;
+  setActiveVariantGenerationId: (id: string | null) => void;
+}) {
+  setters.setVariantPlans({});
+  setters.setGenerationPlan(null);
+  setters.setGapReport(null);
+  setters.setRenderVideoByGenerationId({});
+  setters.setActiveVariantGenerationId(null);
+}
+
 export type { WorkbenchPanel } from "@/features/workbench/workbenchTypes";
+
+const OUTPUT_RESULT_PANELS: WorkbenchPanel[] = [
+  "gap",
+  "timeline",
+  "narration",
+  "result",
+];
 
 function buildGenerationSettlementKey(
   events: Record<string, TaskEvent>,
@@ -178,6 +265,7 @@ function buildGenerationSettlementKey(
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const inputWorkbenchRef = useRef<InputWorkbenchPanelHandle>(null);
   const generationSettlementKeyRef = useRef<string | null>(null);
+  const activeRunGenerationsRef = useRef<ActiveGeneration[]>([]);
   const [panel, setPanel] = useState<WorkbenchPanel>("input");
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
@@ -229,6 +317,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [activeGenerations, setActiveGenerations] = useState<ActiveGeneration[]>(
     [],
   );
+
+  useEffect(() => {
+    if (activeGenerations.length > 0) {
+      activeRunGenerationsRef.current = activeGenerations;
+    }
+  }, [activeGenerations]);
   const [analysisBatch, setAnalysisBatch] = useState<{
     tasks: Array<{ sampleId: string; taskId: string }>;
     maxConcurrent: number;
@@ -490,6 +584,69 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     analysisBatch,
   ]);
 
+  const refreshRenderVideoUrls = useCallback(async (generationIds: string[]) => {
+    const uniqueIds = [...new Set(generationIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+
+    const resolved = new Set<string>();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const updates: Record<string, string> = {};
+      await Promise.all(
+        uniqueIds
+          .filter((generationId) => !resolved.has(generationId))
+          .map(async (generationId) => {
+            try {
+              const { data } = await getGeneration(generationId);
+              if (data.renderVideoUrl) {
+                updates[generationId] = data.renderVideoUrl;
+              }
+            } catch {
+              /* generation may still be persisting */
+            }
+          }),
+      );
+      if (Object.keys(updates).length > 0) {
+        setRenderVideoByGenerationId((prev) => ({ ...prev, ...updates }));
+        for (const generationId of Object.keys(updates)) {
+          resolved.add(generationId);
+        }
+      }
+      if (uniqueIds.every((id) => resolved.has(id))) return;
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 1500);
+      });
+    }
+  }, []);
+
+  const reloadActiveGenerationResults = useCallback(
+    async (entries: ActiveGenerationEntry[]) => {
+      if (entries.length === 0) return false;
+      const plans = await reloadGenerationRunPlansWithRetry(
+        entries,
+        async (generationId) => (await getGeneration(generationId)).data,
+      );
+      if (!plans) return false;
+      applyReloadedGenerationPlans(plans, entries, {
+        setVariantPlans,
+        setGenerationId,
+        setGenerationPlan,
+        setActiveVariantGenerationId,
+        setGapReport,
+        setGapApiPending,
+        setActiveGenerations,
+        setRenderVideoByGenerationId,
+      });
+      const missingVideo = entries
+        .map((entry) => entry.generationId)
+        .filter((generationId) => !plans[generationId]?.renderVideoUrl);
+      if (missingVideo.length > 0) {
+        void refreshRenderVideoUrls(missingVideo);
+      }
+      return true;
+    },
+    [refreshRenderVideoUrls],
+  );
+
   const loadGenerationIntoVariants = useCallback(
     async (currentGenerationId: string) => {
       setDataLoading(true);
@@ -504,6 +661,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             ...prev,
             [data.id]: data.renderVideoUrl!,
           }));
+        } else {
+          void refreshRenderVideoUrls([data.id]);
         }
         setDataSource(meta.dataSource);
         if (data.gapReport) {
@@ -521,7 +680,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setDataLoading(false);
       }
     },
-    [],
+    [refreshRenderVideoUrls],
   );
 
   const loadGenerationResults = useCallback(
@@ -583,6 +742,25 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       );
 
       void (async () => {
+        const runEntries = activeRunGenerationsRef.current;
+        if (
+          !hasFailedTask &&
+          runEntries.length > 0 &&
+          runEntries.every((entry) => {
+            const event = events[entry.taskId];
+            return event?.status === "succeeded";
+          })
+        ) {
+          const reloaded = await reloadActiveGenerationResults(runEntries);
+          if (activeGenerationRunId) {
+            void loadGenerationRunProvenance(activeGenerationRunId);
+          }
+          if (reloaded) {
+            setPanel("result");
+            return;
+          }
+        }
+
         const latest = await loadProjectResults();
         if (activeGenerationRunId) {
           void loadGenerationRunProvenance(activeGenerationRunId);
@@ -617,16 +795,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           generations.length > 0 &&
           generations.every((entry) => entry.status === "succeeded")
         ) {
-          const primary = generations[0];
-          if (primary) {
-            setGenerationId(primary.generationId);
-            setActiveVariantGenerationId(primary.generationId);
+          if (runEntries.length > 0) {
+            await reloadActiveGenerationResults(runEntries);
           }
           setPanel("result");
         }
       })();
     },
-    [activeGenerationRunId, loadGenerationRunProvenance, loadProjectResults],
+    [
+      activeGenerationRunId,
+      loadGenerationRunProvenance,
+      loadProjectResults,
+      reloadActiveGenerationResults,
+    ],
   );
 
   const handleTerminal = useCallback(
@@ -732,6 +913,29 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, [generationEvents, isGenerationProgress, lastAction]);
 
+  const allGenerationTasksSucceeded = useMemo(() => {
+    if (activeGenerations.length === 0) return false;
+    return activeGenerations.every((entry) => {
+      const event = generationEvents[entry.taskId];
+      return event?.status === "succeeded";
+    });
+  }, [activeGenerations, generationEvents]);
+
+  useEffect(() => {
+    if (lastAction !== "generation" || !OUTPUT_RESULT_PANELS.includes(panel)) return;
+    if (!allGenerationTasksSucceeded) return;
+    const runEntries = activeRunGenerationsRef.current;
+    if (runEntries.length === 0) return;
+    if (generationRunPlansAreLoaded(runEntries, variantPlans)) return;
+    void reloadActiveGenerationResults(runEntries);
+  }, [
+    allGenerationTasksSucceeded,
+    lastAction,
+    panel,
+    reloadActiveGenerationResults,
+    variantPlans,
+  ]);
+
   const handleTaskStarted = useCallback(
     (nextTaskId: string, nextSampleId: string) => {
       setLastAction("analysis");
@@ -774,6 +978,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       if (durationTarget) {
         brief.durationTarget = durationTarget;
       }
+      const aspectRatio = inputWorkbenchRef.current?.getAspectRatio();
+      if (aspectRatio) {
+        brief.aspectRatio = aspectRatio;
+      }
       await saveBrief(projectId, brief);
       setSavedBrief(brief);
 
@@ -809,6 +1017,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         label: entry.label ?? getVariantLabel(entry.variant),
       }));
       generationSettlementKeyRef.current = null;
+      clearGenerationResultCache({
+        setVariantPlans,
+        setGenerationPlan,
+        setGapReport,
+        setRenderVideoByGenerationId,
+        setActiveVariantGenerationId,
+      });
+      activeRunGenerationsRef.current = entries;
       setActiveGenerations(entries);
       setGenerationId(entries[0]?.generationId ?? null);
       setTaskId(null);
@@ -979,7 +1195,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         variant: meta?.variant ?? plan.variant ?? "default",
         label: meta?.label ?? getVariantLabel(plan.variant ?? "default"),
         plan,
-        renderVideoUrl: renderVideoByGenerationId[entryGenerationId],
+        renderVideoUrl: resolveRenderVideoUrl(
+          plan,
+          renderVideoByGenerationId,
+        ),
       };
     },
   );
@@ -1013,15 +1232,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     taskId || isGenerationProgress || isBatchAnalysisProgress,
   );
 
+  const hasLoadedGenerationResults = useMemo(
+    () =>
+      Boolean(generationPlan) ||
+      generationRunPlansAreLoaded(activeGenerations, variantPlans),
+    [activeGenerations, generationPlan, variantPlans],
+  );
+
   const phaseState = useMemo(
     () =>
       computeWorkbenchPhaseState({
         hasAnalyzedSample,
         hasActiveTask,
-        hasGenerationPlan: Boolean(generationPlan),
+        hasGenerationPlan: hasLoadedGenerationResults,
         panel,
       }),
-    [generationPlan, hasActiveTask, hasAnalyzedSample, panel],
+    [hasActiveTask, hasAnalyzedSample, hasLoadedGenerationResults, panel],
   );
 
   const taskInProgress =
@@ -1418,11 +1644,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               <GenerationResultView
                 plan={generationPlan}
                 showTimeline
-                videoHref={
-                  generationPlan.id
-                    ? renderVideoByGenerationId[generationPlan.id]
-                    : undefined
-                }
+                videoHref={resolveRenderVideoUrl(
+                  generationPlan,
+                  renderVideoByGenerationId,
+                )}
               />
             ) : (
               <EmptyPanel message="暂无生成结果。" />
