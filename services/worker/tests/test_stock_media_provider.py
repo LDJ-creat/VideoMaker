@@ -97,12 +97,20 @@ def test_stock_media_provider_concatenates_long_slot_segments(tmp_path: Path) ->
         def search_photos(self, query: str, *, orientation=None, per_page=15):
             return []
 
-        def search_videos(self, query: str, *, orientation=None, per_page=15):
-            return [
-                {
-                    "id": hash(query) % 10000,
-                    "duration": 12,
-                    "tags": [query],
+        def search_videos(
+            self,
+            query: str,
+            *,
+            orientation=None,
+            per_page=15,
+            min_duration=None,
+            max_duration=None,
+        ):
+                return [
+                    {
+                        "id": hash(query) % 10000,
+                        "duration": 20,
+                        "tags": [query],
                     "url": f"https://www.pexels.com/video/{hash(query)}/",
                     "user": {"name": "Contributor"},
                     "video_files": [
@@ -194,7 +202,7 @@ def test_stock_media_provider_falls_back_to_image_generation(tmp_path: Path) -> 
         def search_photos(self, query: str, *, orientation=None, per_page=15):
             return []
 
-        def search_videos(self, query: str, *, orientation=None, per_page=15):
+        def search_videos(self, query: str, *, orientation=None, per_page=15, min_duration=None, max_duration=None):
             return []
 
     ctx = MaterialContext(

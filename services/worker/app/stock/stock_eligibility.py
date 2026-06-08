@@ -215,37 +215,30 @@ def slot_needs_motion_local(slot: dict[str, Any]) -> bool:
 
 
 def stock_search_preferences(
-
     slot: dict[str, Any],
-
     *,
-
     scene: dict[str, Any] | None = None,
-
     brief: dict[str, Any] | None = None,
-
+    aspect_ratio: str | None = None,
 ) -> dict[str, Any]:
+    from app.render.aspect_ratio import pexels_orientation, resolve_aspect_ratio
 
     slot = completion_slot_for_stock(slot, brief=brief)
-
     prefer_video = slot_needs_motion_local(slot) or str(slot.get("role", "")) == "usage_scene"
 
     orientation: str | None = None
-
-    if scene:
-
+    if aspect_ratio:
+        orientation = pexels_orientation(aspect_ratio)
+    elif isinstance(brief, dict) and brief.get("aspectRatio"):
+        target = float((brief.get("durationTarget") or {}).get("targetSec") or 60.0)
+        orientation = pexels_orientation(resolve_aspect_ratio(brief, target_sec=target))
+    elif scene:
         visual = str(scene.get("visual", "")).lower()
-
         if any(token in visual for token in ("vertical", "portrait", "竖屏", "9:16")):
-
             orientation = "portrait"
-
         elif any(token in visual for token in ("square", "1:1")):
-
             orientation = "square"
-
         elif any(token in visual for token in ("landscape", "横屏", "16:9")):
-
             orientation = "landscape"
 
     return {"preferVideo": prefer_video, "orientation": orientation}

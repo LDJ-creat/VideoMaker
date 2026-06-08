@@ -82,6 +82,8 @@ class PexelsTool:
         *,
         orientation: str | None = None,
         per_page: int = 15,
+        min_duration: int | None = None,
+        max_duration: int | None = None,
     ) -> list[dict[str, Any]]:
         if self._fixture_mode:
             return [
@@ -104,6 +106,10 @@ class PexelsTool:
         params: dict[str, Any] = {"query": query, "per_page": per_page}
         if orientation in {"landscape", "portrait", "square"}:
             params["orientation"] = orientation
+        if min_duration is not None and min_duration > 0:
+            params["min_duration"] = int(min_duration)
+        if max_duration is not None and max_duration > 0:
+            params["max_duration"] = int(max_duration)
         data = self._request(self.VIDEO_SEARCH_URL, params)
         videos = data.get("videos")
         return videos if isinstance(videos, list) else []

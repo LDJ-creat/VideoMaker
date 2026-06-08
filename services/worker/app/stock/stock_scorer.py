@@ -80,6 +80,13 @@ def pick_best_candidate(
 
     for media_type, items in ordered:
         for item in items:
+            if (
+                media_type == "video"
+                and target_duration_sec is not None
+                and float(item.get("duration") or 0.0) > 0
+                and float(item.get("duration") or 0.0) < target_duration_sec * 0.9
+            ):
+                continue
             score = score_stock_candidate(
                 query=query,
                 item=item,
