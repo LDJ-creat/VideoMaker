@@ -129,6 +129,7 @@ class HyperFramesMaterialProvider:
             output_clip=output_clip,
             log_path=log_path,
             asset_root=ctx.generated_root,
+            aspect_ratio=ctx.aspect_ratio,
         )
         if not render_result.get("ok"):
             error = render_result.get("error") or {}

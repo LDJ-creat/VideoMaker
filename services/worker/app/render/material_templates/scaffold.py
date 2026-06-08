@@ -90,11 +90,18 @@ def _resolve_asset_path(
     raise MaterialScaffoldError("ken-burns requires asset_root to resolve assetRefs")
 
 
-def _build_styles(*, primary: str, background: str, text: str) -> str:
+def _build_styles(
+    *,
+    primary: str,
+    background: str,
+    text: str,
+    canvas_width: int,
+    canvas_height: int,
+) -> str:
     return f"""
       .card {{
-        width: 1920px;
-        height: 1080px;
+        width: {canvas_width}px;
+        height: {canvas_height}px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -138,8 +145,8 @@ def _build_styles(*, primary: str, background: str, text: str) -> str:
         to {{ opacity: 1; transform: translateY(0); }}
       }}
       .lower-third {{
-        width: 1920px;
-        height: 1080px;
+        width: {canvas_width}px;
+        height: {canvas_height}px;
         position: relative;
         background: {background};
         color: {text};
@@ -176,8 +183,8 @@ def _build_styles(*, primary: str, background: str, text: str) -> str:
         to {{ opacity: 1; transform: translateY(0); }}
       }}
       .ken-burns {{
-        width: 1920px;
-        height: 1080px;
+        width: {canvas_width}px;
+        height: {canvas_height}px;
         overflow: hidden;
         background: {background};
       }}
@@ -221,6 +228,8 @@ def _render_body(
     *,
     asset_root: Path | None,
     composition_dir: Path,
+    canvas_width: int,
+    canvas_height: int,
 ) -> tuple[str, str, str]:
     template = spec["template"]
     params = sanitize_params(spec.get("params", {}))
@@ -273,7 +282,13 @@ def _render_body(
     else:
         raise MaterialScaffoldError(f"Unsupported template: {template}")
 
-    styles = _build_styles(primary=primary, background=background, text=text)
+    styles = _build_styles(
+        primary=primary,
+        background=background,
+        text=text,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+    )
     timeline_script = _build_timeline_script(template, duration_sec=duration_sec)
     return fragment, styles, timeline_script
 
@@ -301,12 +316,14 @@ def _write_index_html(
     styles: str,
     timeline_script: str,
     duration_sec: float,
+    canvas_width: int,
+    canvas_height: int,
 ) -> None:
     html_doc = f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=1920, height=1080" />
+    <meta name="viewport" content="width={canvas_width}, height={canvas_height}" />
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       * {{
@@ -317,8 +334,8 @@ def _write_index_html(
       html,
       body {{
         margin: 0;
-        width: 1920px;
-        height: 1080px;
+        width: {canvas_width}px;
+        height: {canvas_height}px;
         overflow: hidden;
         background: #000;
       }}
@@ -331,8 +348,8 @@ def _write_index_html(
       data-composition-id="main"
       data-start="0"
       data-duration="{duration_sec:g}"
-      data-width="1920"
-      data-height="1080"
+      data-width="{canvas_width}"
+      data-height="{canvas_height}"
     >
       {body_html}
     </div>
@@ -366,7 +383,11 @@ def build_composition(
     *,
     asset_root: Path | None = None,
     project_root: Path | None = None,
+    aspect_ratio: str = "9:16",
 ) -> Path:
+    from app.render.aspect_ratio import render_dimensions
+
+    canvas_width, canvas_height = render_dimensions(aspect_ratio)
     validation = validate_material_spec(spec)
     if not validation.valid:
         messages = "; ".join(error.message for error in validation.errors)
@@ -385,6 +406,8 @@ def build_composition(
         spec,
         asset_root=asset_root,
         composition_dir=output_dir,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
     )
     _write_hyperframes_json(output_dir)
     _write_index_html(
@@ -393,5 +416,7 @@ def build_composition(
         styles=styles,
         timeline_script=timeline_script,
         duration_sec=float(spec["durationSec"]),
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
     )
     return output_dir

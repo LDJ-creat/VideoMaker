@@ -81,6 +81,9 @@ def normalize_user_brief(raw: dict[str, Any] | None) -> dict[str, Any]:
                 normalized["durationTarget"][key] = float(duration_target[key])
         if duration_target.get("source") in {"sample", "user", "default"}:
             normalized["durationTarget"]["source"] = duration_target["source"]
+    aspect_ratio = source.get("aspectRatio")
+    if isinstance(aspect_ratio, str) and aspect_ratio in {"9:16", "16:9", "1:1"}:
+        normalized["aspectRatio"] = aspect_ratio
     return normalized
 
 

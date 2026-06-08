@@ -38,6 +38,25 @@ def test_build_asset_inventory_contract_valid() -> None:
     assert validation.valid, validation.errors
 
 
+def test_build_asset_inventory_accepts_duration_and_aspect_ratio() -> None:
+    inventory = build_asset_inventory(
+        project_id="project-1",
+        user_brief={
+            "topic": "为人处世",
+            "sellingPoints": ["真诚"],
+            "mustMention": [],
+            "avoidMention": [],
+            "durationTarget": {"targetSec": 179, "source": "user"},
+            "aspectRatio": "16:9",
+        },
+        assets=[],
+    )
+    validation = validate_contract("asset-inventory", inventory)
+    assert validation.valid, validation.errors
+    assert inventory["userBrief"]["aspectRatio"] == "16:9"
+    assert inventory["userBrief"]["durationTarget"]["targetSec"] == 179
+
+
 def test_slot_mapper_fixture_has_valid_matches() -> None:
     slot_matches = _load_slot_matches_fixture()
     assert slot_matches

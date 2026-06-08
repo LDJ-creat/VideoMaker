@@ -19,6 +19,7 @@ class RenderOptions:
     timeline: dict[str, Any]
     storage_root: Path
     emit_progress: ProgressEmitter = _noop_progress
+    aspect_ratio: str = "9:16"
 
 
 @dataclass(slots=True)

@@ -37,6 +37,7 @@ class HyperFramesRenderBackend(RenderBackend):
             timeline=options.timeline,
             composition_dir=composition_dir,
             render_root=render_root,
+            aspect_ratio=options.aspect_ratio,
         )
 
         preview_path = render_root / "preview.html"

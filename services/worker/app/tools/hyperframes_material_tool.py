@@ -33,6 +33,7 @@ class HyperFramesMaterialTool:
         output_clip: Path,
         log_path: Path,
         asset_root: Path | None = None,
+        aspect_ratio: str = "9:16",
     ) -> dict[str, Any]:
         if self._emit_progress is not None:
             self._emit_progress("rendering_material", "Rendering HyperFrames material clip")
@@ -62,6 +63,7 @@ class HyperFramesMaterialTool:
                 output_dir,
                 asset_root=asset_root,
                 project_root=project_root,
+                aspect_ratio=aspect_ratio,
             )
         except MaterialScaffoldError as exc:
             error_code = (

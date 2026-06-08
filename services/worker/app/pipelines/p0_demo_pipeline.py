@@ -1239,6 +1239,7 @@ class P0DemoPipeline:
                     timeline=plan["timeline"],
                     storage_root=self._storage_root,
                     emit_progress=render_progress,
+                    aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
                 )
             )
 
