@@ -409,6 +409,8 @@ export type DurationTarget = {
 
 export type GenerationStrategy = "short_form_direct" | "long_form_composed";
 
+export type AspectRatio = "9:16" | "16:9" | "1:1";
+
 export type ScriptReviewStatus = "draft" | "approved";
 
 export type UserBrief = {
@@ -426,6 +428,7 @@ export type UserBrief = {
   avoidMention: string[];
   supplementalNotes?: string;
   durationTarget?: DurationTarget;
+  aspectRatio?: AspectRatio;
 };
 
 export type UserAsset = {
@@ -649,6 +652,9 @@ export type GenerationPlan = {
   variant: GenerationVariant;
   generationStrategy?: GenerationStrategy;
   durationTargetSec?: number;
+  aspectRatio?: AspectRatio;
+  ttsMode?: "global" | "per_scene";
+  narrationDurationSec?: number;
   masterNarration: string;
   storyboard: StoryboardScene[];
   timeline: RenderTimeline;

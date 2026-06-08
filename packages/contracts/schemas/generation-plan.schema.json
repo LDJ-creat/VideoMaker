@@ -16,6 +16,15 @@
       "enum": ["short_form_direct", "long_form_composed"]
     },
     "durationTargetSec": { "type": "number", "minimum": 1 },
+    "aspectRatio": {
+      "type": "string",
+      "enum": ["9:16", "16:9", "1:1"]
+    },
+    "ttsMode": {
+      "type": "string",
+      "enum": ["global", "per_scene"]
+    },
+    "narrationDurationSec": { "type": "number", "minimum": 0 },
     "masterNarration": { "type": "string" },
     "storyboard": {
       "type": "array",

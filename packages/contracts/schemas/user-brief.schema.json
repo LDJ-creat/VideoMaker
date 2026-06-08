@@ -29,7 +29,11 @@
     "mustMention": { "type": "array", "items": { "type": "string" } },
     "avoidMention": { "type": "array", "items": { "type": "string" } },
     "supplementalNotes": { "type": "string" },
-    "durationTarget": { "$ref": "duration-target.schema.json" }
+    "durationTarget": { "$ref": "duration-target.schema.json" },
+    "aspectRatio": {
+      "type": "string",
+      "enum": ["9:16", "16:9", "1:1"]
+    }
   },
   "additionalProperties": false
 }
