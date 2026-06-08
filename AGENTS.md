@@ -126,6 +126,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
+| `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 
 ## Current Implementation State
 
@@ -237,6 +238,11 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
 | `VIDEOMAKER_TTS_MODE` | TTS synthesis: `global` (single `master.wav`) or `per_scene` (`{slotId}.wav`) | unset → `long_form_composed` uses `global`, else `per_scene` |
 | `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
+| `VIDEOMAKER_RENDER_BACKEND` | Final MP4: `ffmpeg`, `hyperframes`, or unset (auto: ffmpeg with HF fallback on effect/packaging text) | unset (auto) |
+| `VIDEOMAKER_FFMPEG_RENDER_FPS` | FFmpeg render FPS for still→video and re-encode | `30` |
+| `VIDEOMAKER_FFMPEG_VIDEO_CRF` | libx264 CRF for FFmpeg final encode | `23` |
+| `VIDEOMAKER_FFMPEG_BGM_VOLUME` | BGM level in FFmpeg audio mix | `0.25` |
+| `VIDEOMAKER_FFMPEG_TRANSITION_MODE` | Scene transitions: `cut`, `overlay_fade`, or `xfade` | `cut` |
 
 Subtitles are rebuilt after material completion from voiceover WAV windows (not storyboard char-weight placeholders). Global TTS writes one `vo-master` clip; timeline may extend to `narrationDurationSec` when narration exceeds the planned duration.
 
@@ -284,7 +290,7 @@ Pipelines and tools:
 - **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.)
 - **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
 - **Tools:** `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, `llm_tool`, `image_gen_tool`, `video_gen_tool`, `tts_tool`, `hyperframes_tool`
-- **Render:** `render_timeline_to_hyperframes`, `hyperframes_backend` (preview under `generations/{generationId}/render/`)
+- **Render:** `render_timeline_to_hyperframes`, `composition_preview`, `ffmpeg_backend` (default final MP4), `hyperframes_backend` (fallback / slot material via `hyperframes_material_tool`)
 
 ```powershell
 cd services/worker
