@@ -123,3 +123,9 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(tmp_pa
     assert html.count("<audio") >= len(tts_actions)
     assert "node.pause()" in html
     assert (render_root / "materials").is_dir()
+
+    from app.render.timeline_compiler.subtitle_ass import collect_subtitle_clips
+
+    subtitle_clips_after = collect_subtitle_clips(updated_plan["timeline"])
+    assert subtitle_clips_after
+    assert all(float(c["endSec"]) > float(c["startSec"]) for c in subtitle_clips_after)
