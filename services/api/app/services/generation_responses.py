@@ -14,7 +14,7 @@ def generation_render_video_url(
     project_id: str,
     generation_id: str,
 ) -> str | None:
-    """Public media URL when HyperFrames produced a non-empty output.mp4."""
+    """Public media URL when render backend produced a non-empty output.mp4."""
     mp4 = (
         storage_root
         / "projects"

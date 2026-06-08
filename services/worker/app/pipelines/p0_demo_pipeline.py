@@ -69,7 +69,8 @@ from app.pipelines.sample_analysis_progress import (
 )
 from app.pipelines.sample_pipeline import SampleAnalysisPipeline
 from app.render.backend import RenderOptions
-from app.render.hyperframes_backend import HyperFramesRenderBackend
+from app.render.resolve_render_backend import build_render_backend
+from app.tools.ffmpeg_tool import build_fixture_ffmpeg_tool
 from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
 from app.observability.sink import build_observability_sink
 from app.runtime.checkpoint import (
@@ -1219,6 +1220,7 @@ class P0DemoPipeline:
             def render_progress(stage: str) -> None:
                 stage_map = {
                     "building_timeline": (80, "Building HyperFrames composition"),
+                    "compiling_timeline": (85, "Compiling FFmpeg timeline"),
                     "rendering": (90, "Rendering preview"),
                     "completed": (98, "Finalizing render output"),
                 }
@@ -1230,8 +1232,18 @@ class P0DemoPipeline:
                     message=message,
                 )
 
-            render_tool = build_fixture_hyperframes_tool() if self._uses_fixture_runtime() else None
-            backend = HyperFramesRenderBackend(tool=render_tool)
+            if self._uses_fixture_runtime():
+                render_tool = build_fixture_hyperframes_tool()
+                ffmpeg_tool = build_fixture_ffmpeg_tool()
+            else:
+                render_tool = None
+                ffmpeg_tool = None
+            backend = build_render_backend(
+                plan["timeline"],
+                plan=plan,
+                hyperframes_tool=render_tool,
+                ffmpeg_tool=ffmpeg_tool,
+            )
             render_output = backend.render(
                 RenderOptions(
                     project_id=project_id,
@@ -1240,6 +1252,7 @@ class P0DemoPipeline:
                     storage_root=self._storage_root,
                     emit_progress=render_progress,
                     aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
+                    tts_mode=str(plan.get("ttsMode") or "") or None,
                 )
             )
 

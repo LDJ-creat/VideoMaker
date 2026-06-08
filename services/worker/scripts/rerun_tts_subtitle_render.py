@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-run TTS + subtitle timeline patch + HyperFrames render for an existing generation.
+"""Re-run TTS + subtitle timeline patch + final render for an existing generation.
 
 Reuses storyboard.script and existing slot*.mp4 under materials/; does not call LLM or video APIs.
 
@@ -50,7 +50,7 @@ from app.providers.completion_registry import (
 from app.providers.material_types import MaterialContext
 from app.providers.tts_provider import TTSProvider
 from app.render.backend import RenderOptions
-from app.render.hyperframes_backend import HyperFramesRenderBackend
+from app.render.resolve_render_backend import build_render_backend
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.tools.tts_tool import TTSTool
 from model_gateway.store import ModelGatewayStore
@@ -168,7 +168,16 @@ def main() -> int:
         action="store_true",
         help="Only patch timeline and render (requires existing slot*.wav)",
     )
+    parser.add_argument(
+        "--render-backend",
+        choices=("ffmpeg", "hyperframes"),
+        default=None,
+        help="Override VIDEOMAKER_RENDER_BACKEND for this run",
+    )
     args = parser.parse_args()
+
+    if args.render_backend:
+        os.environ["VIDEOMAKER_RENDER_BACKEND"] = args.render_backend
 
     storage_root = (args.storage_root or _default_storage_root()).resolve()
     database_path = (args.database_path or _default_database_path(storage_root)).resolve()
@@ -304,12 +313,12 @@ def main() -> int:
     if output_mp4.is_file():
         output_mp4.unlink()
 
-    print("Rendering HyperFrames composition -> output.mp4 ...")
+    print("Rendering timeline -> output.mp4 ...")
 
     def render_progress(stage: str) -> None:
         print(f"  [render] {stage}")
 
-    backend = HyperFramesRenderBackend()
+    backend = build_render_backend(plan["timeline"], plan=plan)
     render_output = backend.render(
         RenderOptions(
             project_id=project_id,
@@ -317,6 +326,7 @@ def main() -> int:
             timeline=plan["timeline"],
             storage_root=storage_root,
             emit_progress=render_progress,
+            tts_mode=str(plan.get("ttsMode") or "") or None,
         )
     )
 
