@@ -131,6 +131,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
+| `2026-06-09-llm-vo-directive-tts-plan.md` | LLM `narrationVoProfile` / 分镜 `voDirective` → 四层 merge → global `master.wav`（快路径/分段拼接）；冻结 per_scene | `docs/demos/narration-alignment-e2e-checklist.md` § VO directive |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
 ## Current Implementation State
@@ -241,7 +242,7 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_STOCK_MEDIA_ENABLED` | Enable Pexels stock search in gap completion | `true` |
 | `VIDEOMAKER_STOCK_MATCH_MIN_SCORE` | Minimum relevance score to accept a Pexels candidate | `0.55` |
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
-| `VIDEOMAKER_TTS_MODE` | TTS synthesis: `global` (single `master.wav`) or `per_scene` (`{slotId}.wav`) | unset → `global` |
+| `VIDEOMAKER_TTS_MODE` | Deprecated; TTS is always **global** (`master.wav`). Env value ignored. | `global` |
 | `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
 | `VIDEOMAKER_RENDER_BACKEND` | Final MP4: `ffmpeg`, `hyperframes`, or unset (auto: ffmpeg with HF fallback on effect/packaging text) | unset (auto) |
 | `VIDEOMAKER_FFMPEG_RENDER_FPS` | FFmpeg render FPS for still→video and re-encode | `30` |
