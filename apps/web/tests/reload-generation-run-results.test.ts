@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fixtureGenerationPlan } from "@/fixtures";
 import type { GenerationResponse } from "@/lib/apiClient";
 import {
+  applyGenerationRunDetail,
   fetchGenerationRunPlans,
   generationRunPlansAreLoaded,
   reloadGenerationRunPlansWithRetry,
@@ -89,5 +90,71 @@ describe("reloadGenerationRunResults", () => {
     await expect(
       fetchGenerationRunPlans(entries, fetchGeneration),
     ).resolves.toBeNull();
+  });
+
+  it("applyGenerationRunDetail hydrates all variants and prefers succeeded plan", () => {
+    const setVariantPlans = vi.fn();
+    const setGenerationId = vi.fn();
+    const setGenerationPlan = vi.fn();
+    const setActiveVariantGenerationId = vi.fn();
+    const setGapReport = vi.fn();
+    const setGapApiPending = vi.fn();
+    const setActiveGenerations = vi.fn();
+    const setRenderVideoByGenerationId = vi.fn();
+
+    const succeededPlan = {
+      ...fixtureGenerationPlan,
+      id: "gen-b",
+      variant: "high_conversion",
+    } satisfies GenerationResponse;
+
+    const applied = applyGenerationRunDetail(
+      {
+        generations: [
+          {
+            generationId: "gen-a",
+            variant: "high_click",
+            status: "failed",
+            taskId: "task-a",
+          },
+          {
+            generationId: "gen-b",
+            variant: "high_conversion",
+            status: "succeeded",
+            plan: succeededPlan,
+          },
+        ],
+      },
+      {
+        setVariantPlans,
+        setGenerationId,
+        setGenerationPlan,
+        setActiveVariantGenerationId,
+        setGapReport,
+        setGapApiPending,
+        setActiveGenerations,
+        setRenderVideoByGenerationId,
+      },
+    );
+
+    expect(applied).toHaveLength(2);
+    expect(setActiveGenerations).toHaveBeenCalledWith([
+      expect.objectContaining({
+        generationId: "gen-a",
+        variant: "high_click",
+        status: "failed",
+        taskId: "task-a",
+      }),
+      expect.objectContaining({
+        generationId: "gen-b",
+        variant: "high_conversion",
+        status: "succeeded",
+      }),
+    ]);
+    expect(setGenerationId).toHaveBeenCalledWith("gen-b");
+    expect(setGenerationPlan).toHaveBeenCalledWith(succeededPlan);
+    expect(setVariantPlans).toHaveBeenCalledWith({
+      "gen-b": succeededPlan,
+    });
   });
 });
