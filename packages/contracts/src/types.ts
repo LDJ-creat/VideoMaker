@@ -590,6 +590,28 @@ export type AssetInventory = {
   candidateMoments: CandidateMoment[];
 };
 
+export type CompletionMode =
+  | "source_only"
+  | "source_then_polish"
+  | "hf_native"
+  | "packaging_only";
+
+export type FinishBrief = {
+  completionMode?: CompletionMode;
+  finishIntent?: string;
+  baseMedia?: ArtifactRef;
+  sourceProvider?: string;
+  durationSec?: number;
+  storyboardScene?: {
+    script?: string;
+    visual?: string;
+  };
+  packagingRequirements?: string[];
+  packagingHint?: string;
+  packagingOverlay?: Record<string, unknown>;
+  constraints?: string[];
+};
+
 export type CompletionStrategy =
   | "text_completion"
   | "packaging_completion"
@@ -641,6 +663,9 @@ export type MissingSlot = {
   reason: string;
   impact: "low" | "medium" | "high";
   suggestedFixes: CompletionStrategy[];
+  completionMode?: CompletionMode;
+  finishIntent?: string;
+  reconcileNotes?: string;
 };
 
 export type WeakSlot = MissingSlot;
@@ -742,6 +767,10 @@ export type CompletionAction = {
   outputRef: string;
   provider?: CompletionProvider;
   rationale?: string;
+  completionMode?: CompletionMode;
+  finishIntent?: string;
+  sourceProvider?: string;
+  finishBrief?: FinishBrief;
   artifactRef?: ArtifactRef;
   stockSearchQuery?: StockSearchQuery;
   stockAttribution?: StockAttribution;

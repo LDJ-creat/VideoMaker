@@ -9,9 +9,9 @@ variants:
         tempo: fast
         subtitleDensity: medium
       gap_planner:
-        preferProviders: [hyperframes_material, video_generation]
-        videoGenPriority: high
-        stockMediaPriority: low
+        preferProviders: [stock_media_search, hyperframes_material, asset_reuse, image_generation, video_generation]
+        stockMediaPriority: high
+        videoGenPriority: low
   high_conversion:
     label: 高转化版
     enabled: true
@@ -22,7 +22,7 @@ variants:
         ctaWeight: high
         subtitleDensity: high
       gap_planner:
-        preferProviders: [stock_media_search, hyperframes_material, image_generation, video_generation]
+        preferProviders: [stock_media_search, hyperframes_material, asset_reuse, image_generation, video_generation]
         stockMediaPriority: high
         videoGenPriority: low
   fast_paced:

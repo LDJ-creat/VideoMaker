@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/finish-brief.schema.json",
+  "title": "FinishBrief",
+  "type": "object",
+  "properties": {
+    "completionMode": {
+      "type": "string",
+      "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
+    },
+    "finishIntent": { "type": "string" },
+    "baseMedia": { "$ref": "artifact-ref.schema.json" },
+    "sourceProvider": { "type": "string" },
+    "durationSec": { "type": "number", "minimum": 0 },
+    "storyboardScene": {
+      "type": "object",
+      "properties": {
+        "script": { "type": "string" },
+        "visual": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "packagingRequirements": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "packagingHint": { "type": "string" },
+    "packagingOverlay": { "type": "object", "additionalProperties": true },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

@@ -93,6 +93,13 @@
             ]
           },
           "rationale": { "type": "string" },
+          "completionMode": {
+            "type": "string",
+            "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
+          },
+          "finishIntent": { "type": "string" },
+          "sourceProvider": { "type": "string" },
+          "finishBrief": { "$ref": "finish-brief.schema.json" },
           "artifactRef": { "$ref": "artifact-ref.schema.json" },
           "stockSearchQuery": { "$ref": "stock-search-query.schema.json" },
           "stockAttribution": { "$ref": "stock-attribution.schema.json" }

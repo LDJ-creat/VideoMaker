@@ -33,6 +33,12 @@
           "slotId": { "type": "string", "minLength": 1 },
           "reason": { "type": "string" },
           "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "completionMode": {
+            "type": "string",
+            "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
+          },
+          "finishIntent": { "type": "string" },
+          "reconcileNotes": { "type": "string" },
           "suggestedFixes": {
             "type": "array",
             "items": {
@@ -62,6 +68,12 @@
           "slotId": { "type": "string", "minLength": 1 },
           "reason": { "type": "string" },
           "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "completionMode": {
+            "type": "string",
+            "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
+          },
+          "finishIntent": { "type": "string" },
+          "reconcileNotes": { "type": "string" },
           "suggestedFixes": {
             "type": "array",
             "items": {
