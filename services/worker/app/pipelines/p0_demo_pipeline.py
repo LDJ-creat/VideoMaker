@@ -1428,3 +1428,70 @@ class P0DemoPipeline:
             result["intents"] = parsed_intents
             result["sourceGenerationId"] = source_generation_id
         return result
+
+    def run_plan_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        session: dict[str, Any] | None = None,
+        emit: EmitFn,
+    ) -> dict[str, Any]:
+        from app.agents.revise_planner import run_revise_planner
+        from app.pipelines.intent_applier import build_source_summary
+        from app.pipelines.revise_plan_builder import (
+            build_planner_output_from_rules,
+            build_session_turns_for_planner,
+            build_storyboard_scenes_for_planner,
+        )
+
+        _ = emit
+        context = TaskContext(
+            project_id=project_id,
+            task_id=task_id,
+            storage_root=self._storage_root,
+        )
+        runner = self._build_runner()
+        session_turns = build_session_turns_for_planner(session)
+        conversation_summary = (
+            str(session.get("conversationSummary") or "") if isinstance(session, dict) else None
+        )
+        try:
+            planner_output = run_revise_planner(
+                runner,
+                instruction=instruction,
+                source_summary=build_source_summary(source_plan),
+                storyboard_scenes=build_storyboard_scenes_for_planner(source_plan),
+                session_turns=session_turns or None,
+                conversation_summary=conversation_summary or None,
+                context=context,
+                generation_id=generation_id,
+            )
+        except Exception:
+            planner_output = build_planner_output_from_rules(instruction, source_plan)
+        return {"ok": True, "plannerOutput": planner_output}
+
+    def run_revise_patch(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        plan_payload: dict[str, Any],
+        emit: EmitFn,
+    ) -> dict[str, Any]:
+        from app.pipelines.revise_patch_executor import run_revise_patch
+
+        project_root = self._storage_root / "projects" / project_id
+        return run_revise_patch(
+            project_root=project_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            plan_payload=plan_payload,
+            emit=emit,
+            storage_root=self._storage_root,
+            use_fixture_render=self._uses_fixture_runtime(),
+        )

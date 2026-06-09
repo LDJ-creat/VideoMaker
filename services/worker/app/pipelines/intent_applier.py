@@ -32,6 +32,18 @@ OPERATION_LOGICAL_STAGES: dict[str, tuple[str, ...]] = {
     "change_pace": ("storyboard", "timeline", "render"),
     "change_packaging_style": ("packaging", "material", "timeline", "render"),
     "adjust_cta": ("storyboard", "packaging", "timeline", "render"),
+    "subtitle_patch": ("packaging", "timeline", "render"),
+    "timeline_scene_patch": ("timeline", "render"),
+}
+
+EXECUTION_TOOL_LOGICAL_STAGES: dict[str, tuple[str, ...]] = {
+    "subtitle_patch": ("packaging", "timeline", "render"),
+    "timeline_scene_patch": ("timeline", "render"),
+    "script_revise": ("storyboard", "timeline", "render"),
+    "packaging_agent": ("packaging", "timeline", "render"),
+    "storyboard_agent": ("storyboard", "material", "timeline", "render"),
+    "material_regen": ("material", "timeline", "render"),
+    "full_pipeline": ("storyboard", "material", "packaging", "timeline", "render"),
 }
 
 _HOOK_MARKERS = ("开头", "hook", "抓人", "更吸引")
@@ -62,8 +74,17 @@ PACKAGING_OPERATIONS = frozenset(
         "increase_subtitles",
         "change_packaging_style",
         "adjust_cta",
+        "subtitle_patch",
     }
 )
+
+
+def _logical_stages_for_intent(intent: dict[str, Any]) -> tuple[str, ...]:
+    tool = str(intent.get("executionTool") or "")
+    if tool in EXECUTION_TOOL_LOGICAL_STAGES:
+        return EXECUTION_TOOL_LOGICAL_STAGES[tool]
+    operation = str(intent.get("operation", ""))
+    return OPERATION_LOGICAL_STAGES.get(operation, ())
 
 
 def compute_affected_stages(intents: list[dict[str, Any]]) -> list[str]:
@@ -71,8 +92,7 @@ def compute_affected_stages(intents: list[dict[str, Any]]) -> list[str]:
     logical: list[str] = []
     seen_logical: set[str] = set()
     for intent in intents:
-        operation = str(intent.get("operation", ""))
-        for stage in OPERATION_LOGICAL_STAGES.get(operation, ()):
+        for stage in _logical_stages_for_intent(intent):
             if stage not in seen_logical:
                 seen_logical.add(stage)
                 logical.append(stage)
@@ -130,6 +150,12 @@ def apply_intents_to_context(
             generation_params["ctaStrength"] = strength
             agent_overrides.setdefault("storyboard_writer", {})["ctaEmphasis"] = strength
             agent_overrides.setdefault("packaging_designer", {})["ctaEmphasis"] = strength
+        elif operation == "subtitle_patch":
+            density = str(params.get("density", "low"))
+            generation_params["subtitleDensity"] = density
+            agent_overrides.setdefault("packaging_designer", {})["subtitleDensity"] = density
+        elif operation == "timeline_scene_patch":
+            generation_params["timelineScenePatch"] = dict(params)
 
     affected = compute_affected_stages(intents)
     rerun_storyboard = any(str(i.get("operation", "")) in STORYBOARD_OPERATIONS for i in intents)
@@ -179,6 +205,8 @@ def parse_edit_intent_for_api(instruction: str, source_summary: dict[str, Any]) 
                 "operation": "reduce_subtitles",
                 "params": {},
                 "rationale": "用户希望减少字幕",
+                "scope": "track_subtitle",
+                "executionTool": "subtitle_patch",
             }
         )
     if any(marker in instruction or marker in text for marker in _SUBTITLE_INCREASE_MARKERS):
@@ -188,6 +216,8 @@ def parse_edit_intent_for_api(instruction: str, source_summary: dict[str, Any]) 
                 "operation": "increase_subtitles",
                 "params": {},
                 "rationale": "用户希望增加字幕",
+                "scope": "track_subtitle",
+                "executionTool": "subtitle_patch",
             }
         )
     if any(marker in instruction or marker in text for marker in _REORDER_MARKERS):

@@ -50,6 +50,10 @@ def _default_stage(mode: str) -> str:
         return "running_agent"
     if mode == "run_revise":
         return "parsing_edit_intent"
+    if mode == "execute_revise_patch":
+        return "applying_revise_patch"
+    if mode == "plan_revise":
+        return "parsing_edit_intent"
     if mode == "composition_pattern_promote":
         return "composition_pattern_promote"
     return "analyzing_assets"
@@ -142,6 +146,24 @@ def main() -> int:
                 intents=payload.get("intents"),
                 variant=payload.get("variant"),
                 resume=resume,
+            )
+        elif mode == "plan_revise":
+            result = pipeline.run_plan_revise(
+                project_id=project_id,
+                task_id=task_id,
+                generation_id=str(payload["generationId"]),
+                instruction=str(payload["instruction"]),
+                source_plan=payload["sourcePlan"],
+                session=payload.get("session"),
+                emit=emit,
+            )
+        elif mode == "execute_revise_patch":
+            result = pipeline.run_revise_patch(
+                project_id=project_id,
+                task_id=task_id,
+                generation_id=str(payload["generationId"]),
+                plan_payload=payload["plan"],
+                emit=emit,
             )
         elif mode == "parse_edit_intent":
             from app.agents.edit_intent_parser import build_source_summary, run_edit_intent_parser
