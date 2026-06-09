@@ -119,6 +119,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 |------|---------|---------------|
 | `2026-06-02-master-narration-layer-plan.md` | Full-video `masterNarration` before per-scene scripts (`storyboard_writer` 档 A) | covered in P1 demo § storyboard |
 | `2026-06-03-knowledge-deposition-plan.md` | Karpathy-style structure skills, promote, recommend/bind, progressive disclosure in generation | `docs/demos/knowledge-deposition-e2e-checklist.md` |
+| `2026-06-09-knowledge-category-template-bootstrap-plan.md` | Homepage category template discovery, detail sample pick (1+2 entries), import samples + bootstrap project | `docs/demos/knowledge-category-template-e2e-checklist.md` |
 | `2026-06-04-multi-sample-analysis-plan.md` | Upload-batch, parallel analyze, sample selection, structure synthesis, generation runs | `docs/demos/multi-sample-e2e-test-plan.md` |
 | `2026-06-07-direct-multimodal-sample-analysis-plan.md` | `videoUnderstanding` provider, direct multimodal sample analysis route, preferences toggle | `docs/demos/direct-multimodal-analysis-e2e-checklist.md` |
 | `2026-06-07-direct-multimodal-asset-understanding-and-brief-v2-plan.md` | UserBrief v2, direct multimodal asset inventory analyst, text asset upload, legacy fallback | `docs/demos/direct-multimodal-asset-understanding-e2e-checklist.md` |
