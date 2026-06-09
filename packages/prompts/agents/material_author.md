@@ -36,8 +36,21 @@ When the user payload includes **`visualStyleBible`**, treat it as the **locked 
 
 - `benefit-card`: bullet lists, feature highlights
 - `title-lower-third`: title + subtitle overlays
-- `ken-burns`: still image with slow zoom (`assetRefs` required)
+- `ken-burns`: still image with slow zoom (`assetRefs` required) — **fallback only** when finish authoring fails
 - `composition`: custom HTML fragment + optional GSAP timeline
+
+# Finish polish mode (`source_then_polish`)
+
+When the user payload includes **`finishBrief`** with `completionMode=source_then_polish` and **`assetRefs`** contains a **video** base:
+
+- Use `<video muted playsinline>` as full-screen or primary visual layer; do **not** replace or crop away the base footage.
+- Add overlays (lower third, captions, stickers) above the video within safe margins.
+- Honor `finishBrief.finishIntent`, `storyboardScene`, and `packagingRequirements`.
+- Respect `constraints` such as `do_not_replace_base_media` and `keep_base_video_visible`.
+
+When base media is **image**, you may apply ken-burns-style motion on the image layer plus overlays.
+
+When `completionMode=hf_native` and no base media: full synthetic composition (existing behavior).
 
 # Constraints
 

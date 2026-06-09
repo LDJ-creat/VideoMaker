@@ -30,6 +30,20 @@ Each weak/missing item:
 # P1 completion providers
 `hyperframes_material`, `stock_media_search`, `image_generation`, `video_generation`, `tts`, `asset_reuse`.
 
+Each weak/missing item must also include:
+
+- **`completionMode`**: `source_only` | `source_then_polish` | `hf_native` | `packaging_only`
+- **`finishIntent`** (optional, Chinese): overlay 润色目标，如「添加 lower third 与逐句字幕，保留 B-roll 节奏」
+- **`suggestedFixes`**: ordered provider chain (Python reconcile may adjust)
+
+**Cost guidance (default):** prefer `stock_media_search` and `hyperframes_material`; use `video_generation` / `image_generation` only for must-use AIGC (product closeup, pure generated_visual without packaging).
+
+**`source_then_polish`:** primary source (reuse / stock / AIGC) + trailing `hyperframes_material` finish overlay on base video/image.
+
+**`hf_native` / `packaging_only`:** full HyperFrames composition without external B-roll (info cards, benefit cards, hook text).
+
+Role glossary (shared): `hook_visual`, `product_closeup`, `usage_scene`, `hook_text`, `benefit_card`, `comparison`, `transition`, `cta`. Never suggest `stock_media_search` for `product_closeup` on product-bound briefs.
+
 Provider selection rules (Python enforces after your output):
 1. Packaging roles (`hook_text`, `benefit_card`, `comparison`) or requiredAssetType includes `packaging` → `hyperframes_material`
 2. Weak match score ≥0.38:
