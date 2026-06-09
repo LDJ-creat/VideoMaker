@@ -128,6 +128,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
+| `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
 ## Current Implementation State
@@ -261,6 +262,7 @@ GET /api/samples/{sample_id}/analysis
 GET /api/samples/{sample_id}/sample-analysis
 GET /api/samples/{sample_id}/keyframes
 GET /api/generations/{generation_id}
+GET /api/generations/{generation_id}/composition-patterns
 GET /api/generations/{generation_id}/script-draft
 PUT /api/generations/{generation_id}/script-draft
 POST /api/generations/{generation_id}/approve-master
@@ -310,9 +312,11 @@ Skills layout (repo root):
 ```text
 skills/public/{skill-name}/SKILL.md     # HyperFrames official skills (hyperframes, gsap, registry, cli, …)
 skills/private/videomaker-composition/  # VideoMaker MaterialSpec / shell constraints
-storage/knowledge/{category}/{entryId}/ # structure + composition_pattern (composition-skill.md + spec.template.json)
+storage/knowledge/{category}/{entryId}/ # structure + composition_pattern (composition-skill.md + spec.template.json + spec.instance.json)
 storage/projects/{projectId}/knowledge/drafts/composition/{generationId}/{slotId}/
 ```
+
+Composition pattern promote (方案 C): worker `mode=composition_pattern_promote` runs `prepare_promoted_pattern_bundle` (sanitize → `composition_pattern_author` LLM → build + relint; one LLM retry on lint failure) then API publishes to `storage/knowledge/{categorySlug}/comp-{generationId}-{slotId}/` with `spec.template.json` (generalized) + `spec.instance.json` (deposit archive). Promote request: `{ generationId, slotId, confirm: true }` only (no userScore). Workbench **CompositionPatternPromotePanel** lists draft-only HF slots after MP4 ready.
 
 ```powershell
 cd services/composition
@@ -322,7 +326,7 @@ python -m compileall composition
 
 ### Composition (`services/composition`)
 
-Facade: `composition.api.CompositionEngine` — `author_material_spec`, `build_composition`, `lint_composition`, `render_clip`, `deposit_pattern_candidate`, `promote_pattern`. Skill bootstrap: `SkillCatalog` → `<available_skills>` + `skill_view` tool. Promote gate: user score ≥ 4 and lint passed.
+Facade: `composition.api.CompositionEngine` — `author_material_spec`, `build_composition`, `lint_composition`, `render_clip`, `deposit_pattern_candidate`, `promote_pattern`. Skill bootstrap: `SkillCatalog` → `<available_skills>` + `skill_view` tool. Promote requires draft lint passed; `prepare_promoted_pattern_bundle` generalizes instance spec via `composition_pattern_author` before publish (no user score gate).
 
 ```powershell
 cd services/worker
@@ -350,7 +354,7 @@ Requires **Node.js >= 22** and **FFmpeg** on PATH.
 Next.js workbench at `/projects` and `/projects/{projectId}`:
 
 - Task progress: SSE primary, polling fallback (`useTaskProgress`); **MultiTaskProgressPanel** for dual-variant runs
-- Panels: input (multi-upload, batch analyze), **sample selection**, **knowledge selection/draft**, progress, **SampleAnalysisPanel** (analyzed-sample master-detail), structure evidence (keyframe lightbox), structure slots, gap, **master narration**, **variant tabs/compare**, timeline, result, **generation run history**, **NL revise**, **ModelGateway status**, **AgentRunsDrawer**
+- Panels: input (multi-upload, batch analyze), **sample selection**, **knowledge selection/draft**, progress, **SampleAnalysisPanel** (analyzed-sample master-detail), structure evidence (keyframe lightbox), structure slots, gap, **master narration**, **variant tabs/compare**, timeline, result, **CompositionPatternPromotePanel** (HF 分镜入库), **generation run history**, **NL revise**, **ModelGateway status**, **AgentRunsDrawer**
 - Loads projects, samples, assets, brief, knowledge selection, sample selection, and latest generation from API on mount (not sessionStorage-only)
 
 ```powershell
@@ -427,9 +431,15 @@ Published entries:
 
 ```text
 storage/knowledge/{categorySlug}/{entryId}/
-  structure-skill.md
+  structure-skill.md          # structure entries
   video-structure.json
+  composition-skill.md        # composition_pattern entries
+  spec.template.json          # generalized MaterialSpec (relint passed)
+  spec.instance.json          # deposit instance archive
   entry-meta.json
+  lint-log.json
+  provenance.json
+  references/
 ```
 
 Knowledge API (index in SQLite `knowledge_entries`, selection in `project_knowledge_selection`):
@@ -457,6 +467,33 @@ services/api/storage/*
 ```
 
 Do not commit generated videos, SQLite databases, temp files, model outputs, or runtime artifacts. Register artifacts through `ArtifactStore` and persist only references in SQLite.
+
+### Path segment validation (security)
+
+User-controlled or API-supplied IDs that become filesystem path segments (`projectId`, `generationId`, `slotId`, `sampleId`, `entryId`, `categorySlug`, etc.) **must not** be concatenated into `Path(...)` without validation. Prefer shared helpers over ad hoc string joins.
+
+**Canonical helpers** (`services/shared/knowledge/paths.py`):
+
+| Helper | Purpose |
+|--------|---------|
+| `validate_storage_segment(value, field=...)` | Reject unsafe segment before path construction |
+| `assert_under_storage_root(path, storage_root)` | After join, ensure resolved path stays under storage root |
+| `resolve_storage_path(storage_root, relative_uri)` | Resolve storage-relative URIs (reject `..` escape) |
+| `published_entry_dir(...)` | Published knowledge entry dir; validates slug + entry id |
+
+**Project-scoped artifacts:** `ArtifactStore.resolve_project_path(project_id, relative_path)` (API) applies the same confinement under `storage/projects/{projectId}/`.
+
+**Composition pattern drafts/publish:** `composition_draft_dir`, `composition_drafts_generation_dir`, and `composition_pattern_entry_id` in `services/composition/composition/patterns/deposit.py` call `validate_storage_segment` + `assert_under_storage_root`.
+
+**Segment rules** (`validate_storage_segment`):
+
+- Non-empty, max 128 chars
+- Charset: `^[A-Za-z0-9._-]+$` (letters, digits, `.`, `_`, `-`)
+- Reject `.`, `..`, any `..` substring, `/`, `\`
+- On violation: raise `ValueError("invalid_{field}")` (API maps to HTTP 422)
+- After path join: `assert_under_storage_root` → `ValueError("path_escape_storage_root")`
+
+**When adding routes or storage writers:** validate every external id at the API/service boundary; never trust client JSON or URL params in raw `Path / user_input`. Structure UUID `entryId` values from promote are fine (hyphens only). Fixed composition entry ids use `comp-{generationId}-{slotId}` with both parts validated separately.
 
 ## Worktree And Branch Workflow
 
@@ -522,6 +559,7 @@ Document new module-specific commands in the subsystem plan file.
 - Validate model/agent JSON output against schemas before use.
 - Do not copy sample video content; migrate structure and creative method only.
 - Avoid broad refactors unrelated to the active plan.
+- **Storage path security:** any user/API-supplied id used as a path segment must go through `validate_storage_segment` (or an equivalent confining helper); see Storage Rules § Path segment validation.
 
 ## Notes For New AI Sessions
 
