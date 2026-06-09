@@ -16,6 +16,10 @@ from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore, UploadMode
 from app.services.knowledge_recommender import KnowledgeRecommender
 from app.services.knowledge_store import KnowledgeStore
+from app.services.knowledge_template_bootstrap import (
+    KnowledgeTemplateBootstrapError,
+    create_project_from_knowledge_template,
+)
 from app.services.generation_responses import build_latest_generations_response
 from app.services.generation_run_store import GenerationRunStore
 from app.services.sample_recommender import SampleRecommender
@@ -33,6 +37,19 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 class CreateProjectRequest(BaseModel):
     name: str | None = None
+
+
+class CreateProjectFromKnowledgeTemplateRequest(BaseModel):
+    name: str = Field(min_length=1)
+    category_slug: str = Field(alias="categorySlug", min_length=1)
+    primary_entry_id: str = Field(alias="primaryEntryId", min_length=1)
+    reference_entry_ids: list[str] = Field(
+        default_factory=list,
+        alias="referenceEntryIds",
+        max_length=2,
+    )
+
+    model_config = {"populate_by_name": True}
 
 
 class CreateProjectResponse(BaseModel):
@@ -341,6 +358,29 @@ def list_projects(request: Request) -> dict[str, Any]:
 def create_project(payload: CreateProjectRequest, request: Request) -> dict[str, Any]:
     project = _project_store(request).create_project(payload.name)
     return project
+
+
+@router.post("/from-knowledge-template", status_code=status.HTTP_201_CREATED)
+def create_project_from_knowledge_template_route(
+    payload: CreateProjectFromKnowledgeTemplateRequest,
+    request: Request,
+) -> dict[str, Any]:
+    try:
+        return create_project_from_knowledge_template(
+            name=payload.name,
+            category_slug=payload.category_slug,
+            primary_entry_id=payload.primary_entry_id,
+            reference_entry_ids=payload.reference_entry_ids,
+            storage_root=request.app.state.storage_root,
+            project_store=_project_store(request),
+            knowledge_store=KnowledgeStore(
+                request.app.state.db,
+                request.app.state.storage_root,
+            ),
+            sample_selection_store=SampleSelectionStore(request.app.state.db),
+        )
+    except KnowledgeTemplateBootstrapError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{project_id}", response_model=CreateProjectResponse)

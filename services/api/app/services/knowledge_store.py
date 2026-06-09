@@ -11,7 +11,9 @@ from knowledge.index_builder import build_entry_meta
 from knowledge.paths import category_slug, draft_dir, published_entry_dir, rel_uri, resolve_storage_path
 
 from app.db.session import Database
+from app.services.media_paths import resolve_existing_file, sample_media_path
 from app.services.sample_analysis import load_sample_analysis_artifact
+from app.services.sample_keyframes import pick_sample_poster_url
 from app.services.task_events import now_iso
 
 _DRAFT_META_FALLBACK_KEYS = ("hasBgm", "voPersona", "visualStyle", "rhetoricalPattern")
@@ -504,6 +506,128 @@ class KnowledgeStore:
             )
         selection["updatedAt"] = updated_at
         return selection
+
+    def _published_structure_entries(self) -> list[dict[str, Any]]:
+        return [
+            entry
+            for entry in self.list_entries(status="published")
+            if (entry.get("entryKind") or "structure") == "structure"
+        ]
+
+    def assess_entry_importable(
+        self,
+        entry: dict[str, Any],
+        project_store: Any,
+    ) -> tuple[bool, str | None]:
+        source_sample_id = entry.get("sourceSampleId")
+        source_project_id = entry.get("sourceProjectId")
+        if not source_sample_id or not source_project_id:
+            return False, "缺少源样例关联"
+        if project_store.get_project(str(source_project_id)) is None:
+            return False, "源项目已不存在"
+        sample = project_store.get_sample(str(source_sample_id))
+        if sample is None or str(sample.get("projectId")) != str(source_project_id):
+            return False, "源样例已不存在"
+        if resolve_existing_file(str(sample.get("videoUri") or "")) is None:
+            return False, "源样例视频文件缺失"
+        if self.read_structure(str(entry["id"])) is None:
+            return False, "知识结构文件缺失"
+        return True, None
+
+    def build_category_entry_card(
+        self,
+        entry: dict[str, Any],
+        project_store: Any,
+    ) -> dict[str, Any]:
+        importable, block_reason = self.assess_entry_importable(entry, project_store)
+        source_project_id = entry.get("sourceProjectId")
+        source_sample_id = entry.get("sourceSampleId")
+        poster_url: str | None = None
+        preview_url: str | None = None
+        if source_project_id and source_sample_id:
+            preview_url = sample_media_path(str(source_project_id), str(source_sample_id))
+            poster_url = pick_sample_poster_url(
+                self.storage_root,
+                project_id=str(source_project_id),
+                sample_id=str(source_sample_id),
+            )
+        return {
+            "entryId": entry["id"],
+            "title": entry.get("title") or "",
+            "summary": entry.get("summary") or "",
+            "style": entry.get("style") or "",
+            "slotPattern": entry.get("slotPattern") or "",
+            "hookType": entry.get("hookType"),
+            "tempo": entry.get("tempo"),
+            "durationBucket": entry.get("durationBucket"),
+            "sourceProjectId": source_project_id,
+            "sourceSampleId": source_sample_id,
+            "posterUrl": poster_url,
+            "previewUrl": preview_url,
+            "importable": importable,
+            "importBlockReason": block_reason,
+        }
+
+    def list_category_summaries(self, project_store: Any) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for entry in self._published_structure_entries():
+            slug = str(entry.get("categorySlug") or category_slug(str(entry.get("category") or "")))
+            grouped.setdefault(slug, []).append(entry)
+
+        summaries: list[dict[str, Any]] = []
+        for slug, entries in grouped.items():
+            ordered = sorted(entries, key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+            latest = ordered[0]
+            slot_patterns: list[str] = []
+            for item in ordered:
+                pattern = str(item.get("slotPattern") or "").strip()
+                if pattern and pattern not in slot_patterns:
+                    slot_patterns.append(pattern)
+            cover_url: str | None = None
+            for item in ordered:
+                if self.assess_entry_importable(item, project_store)[0]:
+                    cover_url = pick_sample_poster_url(
+                        self.storage_root,
+                        project_id=str(item["sourceProjectId"]),
+                        sample_id=str(item["sourceSampleId"]),
+                    )
+                    if cover_url:
+                        break
+            summaries.append(
+                {
+                    "category": latest.get("category") or slug,
+                    "categorySlug": slug,
+                    "entryCount": len(ordered),
+                    "summary": latest.get("summary") or latest.get("title") or slug,
+                    "coverUrl": cover_url,
+                    "slotPatterns": slot_patterns,
+                    "updatedAt": latest.get("updatedAt") or now_iso(),
+                }
+            )
+        summaries.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+        return summaries
+
+    def get_category_detail(
+        self,
+        category_slug_value: str,
+        project_store: Any,
+    ) -> dict[str, Any] | None:
+        entries = [
+            entry
+            for entry in self._published_structure_entries()
+            if str(entry.get("categorySlug") or category_slug(str(entry.get("category") or "")))
+            == category_slug_value
+        ]
+        if not entries:
+            return None
+        ordered = sorted(entries, key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+        return {
+            "category": ordered[0].get("category") or category_slug_value,
+            "categorySlug": category_slug_value,
+            "entries": [
+                self.build_category_entry_card(entry, project_store) for entry in ordered
+            ],
+        }
 
     def apply_entry_to_project(
         self,

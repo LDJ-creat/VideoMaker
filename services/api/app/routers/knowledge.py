@@ -56,6 +56,24 @@ def _recommender(request: Request) -> KnowledgeRecommender:
     )
 
 
+@router.get("/categories")
+def list_knowledge_categories(request: Request) -> dict[str, Any]:
+    store = _knowledge_store(request)
+    categories = store.list_category_summaries(_project_store(request))
+    return {"categories": categories}
+
+
+@router.get("/categories/{category_slug}")
+def get_knowledge_category(category_slug: str, request: Request) -> dict[str, Any]:
+    detail = _knowledge_store(request).get_category_detail(
+        category_slug,
+        _project_store(request),
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Knowledge category not found")
+    return detail
+
+
 @router.get("/entries")
 def list_knowledge_entries(
     request: Request,
