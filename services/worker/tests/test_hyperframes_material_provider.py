@@ -147,12 +147,22 @@ def test_hyperframes_provider_runs_material_author_via_runner(tmp_path: Path) ->
     result = ctx.providers["hyperframes_material"].execute(action, ctx)
 
     assert result["ok"] is True
-    assert any(event["stage"] == "running_agent" for event in task_context.emitted_events)
+    assert any(stage == "running_agent" for stage, _ in ctx._progress_events)  # type: ignore[attr-defined]
 
 
 def test_hyperframes_provider_render_failure_returns_structured_error(tmp_path: Path) -> None:
     structure = _load_structure_fixture()
-    ctx = _make_hf_ctx(tmp_path, structure=structure)
+
+    def failing_runner(command: list[str], cwd: Path) -> CommandResult:
+        _ = cwd
+        if "lint" in command:
+            return CommandResult(returncode=0, stdout="ok", stderr="")
+        if "--version" in command:
+            return CommandResult(returncode=1, stdout="", stderr="missing")
+        return CommandResult(returncode=1, stdout="", stderr="fail")
+
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=HyperFramesTool(command_runner=failing_runner))
+    ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
     action = {
         "id": "action-benefit-card",
         "slotId": "seg-2-benefit_card-1",

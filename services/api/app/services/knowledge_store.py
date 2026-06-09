@@ -171,6 +171,7 @@ class KnowledgeStore:
             "sourceProjectId": row["source_project_id"],
             "sourceSampleId": row["source_sample_id"],
             "version": row["version"],
+            "entryKind": row["entry_kind"] if "entry_kind" in row.keys() else "structure",
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }
@@ -407,6 +408,7 @@ class KnowledgeStore:
             "sourceProjectId": project_id,
             "sourceSampleId": sample_id,
             "version": 1,
+            "entryKind": "structure",
             "createdAt": created_at,
             "updatedAt": created_at,
         }
@@ -417,8 +419,8 @@ class KnowledgeStore:
                 INSERT INTO knowledge_entries (
                   id, status, title, category, category_slug, style, hook_type, tempo,
                   duration_bucket, slot_pattern, summary, skill_md_uri, structure_json_uri,
-                  source_project_id, source_sample_id, version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  source_project_id, source_sample_id, version, entry_kind, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry["id"],
@@ -437,6 +439,7 @@ class KnowledgeStore:
                     entry["sourceProjectId"],
                     entry["sourceSampleId"],
                     entry["version"],
+                    entry.get("entryKind", "structure"),
                     entry["createdAt"],
                     entry["updatedAt"],
                 ),
@@ -554,3 +557,107 @@ class KnowledgeStore:
             if sample.get("structure") is not None and sample.get("sourceKind") != "knowledge":
                 return True
         return False
+
+    def promote_composition_pattern(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        slot_id: str,
+        user_score: int,
+        title: str | None = None,
+        category: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        if not confirm:
+            raise ValueError("Promote requires explicit confirm=true")
+        from composition.patterns.deposit import PromoteRejected, promote_pattern
+        from composition.render.hyperframes_cli import HyperFramesCli
+        from composition.types import PatternPromoteRequest
+
+        try:
+            published = promote_pattern(
+                PatternPromoteRequest(
+                    storage_root=self.storage_root,
+                    project_id=project_id,
+                    generation_id=generation_id,
+                    slot_id=slot_id,
+                    user_score=user_score,
+                    title=title,
+                    category=category,
+                ),
+                hyperframes_cli=HyperFramesCli(),
+            )
+        except PromoteRejected as exc:
+            raise ValueError(str(exc)) from exc
+
+        published_dir = Path(published["publishedDir"])
+        meta_path = published_dir / "entry-meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+        entry_id = str(published["entryId"])
+        slug = str(published["categorySlug"])
+        skill_uri = rel_uri(self.storage_root, published_dir / "composition-skill.md")
+        spec_uri = rel_uri(self.storage_root, published_dir / "spec.template.json")
+        slot_roles = meta.get("slotRoles") or [slot_id]
+        created_at = now_iso()
+        entry = {
+            "id": entry_id,
+            "status": "published",
+            "entryKind": "composition_pattern",
+            "title": title or meta.get("title") or f"Composition {slot_id}",
+            "category": category or meta.get("category") or "composition",
+            "categorySlug": slug,
+            "style": meta.get("style") or "composition",
+            "hookType": None,
+            "tempo": None,
+            "durationBucket": None,
+            "slotPattern": ",".join(str(item) for item in slot_roles),
+            "summary": meta.get("summary") or f"Composition pattern from {generation_id}/{slot_id}",
+            "skillMdUri": skill_uri,
+            "structureJsonUri": spec_uri,
+            "sourceProjectId": project_id,
+            "sourceSampleId": None,
+            "version": 1,
+            "createdAt": created_at,
+            "updatedAt": created_at,
+        }
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO knowledge_entries (
+                  id, status, title, category, category_slug, style, hook_type, tempo,
+                  duration_bucket, slot_pattern, summary, skill_md_uri, structure_json_uri,
+                  source_project_id, source_sample_id, version, entry_kind, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  status = excluded.status,
+                  title = excluded.title,
+                  summary = excluded.summary,
+                  skill_md_uri = excluded.skill_md_uri,
+                  structure_json_uri = excluded.structure_json_uri,
+                  entry_kind = excluded.entry_kind,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    entry["id"],
+                    entry["status"],
+                    entry["title"],
+                    entry["category"],
+                    entry["categorySlug"],
+                    entry["style"],
+                    entry["hookType"],
+                    entry["tempo"],
+                    entry["durationBucket"],
+                    entry["slotPattern"],
+                    entry["summary"],
+                    entry["skillMdUri"],
+                    entry["structureJsonUri"],
+                    entry["sourceProjectId"],
+                    entry["sourceSampleId"],
+                    entry["version"],
+                    entry["entryKind"],
+                    entry["createdAt"],
+                    entry["updatedAt"],
+                ),
+            )
+        return entry

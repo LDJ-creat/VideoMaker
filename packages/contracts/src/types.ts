@@ -108,7 +108,15 @@ export type MaterialTemplate =
   | "benefit-card"
   | "title-lower-third"
   | "ken-burns"
-  | "custom";
+  | "custom"
+  | "composition";
+
+export type CompositionFragment = {
+  bodyHtml: string;
+  styles?: string;
+  timelineScript?: string;
+  registryBlocks?: string[];
+};
 
 export type MaterialSpecParams = {
   title?: string;
@@ -121,8 +129,11 @@ export type MaterialSpecParams = {
 export type MaterialSpec = {
   template: MaterialTemplate;
   durationSec: number;
-  params: MaterialSpecParams;
+  params?: MaterialSpecParams;
+  composition?: CompositionFragment;
 };
+
+export type KnowledgeEntryKind = "structure" | "composition_pattern";
 
 export type AgentRunLog = {
   id: string;
@@ -682,6 +693,7 @@ export type KnowledgeEntryStatus = "draft" | "published" | "archived";
 export type KnowledgeEntry = {
   id: string;
   status: KnowledgeEntryStatus;
+  entryKind?: KnowledgeEntryKind;
   title: string;
   category: string;
   categorySlug?: string;

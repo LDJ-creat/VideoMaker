@@ -357,6 +357,40 @@ class ModelGateway:
                 retryable=False,
             ) from exc
 
+    def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        task: str = "material_author",
+        profile: str = "text",
+    ) -> dict[str, Any]:
+        _ = task
+        provider = self._chat_provider(profile)
+        message = provider.complete_assistant_message(messages, model=provider.config.model, tools=tools)
+        self.last_latency_ms = provider.last_latency_ms
+        tool_calls_raw = message.get("tool_calls") or []
+        tool_calls: list[dict[str, Any]] = []
+        for item in tool_calls_raw:
+            if not isinstance(item, dict):
+                continue
+            fn = item.get("function") if isinstance(item.get("function"), dict) else {}
+            tool_calls.append(
+                {
+                    "id": item.get("id", fn.get("name", "tool")),
+                    "name": fn.get("name", ""),
+                    "arguments": fn.get("arguments", {}),
+                }
+            )
+        content = message.get("content")
+        parsed_content: dict[str, Any] | str | None = content
+        if isinstance(content, str) and content.strip().startswith("{"):
+            try:
+                parsed_content = _parse_json_text(content)
+            except json.JSONDecodeError:
+                parsed_content = content
+        return {"content": parsed_content, "tool_calls": tool_calls}
+
     def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
         provider = self._image()
         result = provider.generate(prompt, options=options)

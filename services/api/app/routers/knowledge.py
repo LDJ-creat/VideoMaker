@@ -131,6 +131,40 @@ def promote_knowledge_draft(
     return {"entry": entry}
 
 
+class PromoteCompositionPatternRequest(BaseModel):
+    generation_id: str = Field(alias="generationId")
+    slot_id: str = Field(alias="slotId")
+    user_score: int = Field(alias="userScore", ge=1, le=5)
+    title: str | None = None
+    category: str | None = None
+    confirm: bool = False
+
+    model_config = {"populate_by_name": True}
+
+
+@project_router.post("/{project_id}/knowledge/composition/promote")
+def promote_composition_pattern(
+    project_id: str,
+    payload: PromoteCompositionPatternRequest,
+    request: Request,
+) -> dict[str, Any]:
+    if _project_store(request).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        entry = _knowledge_store(request).promote_composition_pattern(
+            project_id=project_id,
+            generation_id=payload.generation_id,
+            slot_id=payload.slot_id,
+            user_score=payload.user_score,
+            title=payload.title,
+            category=payload.category,
+            confirm=payload.confirm,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"entry": entry}
+
+
 @project_router.post("/{project_id}/structure-from-knowledge")
 def apply_structure_from_knowledge(
     project_id: str,

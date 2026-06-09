@@ -155,6 +155,14 @@ def _migrate_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
+    knowledge_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(knowledge_entries)").fetchall()
+    }
+    if knowledge_columns and "entry_kind" not in knowledge_columns:
+        connection.execute(
+            "ALTER TABLE knowledge_entries ADD COLUMN entry_kind TEXT NOT NULL DEFAULT 'structure'"
+        )
+
 
 def initialize_database(database: Database, *, storage_root: Path | None = None) -> None:
     schema_path = Path(__file__).with_name("schema.sql")

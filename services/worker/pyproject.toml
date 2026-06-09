@@ -20,7 +20,7 @@ langfuse = ["langfuse>=2.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "../shared"]
+pythonpath = [".", "../shared", "../composition"]
 markers = [
   "integration: live network tests (set RUN_INTEGRATION=1)",
 ]

@@ -76,6 +76,10 @@ class HyperFramesTool:
         self._command_runner = command_runner or _default_command_runner
         self._hyperframes_argv = resolve_hyperframes_argv(repo_root=repo_root)
 
+    @property
+    def command_runner(self) -> CommandRunner:
+        return self._command_runner
+
     def _cli_command(self, *args: str) -> list[str]:
         return [*self._hyperframes_argv, *args]
 

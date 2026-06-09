@@ -3,11 +3,11 @@
   "$id": "https://videomaker.local/schemas/material-spec.schema.json",
   "title": "MaterialSpec",
   "type": "object",
-  "required": ["template", "durationSec", "params"],
+  "required": ["template", "durationSec"],
   "properties": {
     "template": {
       "type": "string",
-      "enum": ["benefit-card", "title-lower-third", "ken-burns", "custom"]
+      "enum": ["benefit-card", "title-lower-third", "ken-burns", "custom", "composition"]
     },
     "durationSec": { "type": "number", "minimum": 0.5, "maximum": 30 },
     "params": {
@@ -23,7 +23,28 @@
         "subtitle": { "type": "string" }
       },
       "additionalProperties": false
-    }
+    },
+    "composition": { "$ref": "composition-fragment.schema.json" }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "template": { "const": "composition" } },
+        "required": ["template"]
+      },
+      "then": { "required": ["composition"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "template": {
+            "enum": ["benefit-card", "title-lower-third", "ken-burns", "custom"]
+          }
+        },
+        "required": ["template"]
+      },
+      "then": { "required": ["params"] }
+    }
+  ],
   "additionalProperties": false
 }

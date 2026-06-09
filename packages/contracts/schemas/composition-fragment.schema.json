@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/composition-fragment.schema.json",
+  "title": "CompositionFragment",
+  "type": "object",
+  "required": ["bodyHtml"],
+  "properties": {
+    "bodyHtml": { "type": "string", "minLength": 1 },
+    "styles": { "type": "string" },
+    "timelineScript": { "type": "string" },
+    "registryBlocks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

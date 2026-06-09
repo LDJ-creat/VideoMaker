@@ -1,0 +1,52 @@
+{
+  "blocks": [
+    {
+      "id": "flash-through-white",
+      "category": "transition",
+      "description": "Shader white flash transition between scenes",
+      "suggestedRoles": ["transition", "hook_visual"]
+    },
+    {
+      "id": "instagram-follow",
+      "category": "social",
+      "description": "Social follow overlay lower third",
+      "suggestedRoles": ["hook_text", "cta"]
+    },
+    {
+      "id": "data-chart",
+      "category": "data",
+      "description": "Animated bar chart block",
+      "suggestedRoles": ["benefit_card", "comparison", "proof"]
+    },
+    {
+      "id": "caption-style-minimal",
+      "category": "caption",
+      "description": "Minimal lower caption style",
+      "suggestedRoles": ["hook_text", "benefit_card"]
+    },
+    {
+      "id": "caption-style-bold",
+      "category": "caption",
+      "description": "Bold kinetic caption style",
+      "suggestedRoles": ["hook_text", "cta"]
+    },
+    {
+      "id": "lower-third-news",
+      "category": "lower-third",
+      "description": "News-style lower third bar",
+      "suggestedRoles": ["hook_text", "transition"]
+    },
+    {
+      "id": "gradient-wipe",
+      "category": "transition",
+      "description": "Gradient wipe scene transition",
+      "suggestedRoles": ["transition"]
+    },
+    {
+      "id": "countdown-timer",
+      "category": "overlay",
+      "description": "Animated countdown overlay",
+      "suggestedRoles": ["cta", "hook_text"]
+    }
+  ]
+}

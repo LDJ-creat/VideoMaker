@@ -22,5 +22,5 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "../shared"]
+pythonpath = [".", "../shared", "../composition"]
 addopts = "--basetemp=.pytest-tmp"

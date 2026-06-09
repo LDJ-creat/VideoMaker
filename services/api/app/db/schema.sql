@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   source_project_id TEXT,
   source_sample_id TEXT,
   version INTEGER NOT NULL DEFAULT 1,
+  entry_kind TEXT NOT NULL DEFAULT 'structure',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

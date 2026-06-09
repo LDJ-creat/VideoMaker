@@ -127,6 +127,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
+| HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
 ## Current Implementation State
 
@@ -136,8 +137,8 @@ TypeScript types and JSON Schemas for:
 
 - `ArtifactRef`, `ToolError`, `TaskEvent`
 - `VideoStructure`, `AssetInventory`, `GapReport`, `GenerationPlan`, `RenderTimeline`
-- P1: `EditIntent`, `MaterialSpec`, `AgentRunLog`; variant registry (`variants/registry.yaml`)
-- Knowledge: `KnowledgeEntry`, `KnowledgeRecommendation`, `ProjectKnowledgeSelection`
+- P1: `EditIntent`, `MaterialSpec` (+ `CompositionFragment`, `template=composition`), `AgentRunLog`; variant registry (`variants/registry.yaml`)
+- Knowledge: `KnowledgeEntry` (+ `entryKind: structure | composition_pattern`), `KnowledgeRecommendation`, `ProjectKnowledgeSelection`
 - Multi-sample: `UploadBatch`, `SampleRecommendation`, `ProjectSampleSelection`, `StructureProvenance`, `GenerationRun`
 
 ```powershell
@@ -291,6 +292,36 @@ Pipelines and tools:
 - **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
 - **Tools:** `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, `llm_tool`, `image_gen_tool`, `video_gen_tool`, `tts_tool`, `hyperframes_tool`
 - **Render:** `render_timeline_to_hyperframes`, `composition_preview`, `ffmpeg_backend` (default final MP4), `hyperframes_backend` (fallback / slot material via `hyperframes_material_tool`)
+- **Composition (thin adapter):** `app/composition/engine_factory.py` → `services/composition/` `CompositionEngine` for material author + build/lint/render + pattern deposit
+
+HyperFrames slot material env (worker):
+
+| Env | Meaning | Default |
+|-----|---------|---------|
+| `VIDEOMAKER_COMPOSITION_MODE` | `hybrid` (CompositionEngine) or `legacy` (old scaffold-only author) | `hybrid` |
+| `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` (tool loop), `single_shot`, or `legacy` | `react` |
+| `VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS` | Max ReAct turns for material author | `5` |
+| `VIDEOMAKER_COMPOSITION_SKIP_LINT` | Skip hyperframes lint before render | unset |
+| `VIDEOMAKER_SKILL_VIEW_TOKEN_CAP` | Cumulative skill_view token cap per generation | `6000` |
+
+Skills layout (repo root):
+
+```text
+skills/public/{skill-name}/SKILL.md     # HyperFrames official skills (hyperframes, gsap, registry, cli, …)
+skills/private/videomaker-composition/  # VideoMaker MaterialSpec / shell constraints
+storage/knowledge/{category}/{entryId}/ # structure + composition_pattern (composition-skill.md + spec.template.json)
+storage/projects/{projectId}/knowledge/drafts/composition/{generationId}/{slotId}/
+```
+
+```powershell
+cd services/composition
+python -m pytest
+python -m compileall composition
+```
+
+### Composition (`services/composition`)
+
+Facade: `composition.api.CompositionEngine` — `author_material_spec`, `build_composition`, `lint_composition`, `render_clip`, `deposit_pattern_candidate`, `promote_pattern`. Skill bootstrap: `SkillCatalog` → `<available_skills>` + `skill_view` tool. Promote gate: user score ≥ 4 and lint passed.
 
 ```powershell
 cd services/worker
@@ -408,6 +439,7 @@ GET /api/knowledge/entries/{entry_id}
 GET /api/knowledge/entries/{entry_id}/skill
 GET /api/projects/{project_id}/samples/{sample_id}/knowledge-draft
 POST /api/projects/{project_id}/samples/{sample_id}/knowledge/promote
+POST /api/projects/{project_id}/knowledge/composition/promote
 POST /api/projects/{project_id}/knowledge/recommend
 GET /api/projects/{project_id}/knowledge/selection
 PUT /api/projects/{project_id}/knowledge/selection

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-_VALID_TEMPLATES = frozenset({"benefit-card", "title-lower-third", "ken-burns", "custom"})
+_VALID_TEMPLATES = frozenset({"benefit-card", "title-lower-third", "ken-burns", "custom", "composition"})
 _ALLOWED_PARAM_KEYS = frozenset({"title", "bullets", "colors", "assetRefs", "subtitle"})
 
 _TEMPLATE_ALIASES: dict[str, str] = {
@@ -26,6 +26,7 @@ _TEMPLATE_ALIASES: dict[str, str] = {
     "ken_burns": "ken-burns",
     "kenburns": "ken-burns",
     "custom": "custom",
+    "composition": "composition",
 }
 
 _ROLE_DEFAULT_TEMPLATE: dict[str, str] = {
@@ -152,6 +153,22 @@ def coerce_material_spec_output(
     asset_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize common LLM drift into a MaterialSpec-shaped dict."""
+    composition = payload.get("composition")
+    if isinstance(composition, dict) or _resolve_template(payload, slot=slot) == "composition":
+        body_html = ""
+        if isinstance(composition, dict):
+            body_html = str(composition.get("bodyHtml", "")).strip()
+        if body_html:
+            coerced_composition: dict[str, Any] = {"bodyHtml": body_html}
+            for key in ("styles", "timelineScript", "registryBlocks"):
+                if isinstance(composition, dict) and composition.get(key) is not None:
+                    coerced_composition[key] = composition[key]
+            return {
+                "template": "composition",
+                "durationSec": _coerce_duration(payload.get("durationSec"), template="composition"),
+                "composition": coerced_composition,
+            }
+
     raw_params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
     params = dict(raw_params)
     template = _resolve_template(payload, slot=slot)

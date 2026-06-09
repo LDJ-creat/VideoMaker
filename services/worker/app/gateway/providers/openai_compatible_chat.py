@@ -31,13 +31,15 @@ class OpenAICompatibleChatProvider:
             return self._client
         return httpx.Client(timeout=self._timeout_sec)
 
-    def complete(
+    def complete_assistant_message(
         self,
         messages: list[dict[str, Any]],
         *,
         model: str | None = None,
         response_format: dict[str, str] | None = None,
-    ) -> str:
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not self.config.api_key:
             raise GatewayError(
                 code="missing_api_key",
@@ -53,6 +55,10 @@ class OpenAICompatibleChatProvider:
         }
         if response_format is not None:
             body["response_format"] = response_format
+        if tools is not None:
+            body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
         body["max_tokens"] = 16384
 
         headers = {
@@ -99,7 +105,7 @@ class OpenAICompatibleChatProvider:
 
                 try:
                     payload = response.json()
-                    content = payload["choices"][0]["message"]["content"]
+                    message = payload["choices"][0]["message"]
                 except (KeyError, IndexError, json.JSONDecodeError) as exc:
                     raise GatewayError(
                         code="invalid_response",
@@ -107,15 +113,15 @@ class OpenAICompatibleChatProvider:
                         retryable=False,
                     ) from exc
 
-                if not isinstance(content, str):
+                if not isinstance(message, dict):
                     raise GatewayError(
                         code="invalid_response",
-                        message="Chat completion content is not a string",
+                        message="Chat completion message is not an object",
                         retryable=False,
                     )
 
                 self.last_latency_ms = int((time.perf_counter() - started) * 1000)
-                return content
+                return message
 
             if last_error is not None:
                 raise last_error
@@ -127,3 +133,28 @@ class OpenAICompatibleChatProvider:
         finally:
             if owns_client:
                 client.close()
+
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        response_format: dict[str, str] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> str:
+        message = self.complete_assistant_message(
+            messages,
+            model=model,
+            response_format=response_format,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise GatewayError(
+                code="invalid_response",
+                message="Chat completion content is not a string",
+                retryable=False,
+            )
+        return content
