@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.pipelines.generation_pipeline import (
     assemble_generation_plan,
     build_asset_inventory,
@@ -237,6 +239,35 @@ def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:
     visual_actions = [a for a in plan["completionActions"] if a.get("provider") != "tts"]
     assert tts_actions
     assert visual_actions
+    assert plan.get("ttsMode") == "global"
+    assert len(tts_actions) == 1
+    assert tts_actions[0]["slotId"] == "__master__"
+
+    text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
+    subtitle_clips = [c for c in text_track["clips"] if str(c.get("id", "")).startswith("subtitle-")]
+    assert subtitle_clips == []
+
+
+def test_assemble_generation_plan_per_scene_env_includes_subtitle_clips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_TTS_MODE", "per_scene")
+    structure, inventory = _build_inputs()
+    gap_report = _load_agent_fixture("gap_planner")
+    slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    packaging_plan = _load_agent_fixture("packaging_designer")["packagingPlan"]
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant="default",
+        master_narration="",
+    )
 
     text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
     scenes_with_script = [s for s in storyboard if str(s.get("script", "")).strip()]
@@ -340,7 +371,8 @@ def test_assemble_generation_plan_skips_duplicate_tts_when_gap_already_tts() -> 
 
     tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
     assert len(tts_actions) == 1
-    assert tts_actions[0]["id"] == "action-slot-proof"
+    assert tts_actions[0]["id"] == "action-master-tts"
+    assert tts_actions[0]["slotId"] == "__master__"
 
 
 def test_assemble_generation_plan_expands_stock_to_ken_burns_chain() -> None:
@@ -448,3 +480,29 @@ def test_assemble_generation_plan_long_form_uses_global_tts() -> None:
     assert tts_actions[0]["slotId"] == "__master__"
     text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
     assert not any(str(c.get("id", "")).startswith("subtitle-") for c in text_track["clips"])
+
+
+def test_assemble_generation_plan_short_duration_uses_long_form() -> None:
+    structure, inventory = _build_inputs()
+    gap_report = _load_agent_fixture("gap_planner")
+    slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    packaging_plan = _load_agent_fixture("packaging_designer")["packagingPlan"]
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant="default",
+        master_narration="短视频全片口播。",
+        duration_target_sec=30.0,
+    )
+
+    assert plan["generationStrategy"] == "long_form_composed"
+    assert plan.get("ttsMode") == "global"
+    assert len(plan["storyboard"]) == len(storyboard)
+    slot_ids = {action["slotId"] for action in plan["completionActions"] if action.get("provider") != "tts"}
+    assert len(slot_ids) >= 2

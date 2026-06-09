@@ -18,7 +18,11 @@ from app.providers.completion_registry import (
 )
 from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
-from app.pipelines.generation_strategy import is_short_form_strategy, resolve_generation_strategy
+from app.pipelines.generation_strategy import (
+    normalize_generation_plan,
+    normalize_generation_strategy,
+    resolve_generation_strategy,
+)
 from app.pipelines.script_draft import (
     empty_script_draft,
     load_script_draft,
@@ -26,11 +30,7 @@ from app.pipelines.script_draft import (
     save_script_draft,
     storyboard_is_approved,
 )
-from app.pipelines.short_form_direct import (
-    filter_short_form_completion_actions,
-    simplify_storyboard_for_short_form,
-)
-from app.pipelines.duration_target import normalize_duration_target, short_form_max_sec
+from app.pipelines.duration_target import normalize_duration_target
 from app.render.aspect_ratio import resolve_aspect_ratio
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
@@ -610,21 +610,18 @@ def run_planning_from_script_draft(
         dict(draft["visualStyleBible"]) if isinstance(draft.get("visualStyleBible"), dict) else None
     )
     storyboard = [dict(scene) for scene in draft.get("storyboard") or [] if isinstance(scene, dict)]
-    strategy = str(
-        draft.get("generationStrategy")
-        or resolve_generation_strategy(
-            float(draft.get("durationTargetSec") or structure.get("metadata", {}).get("durationSec", 30.0))
+    strategy = normalize_generation_strategy(
+        str(
+            draft.get("generationStrategy")
+            or resolve_generation_strategy(
+                float(draft.get("durationTargetSec") or structure.get("metadata", {}).get("durationSec", 30.0))
+            )
         )
     )
     target_sec = float(
         draft.get("durationTargetSec")
         or structure.get("metadata", {}).get("durationSec", 30.0)
     )
-    if is_short_form_strategy(strategy):
-        storyboard = simplify_storyboard_for_short_form(
-            storyboard,
-            target_sec=target_sec,
-        )
 
     snapshot = load_revise_snapshot(generation_root)
     packaging_plan: dict[str, Any]
@@ -777,6 +774,22 @@ def assemble_generation_plan(
         for item in [*gap_report.get("weakSlots", []), *gap_report.get("missingSlots", [])]
     }
 
+    resolved_strategy = normalize_generation_strategy(
+        generation_strategy
+        or resolve_generation_strategy(
+            float(
+                duration_target_sec
+                if duration_target_sec is not None
+                else structure.get("metadata", {}).get("durationSec", 30.0)
+            )
+        )
+    )
+    master = str(master_narration or "").strip() or derive_master_from_storyboard(storyboard)
+    tts_mode = resolve_tts_mode(
+        {"generationStrategy": resolved_strategy, "masterNarration": master}
+    )
+    use_global_tts = is_global_tts_mode(tts_mode) and bool(master)
+
     visual_actions: list[dict[str, Any]] = []
     for scene in storyboard:
         slot_id = scene["slotId"]
@@ -788,6 +801,8 @@ def assemble_generation_plan(
         completion_mode = str(slot_gap.get("completionMode") or "source_only")
         finish_intent = slot_gap.get("finishIntent")
         for index, strategy in enumerate(fixes):
+            if use_global_tts and strategy == "tts":
+                continue
             if index == 0:
                 action_id = f"action-{slot_id}"
             elif strategy == "hyperframes_material" and index > 0:
@@ -818,18 +833,6 @@ def assemble_generation_plan(
                 )
             visual_actions.append(action)
 
-    resolved_strategy = generation_strategy or resolve_generation_strategy(
-        float(
-            duration_target_sec
-            if duration_target_sec is not None
-            else structure.get("metadata", {}).get("durationSec", 30.0)
-        )
-    )
-    master = str(master_narration or "").strip() or derive_master_from_storyboard(storyboard)
-    tts_mode = resolve_tts_mode(
-        {"generationStrategy": resolved_strategy, "masterNarration": master}
-    )
-
     tts_from_gap = {
         str(action["slotId"])
         for action in visual_actions
@@ -842,12 +845,6 @@ def assemble_generation_plan(
         tts_mode=tts_mode,
     )
     completion_actions = visual_actions + narration_actions
-    if is_short_form_strategy(resolved_strategy) and storyboard:
-        primary_slot = str(storyboard[0].get("slotId") or "")
-        completion_actions = filter_short_form_completion_actions(
-            completion_actions,
-            primary_slot_id=primary_slot,
-        )
 
     timeline = _build_timeline(
         storyboard=storyboard,
@@ -891,13 +888,10 @@ def assemble_generation_plan(
         else (brief.get("durationTarget") or {}).get("targetSec")
         or structure.get("metadata", {}).get("durationSec", 30.0)
     )
-    plan["aspectRatio"] = resolve_aspect_ratio(
-        brief,
-        target_sec=resolved_target,
-        short_form_max=short_form_max_sec(),
-    )
+    plan["aspectRatio"] = resolve_aspect_ratio(brief, target_sec=resolved_target)
     if duration_target_sec is not None:
         plan["durationTargetSec"] = round(float(duration_target_sec), 2)
+    plan = normalize_generation_plan(plan)
     validation = validate_contract("generation-plan", plan)
     if not validation.valid:
         raise ValueError(f"Invalid GenerationPlan payload: {validation.errors}")

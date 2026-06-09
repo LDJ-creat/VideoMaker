@@ -2,16 +2,80 @@ from __future__ import annotations
 
 import pytest
 
-from app.pipelines.generation_strategy import resolve_generation_strategy
+from app.pipelines.generation_strategy import (
+    infer_tts_mode_from_plan,
+    normalize_generation_plan,
+    normalize_generation_strategy,
+    resolve_generation_strategy,
+)
 
 
-def test_resolve_generation_strategy_short_form(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIDEOMAKER_SHORT_FORM_MAX_SEC", "60")
-    assert resolve_generation_strategy(60) == "short_form_direct"
-    assert resolve_generation_strategy(30) == "short_form_direct"
-
-
-def test_resolve_generation_strategy_long_form(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIDEOMAKER_SHORT_FORM_MAX_SEC", "60")
-    assert resolve_generation_strategy(61) == "long_form_composed"
+def test_resolve_generation_strategy_always_long_form() -> None:
+    assert resolve_generation_strategy(30) == "long_form_composed"
+    assert resolve_generation_strategy(60) == "long_form_composed"
     assert resolve_generation_strategy(120) == "long_form_composed"
+    assert resolve_generation_strategy(None) == "long_form_composed"
+
+
+def test_normalize_generation_strategy_maps_legacy_short_form() -> None:
+    assert normalize_generation_strategy("short_form_direct") == "long_form_composed"
+    assert normalize_generation_strategy("long_form_composed") == "long_form_composed"
+    assert normalize_generation_strategy(None) == "long_form_composed"
+    assert normalize_generation_strategy("") == "long_form_composed"
+
+
+def test_normalize_generation_strategy_falls_back_for_unknown_values() -> None:
+    assert normalize_generation_strategy("foo") == "long_form_composed"
+    assert normalize_generation_strategy("legacy_mode") == "long_form_composed"
+
+
+def test_normalize_generation_plan_preserves_legacy_per_scene_tts_actions() -> None:
+    plan = {
+        "generationStrategy": "short_form_direct",
+        "completionActions": [
+            {
+                "id": "action-slot-a-tts",
+                "slotId": "slot-a",
+                "provider": "tts",
+                "strategy": "tts",
+            }
+        ],
+        "masterNarration": "hello",
+    }
+    normalized = normalize_generation_plan(plan)
+    assert normalized["generationStrategy"] == "long_form_composed"
+    assert normalized["ttsMode"] == "per_scene"
+    assert infer_tts_mode_from_plan(normalized) == "per_scene"
+
+
+def test_normalize_generation_plan_keeps_explicit_tts_mode() -> None:
+    plan = {
+        "generationStrategy": "short_form_direct",
+        "ttsMode": "global",
+        "completionActions": [
+            {
+                "id": "action-slot-a-tts",
+                "slotId": "slot-a",
+                "provider": "tts",
+            }
+        ],
+    }
+    normalized = normalize_generation_plan(plan)
+    assert normalized["generationStrategy"] == "long_form_composed"
+    assert normalized["ttsMode"] == "global"
+
+
+def test_normalize_generation_plan_defaults_global_for_new_style_plan() -> None:
+    plan = {
+        "generationStrategy": "long_form_composed",
+        "masterNarration": "全片口播",
+        "completionActions": [
+            {
+                "id": "action-master-tts",
+                "slotId": "__master__",
+                "provider": "tts",
+            }
+        ],
+    }
+    normalized = normalize_generation_plan(plan)
+    assert normalized["ttsMode"] == "global"

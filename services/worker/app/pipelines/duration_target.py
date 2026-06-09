@@ -23,10 +23,6 @@ def duration_target_max_sec() -> float:
     return _env_float("VIDEOMAKER_DURATION_TARGET_MAX_SEC", 600.0)
 
 
-def short_form_max_sec() -> float:
-    return _env_float("VIDEOMAKER_SHORT_FORM_MAX_SEC", 60.0)
-
-
 def recommend_duration_from_structure(structure: dict[str, Any] | None) -> float:
     if not isinstance(structure, dict):
         return 30.0

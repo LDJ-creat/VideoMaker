@@ -89,7 +89,8 @@ def test_ripple_overflow_shifts_following_scenes(tmp_path: Path) -> None:
 
     plan = {
         "ttsMode": "per_scene",
-        "generationStrategy": "short_form_direct",
+        "generationStrategy": "long_form_composed",
+        "ttsMode": "per_scene",
         "storyboard": [
             {
                 "id": "scene-1",

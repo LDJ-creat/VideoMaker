@@ -1,17 +1,10 @@
 from app.render.aspect_ratio import (
-    default_aspect_ratio_for_duration,
+    DEFAULT_ASPECT_RATIO,
     pexels_orientation,
     render_dimensions,
     resolve_aspect_ratio,
     subtitle_layout,
 )
-
-
-def test_default_aspect_ratio_by_duration() -> None:
-    assert default_aspect_ratio_for_duration(45) == "9:16"
-    assert default_aspect_ratio_for_duration(60) == "9:16"
-    assert default_aspect_ratio_for_duration(61) == "16:9"
-    assert default_aspect_ratio_for_duration(179) == "16:9"
 
 
 def test_resolve_aspect_ratio_prefers_brief_override() -> None:
@@ -24,9 +17,13 @@ def test_resolve_aspect_ratio_prefers_brief_override() -> None:
     )
 
 
-def test_resolve_aspect_ratio_falls_back_to_duration_default() -> None:
-    assert resolve_aspect_ratio({}, target_sec=30) == "9:16"
-    assert resolve_aspect_ratio(None, target_sec=120) == "16:9"
+def test_resolve_aspect_ratio_falls_back_to_default_without_brief() -> None:
+    assert resolve_aspect_ratio({}, target_sec=30) == DEFAULT_ASPECT_RATIO
+    assert resolve_aspect_ratio(None, target_sec=120) == DEFAULT_ASPECT_RATIO
+
+
+def test_resolve_aspect_ratio_ignores_duration_when_brief_missing() -> None:
+    assert resolve_aspect_ratio({}, target_sec=30) == resolve_aspect_ratio({}, target_sec=180)
 
 
 def test_render_dimensions_and_pexels_orientation() -> None:

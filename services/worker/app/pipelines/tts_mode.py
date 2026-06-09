@@ -11,15 +11,11 @@ MASTER_TTS_WAV_NAME = "master.wav"
 
 
 def resolve_tts_mode(plan: dict[str, Any]) -> TtsMode:
-    """Resolve TTS synthesis mode from env or generation strategy."""
+    """Resolve TTS synthesis mode from env override or default global master narration."""
     env = os.getenv("VIDEOMAKER_TTS_MODE", "").strip().lower()
     if env in {"global", "per_scene"}:
         return env  # type: ignore[return-value]
-
-    strategy = str(plan.get("generationStrategy") or "").strip()
-    if strategy == "long_form_composed":
-        return "global"
-    return "per_scene"
+    return "global"
 
 
 def is_global_tts_mode(mode: str | None) -> bool:

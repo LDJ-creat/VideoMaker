@@ -2,29 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.pipelines.duration_target import short_form_max_sec
-
 AspectRatio = str
 
 VALID_ASPECT_RATIOS = frozenset({"9:16", "16:9", "1:1"})
-
-
-def default_aspect_ratio_for_duration(
-    target_sec: float,
-    *,
-    short_form_max: float | None = None,
-) -> AspectRatio:
-    threshold = short_form_max_sec() if short_form_max is None else short_form_max
-    return "9:16" if float(target_sec) <= threshold else "16:9"
+DEFAULT_ASPECT_RATIO: AspectRatio = "9:16"
 
 
 def resolve_aspect_ratio(
     brief: dict[str, Any] | None,
     *,
-    target_sec: float,
-    short_form_max: float | None = None,
     plan: dict[str, Any] | None = None,
+    target_sec: float | None = None,
 ) -> AspectRatio:
+    del target_sec  # kept for call-site compatibility; aspect ratio follows brief only
     if isinstance(plan, dict):
         plan_ratio = plan.get("aspectRatio")
         if isinstance(plan_ratio, str) and plan_ratio in VALID_ASPECT_RATIOS:
@@ -32,7 +22,7 @@ def resolve_aspect_ratio(
     raw = (brief or {}).get("aspectRatio")
     if isinstance(raw, str) and raw in VALID_ASPECT_RATIOS:
         return raw
-    return default_aspect_ratio_for_duration(target_sec, short_form_max=short_form_max)
+    return DEFAULT_ASPECT_RATIO
 
 
 def render_dimensions(aspect_ratio: AspectRatio) -> tuple[int, int]:

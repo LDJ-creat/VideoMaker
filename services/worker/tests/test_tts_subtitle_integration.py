@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.pipelines.generation_pipeline import (
     FixtureMaterialGateway,
     assemble_generation_plan,
@@ -18,6 +20,11 @@ from app.render.render_timeline_to_hyperframes import write_composition
 from app.runtime.video_gen_quota import VideoGenQuota
 
 
+class _FixtureGatewayWithConfig(FixtureMaterialGateway):
+    def __init__(self) -> None:
+        self.config = type("Cfg", (), {"tts_preferences": {}})()
+
+
 def _load_fixture(name: str) -> dict:
     path = Path(__file__).parent / "fixtures" / "agents" / f"{name}.json"
     return json.loads(path.read_text(encoding="utf-8"))
@@ -28,7 +35,11 @@ def _load_structure() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(tmp_path: Path) -> None:
+def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_TTS_MODE", "per_scene")
     structure = _load_structure()
     inventory = build_asset_inventory(
         project_id="project-1",
@@ -54,10 +65,12 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(tmp_pa
         slot_matches=slot_matches,
         storyboard=storyboard,
         packaging_plan=packaging_plan,
+        master_narration="",
     )
 
     tts_actions = [a for a in plan["completionActions"] if a.get("provider") == "tts"]
     assert tts_actions
+    assert plan.get("ttsMode") == "per_scene"
 
     generation_root = tmp_path / "generations" / "gen-1"
     render_root = tmp_path / "renders" / "gen-1"
@@ -70,7 +83,7 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(tmp_pa
         generation_id="gen-1",
         render_root=render_root,
         generated_root=generated_root,
-        gateway=FixtureMaterialGateway(),  # type: ignore[arg-type]
+        gateway=_FixtureGatewayWithConfig(),  # type: ignore[arg-type]
         quota=VideoGenQuota(),
         inventory=inventory,
         slot_matches=slot_matches,

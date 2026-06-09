@@ -43,13 +43,12 @@ from app.pipelines.generation_pipeline import (
     run_planning_from_script_draft,
 )
 from app.pipelines.duration_target import normalize_duration_target, scale_structure_to_target_duration
-from app.pipelines.generation_strategy import is_short_form_strategy
+from app.pipelines.generation_strategy import normalize_generation_plan, normalize_generation_strategy
 from app.pipelines.script_draft import (
     load_script_draft,
     master_is_approved,
     storyboard_is_approved,
 )
-from app.pipelines.short_form_direct import validate_short_form_material_gateway
 from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.intent_applier import apply_intents_to_context
@@ -807,7 +806,14 @@ class P0DemoPipeline:
 
         if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
-            plan = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
+            plan = normalize_generation_plan(
+                json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
+            )
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.generationStrategy = str(plan.get("generationStrategy") or "")
             emit(
                 status="running",
                 stage="mapping_slots",
@@ -971,8 +977,8 @@ class P0DemoPipeline:
                 return {"ok": False, "error": str(exc)}
 
             plan["id"] = generation_id
-            strategy = str(plan.get("generationStrategy") or "")
-            checkpoint.generationStrategy = strategy or None
+            plan = normalize_generation_plan(plan)
+            checkpoint.generationStrategy = str(plan.get("generationStrategy") or "")
             (generation_root / "generation-plan.json").write_text(
                 json.dumps(plan, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -1095,6 +1101,9 @@ class P0DemoPipeline:
             slot_matches_payload = json.loads(slot_matches_path.read_text(encoding="utf-8"))
             slot_matches = list(slot_matches_payload.get("slotMatches", []))
 
+        plan = normalize_generation_plan(plan)
+        checkpoint.generationStrategy = str(plan.get("generationStrategy") or "")
+
         material_state_path = generation_root / "material-state.json"
         material_skipped = resume and is_material_stage_done(generation_root, plan)
         if material_skipped:
@@ -1131,11 +1140,6 @@ class P0DemoPipeline:
                         gap_report_path.read_text(encoding="utf-8"),
                     )
                 material_gateway = self._build_material_gateway()
-                if is_short_form_strategy(str(plan.get("generationStrategy") or "")):
-                    validate_short_form_material_gateway(
-                        gateway=material_gateway,
-                        plan=plan,
-                    )
                 plan, _material_results = run_generating_material(
                     plan=plan,
                     inventory=inventory,
