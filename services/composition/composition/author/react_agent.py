@@ -77,6 +77,11 @@ def author_material_spec(
                         "assetRefs": request.asset_refs,
                         "validationErrors": request.validation_errors,
                         **(
+                            {"finishBrief": request.finish_brief}
+                            if isinstance(request.finish_brief, dict)
+                            else {}
+                        ),
+                        **(
                             {"visualStyleBible": request.visual_style_bible}
                             if isinstance(request.visual_style_bible, dict)
                             and request.visual_style_bible.get("summary")
@@ -124,6 +129,11 @@ def author_material_spec(
                     "variantOverrides": request.variant_overrides,
                     "assetRefs": request.asset_refs,
                     "validationErrors": request.validation_errors,
+                    **(
+                        {"finishBrief": request.finish_brief}
+                        if isinstance(request.finish_brief, dict)
+                        else {}
+                    ),
                     **(
                         {"visualStyleBible": request.visual_style_bible}
                         if isinstance(request.visual_style_bible, dict)
