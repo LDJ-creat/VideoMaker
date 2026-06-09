@@ -325,6 +325,7 @@ def get_generation_run(project_id: str, run_id: str, request: Request) -> dict[s
                 "generationId": generation_id,
                 "variant": record.get("variant"),
                 "status": record.get("status"),
+                "taskId": record.get("taskId"),
                 "plan": plan,
             }
         )
