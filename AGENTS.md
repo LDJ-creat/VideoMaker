@@ -255,7 +255,9 @@ Subtitles are rebuilt after material completion from voiceover WAV windows (not 
 
 Pexels API key also persists in SQLite `stock_media_providers` (encrypted with `storage/global/model-gateway.key`). Worker subprocesses receive `VIDEOMAKER_PEXELS_API_KEY` from API `pipeline_runner` when env is unset.
 
-Gap completion priority for eligible visual slots (`usage_scene`, generic `hook_visual`; never `product_closeup`): user video weak match → `asset_reuse`; else when Pexels configured → `stock_media_search` (LLM `stock_query_author` + deterministic fallback); else `video_generation` / `image_generation`. Stock miss falls back to AIGC without failing the generation. Video weak matches → `asset_reuse` (trim only). `asset_reuse` rejects `type=image`.
+Gap completion uses **LLM propose + Python reconcile** (`gap_reconcile.py`): `gap_planner` outputs per-slot `completionMode`, `finishIntent`, and ordered `suggestedFixes`; reconcile applies hard rules (product_closeup no stock, packaging roles force HF, AIGC only when `aigc_required`) and cost policy from variant `preferProviders` (default: `asset_reuse` → `stock_media_search` → `hyperframes_material` → `image_generation` → `video_generation`). After storyboard approval, `reconcile_gap_finish_from_storyboard` may upgrade to `source_then_polish` without changing primary source.
+
+For eligible visual slots (`usage_scene`, `hook_visual`; never `product_closeup` on product-bound brief): weak video → `asset_reuse`; else Pexels when configured → `stock_media_search`; else HF native / image / video per reconcile. `source_then_polish` chains primary source + `-finish` `hyperframes_material` executed by **`material_author`** with `finishBrief` + video/image `assetRefs` (ken-burns template fallback only on author failure). Stock miss falls back to AIGC without failing the generation. `asset_reuse` rejects `type=image`.
 
 **Samples, generations, and revise:**
 

@@ -29,6 +29,23 @@
 1. 使用极冷门 query 场景（或 mock 空结果）
 2. 确认自动 fallback `image_generation` / `video_generation`，任务继续完成
 
+## 场景 5 — stock video + HF finish 润色
+
+1. 配置 Pexels Key；Brief 为 lifestyle / usage_scene
+2. 分镜 visual 含「字幕 / lower third / 角标」等包装关键词，或 slot 含 `packagingRequirements`
+3. 生成后确认 gap item `completionMode=source_then_polish`，completion actions 含 `action-{slotId}`（stock）+ `action-{slotId}-finish`（hyperframes_material）
+4. 预览 MP4：底片为 Pexels B-roll，上层有 HF overlay（字幕条/角标等）
+
+## 场景 6 — hf_native 全合成
+
+1. 结构含 `benefit_card` / `hook_text` 等 packaging role
+2. 确认 provider chain 仅 `hyperframes_material`，无 stock / AIGC 主路径
+
+## 场景 7 — AIGC 仅 must-use
+
+1. `product_closeup` + 本品 Brief → 仅 `video_generation` / `image_generation`，无 Pexels
+2. 普通 B-roll 槽位在 reconcile 后不应默认使用 `video_generation`（除非 LLM 标注 must-use 且 quota 允许）
+
 ## 合规
 
 - 结果面板或分镜 metadata 展示 `stockAttribution`（摄影师 + pageUrl）
