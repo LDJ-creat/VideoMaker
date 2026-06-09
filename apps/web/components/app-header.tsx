@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 
 export function AppHeader() {
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 px-4 pt-4 md:px-6">
-      <div className="pointer-events-auto mx-auto flex h-14 max-w-7xl items-center justify-between rounded-2xl border border-border/60 bg-background/85 px-4 shadow-sm backdrop-blur-md md:px-6">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/60 bg-background/85 shadow-sm backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
         <Link
           href="/projects"
           className="flex items-center gap-3 transition-opacity hover:opacity-80"

@@ -40,7 +40,7 @@ export default function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <AppHeader />
-          <main className="mx-auto max-w-7xl px-4 pb-6 pt-20 md:px-6 md:pt-24">
+          <main className="mx-auto max-w-7xl px-4 pb-6 pt-14 md:px-6">
             {children}
           </main>
         </ThemeProvider>
