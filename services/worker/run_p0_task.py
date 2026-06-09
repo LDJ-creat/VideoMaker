@@ -46,6 +46,8 @@ def _default_stage(mode: str) -> str:
         return "extracting_metadata"
     if mode == "parse_edit_intent":
         return "parsing_edit_intent"
+    if mode == "revise_script_draft":
+        return "running_agent"
     if mode == "run_revise":
         return "parsing_edit_intent"
     if mode == "composition_pattern_promote":
@@ -158,6 +160,24 @@ def main() -> int:
                 context=context,
             )
             result = {"ok": True, "intents": parsed.get("intents", [])}
+        elif mode == "revise_script_draft":
+            from app.pipelines.script_draft_revise import revise_script_draft
+            from app.runtime.task_context import TaskContext
+
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=storage_root,
+            )
+            result = revise_script_draft(
+                pipeline._build_runner(),  # noqa: SLF001
+                project_id=project_id,
+                generation_id=str(payload["generationId"]),
+                scope=str(payload["scope"]),
+                instruction=str(payload["instruction"]),
+                context=context,
+                structure=payload.get("structure"),
+            )
         elif mode == "knowledge_selector":
             from app.agents.knowledge_selector import run_knowledge_selector
             from app.runtime.task_context import TaskContext

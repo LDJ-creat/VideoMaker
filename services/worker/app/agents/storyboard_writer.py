@@ -97,11 +97,16 @@ def _normalize_storyboard_scenes(
     return normalized
 
 
+def _optional_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = str(payload.get("summary") or "").strip()
+    return {"summary": summary} if summary else {}
+
+
 def _assert_master_only(payload: dict[str, Any]) -> dict[str, Any]:
     master = str(payload.get("masterNarration") or "").strip()
     if not master:
         raise ValueError("storyboard_writer master_only output must include non-empty masterNarration")
-    return {"masterNarration": master}
+    return {"masterNarration": master, **_optional_summary(payload)}
 
 
 def _assert_storyboard_from_master(
@@ -122,7 +127,7 @@ def _assert_storyboard_from_master(
         storyboard=normalized,
         structure=structure,
     )
-    return {"storyboard": aligned}
+    return {"storyboard": aligned, **_optional_summary(payload)}
 
 
 def _assert_storyboard(
@@ -165,6 +170,8 @@ def run_storyboard_writer(
     phase: str = "full",
     master_narration: str | None = None,
     duration_target: dict[str, Any] | None = None,
+    instruction: str | None = None,
+    current_storyboard: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     if agent_overrides:
@@ -180,12 +187,16 @@ def run_storyboard_writer(
         inputs["durationTarget"] = duration_target
     if master_narration is not None:
         inputs["masterNarration"] = master_narration
+    if instruction is not None:
+        inputs["instruction"] = instruction
+    if current_storyboard is not None:
+        inputs["storyboard"] = current_storyboard
     if knowledge_context:
         inputs["knowledgeContext"] = knowledge_context
 
-    if phase == "master_only":
+    if phase in {"master_only", "revise_master"}:
         post_validate = lambda payload: _assert_master_only(payload)
-    elif phase == "storyboard_from_master":
+    elif phase in {"storyboard_from_master", "revise_storyboard"}:
         approved_master = str(master_narration or "").strip()
         post_validate = lambda payload: _assert_storyboard_from_master(
             payload,
