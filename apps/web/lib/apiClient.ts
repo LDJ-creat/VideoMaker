@@ -956,6 +956,23 @@ export async function updateScriptDraft(
   });
 }
 
+export type ScriptDraftNlReviseResponse = {
+  draft: ScriptDraft;
+  revisionId: string;
+  summary?: string;
+};
+
+export async function nlReviseScriptDraft(
+  generationId: string,
+  body: { scope: "master" | "storyboard"; instruction: string },
+): Promise<ApiResult<ScriptDraftNlReviseResponse>> {
+  return apiFetch(`/api/generations/${generationId}/script-draft/nl-revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function approveMasterScript(
   generationId: string,
 ): Promise<ApiResult<{ generationId: string; taskId: string; draft: ScriptDraft }>> {

@@ -19,8 +19,10 @@ import {
   approveMasterScript,
   approveStoryboardScript,
   getScriptDraft,
+  nlReviseScriptDraft,
   updateScriptDraft,
 } from "@/lib/apiClient";
+import { ScriptNlReviseBar } from "@/features/script-review/ScriptNlReviseBar";
 import {
   formatDurationSec,
   generationStrategyLabel,
@@ -132,6 +134,7 @@ export function ScriptReviewPanel({
     {},
   );
   const [masterText, setMasterText] = useState<Record<string, string>>({});
+  const [nlSummary, setNlSummary] = useState<Record<string, string | null>>({});
   const loadedReviewKeysRef = useRef<Set<string>>(new Set());
   const dirtyMasterRef = useRef<Set<string>>(new Set());
 
@@ -307,6 +310,54 @@ export function ScriptReviewPanel({
     }
   };
 
+  const handleNlRevise = async (scope: "master" | "storyboard", instruction: string) => {
+    if (!activeId) return;
+    setByVariant((prev) => ({
+      ...prev,
+      [activeId]: { ...prev[activeId]!, saving: true, error: null },
+    }));
+    setNlSummary((prev) => ({ ...prev, [activeId]: null }));
+    try {
+      if (scope === "master") {
+        await updateScriptDraft(activeId, {
+          masterNarration: masterText[activeId] ?? "",
+        });
+      } else if (draft?.storyboard) {
+        await updateScriptDraft(activeId, { storyboard: draft.storyboard });
+      }
+      const { data } = await nlReviseScriptDraft(activeId, { scope, instruction });
+      setByVariant((prev) => ({
+        ...prev,
+        [activeId]: {
+          ...prev[activeId]!,
+          draft: data.draft,
+          saving: false,
+          error: null,
+        },
+      }));
+      if (scope === "master") {
+        setMasterText((prev) => ({
+          ...prev,
+          [activeId]: data.draft.masterNarration ?? "",
+        }));
+        dirtyMasterRef.current.delete(activeId);
+      }
+      setNlSummary((prev) => ({
+        ...prev,
+        [activeId]: data.summary ?? null,
+      }));
+    } catch (err) {
+      setByVariant((prev) => ({
+        ...prev,
+        [activeId]: {
+          ...prev[activeId]!,
+          saving: false,
+          error: getErrorMessage(err),
+        },
+      }));
+    }
+  };
+
   const handleApproveStoryboard = async () => {
     if (!activeId || !draft?.storyboard) return;
     setByVariant((prev) => ({
@@ -400,9 +451,20 @@ export function ScriptReviewPanel({
             {activeState.error}
           </p>
         )}
+        {nlSummary[activeId] && (
+          <p className="text-sm text-muted-foreground" data-testid="nl-revise-summary">
+            AI 修改说明：{nlSummary[activeId]}
+          </p>
+        )}
 
         {masterReview && (
           <div className="space-y-3">
+            <ScriptNlReviseBar
+              scope="master"
+              busy={activeState?.saving}
+              disabled={activeState?.loading}
+              onSubmit={(instruction) => handleNlRevise("master", instruction)}
+            />
             <Label htmlFor="master-narration">总脚本（Master Narration）</Label>
             <Textarea
               id="master-narration"
@@ -439,6 +501,12 @@ export function ScriptReviewPanel({
 
         {storyboardReview && draft && (
           <div className="space-y-3">
+            <ScriptNlReviseBar
+              scope="storyboard"
+              busy={activeState?.saving}
+              disabled={activeState?.loading}
+              onSubmit={(instruction) => handleNlRevise("storyboard", instruction)}
+            />
             <StoryboardEditor
               scenes={draft.storyboard ?? []}
               disabled={Boolean(activeState?.saving)}
