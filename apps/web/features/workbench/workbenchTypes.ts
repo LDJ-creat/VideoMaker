@@ -3,7 +3,6 @@ export type WorkbenchPanel =
   | "progress"
   | "script-review"
   | "analysis"
-  | "gap"
   | "narration"
   | "result"
   | "knowledge";
@@ -13,8 +12,7 @@ export const PANEL_LABELS: Record<WorkbenchPanel, string> = {
   progress: "进度",
   "script-review": "脚本审核",
   analysis: "样例分析",
-  gap: "缺口",
-  narration: "全片口播",
+  narration: "全片拆解",
   result: "结果",
   knowledge: "知识库",
 };

@@ -2,24 +2,36 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MasterNarrationPanel } from "@/features/master-narration/MasterNarrationPanel";
-import { fixtureGenerationPlan } from "@/fixtures";
+import {
+  fixtureGenerationPlan,
+  fixtureGapReport,
+  fixtureVideoStructure,
+} from "@/fixtures";
 
 describe("MasterNarrationPanel", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("renders master narration and scene segments", () => {
-    render(<MasterNarrationPanel plan={fixtureGenerationPlan} />);
+  it("renders full breakdown with master narration and scene segments", () => {
+    render(
+      <MasterNarrationPanel
+        plan={fixtureGenerationPlan}
+        structure={fixtureVideoStructure}
+        gapReport={fixtureGapReport}
+      />,
+    );
 
-    expect(screen.getByText("全片口播")).toBeInTheDocument();
+    expect(screen.getByText("全片拆解")).toBeInTheDocument();
+    expect(screen.getByText("全片口播稿")).toBeInTheDocument();
     expect(screen.getByTestId("master-narration-text")).toHaveTextContent(
       fixtureGenerationPlan.masterNarration,
     );
     expect(screen.getByTestId("narration-scene-scene-1")).toHaveTextContent(
       "夏天出门还在被晒黑？",
     );
-    expect(screen.getByText("分镜预览")).toBeInTheDocument();
+    expect(screen.getByText("槽位拆解")).toBeInTheDocument();
+    expect(screen.getAllByText("结构意图").length).toBeGreaterThan(0);
   });
 
   it("derives master text from storyboard when field is empty", () => {

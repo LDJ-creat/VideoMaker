@@ -27,6 +27,13 @@ type StoryboardSceneCardProps = {
   index: number;
   media: StoryboardSceneMedia;
   master: string;
+  roleLabel?: string;
+  visualIntent?: string;
+  scriptIntent?: string;
+  userAssetId?: string | null;
+  userAssetSummary?: string | null;
+  gapSummary?: string | null;
+  completionProvider?: string | null;
 };
 
 export function StoryboardSceneCard({
@@ -34,11 +41,24 @@ export function StoryboardSceneCard({
   index,
   media,
   master,
+  roleLabel,
+  visualIntent,
+  scriptIntent,
+  userAssetId,
+  userAssetSummary,
+  gapSummary,
+  completionProvider,
 }: StoryboardSceneCardProps) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const script = scene.script.trim();
   const aligned = !script || !master || scriptBelongsToMaster(script, master);
   const showMedia = Boolean(media.url) && !mediaFailed;
+  const visualProvider =
+    completionProvider && KNOWN_MEDIA_PROVIDERS.has(completionProvider)
+      ? completionProvider
+      : media.provider && KNOWN_MEDIA_PROVIDERS.has(media.provider)
+        ? media.provider
+        : completionProvider ?? media.provider;
 
   return (
     <div
@@ -48,10 +68,10 @@ export function StoryboardSceneCard({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="secondary">#{index + 1}</Badge>
+          {roleLabel ? <Badge variant="outline">{roleLabel}</Badge> : null}
           <span className="font-mono text-xs text-muted-foreground">
             {scene.startSec}–{scene.endSec}s
           </span>
-          <Badge variant="outline">{scene.source}</Badge>
           {!aligned ? (
             <Badge variant="destructive">与全片口播未对齐</Badge>
           ) : null}
@@ -59,11 +79,33 @@ export function StoryboardSceneCard({
         <span className="font-mono text-xs text-muted-foreground">{scene.slotId}</span>
       </div>
 
+      {(visualIntent || scriptIntent || userAssetId || userAssetSummary || gapSummary) && (
+        <dl className="mb-3 grid gap-2 rounded-md border border-border/60 bg-muted/10 p-3 text-sm">
+          {visualIntent ? (
+            <MigrationField label="结构意图" value={visualIntent} hint={scriptIntent} />
+          ) : null}
+          <MigrationField
+            label="用户素材"
+            value={
+              userAssetId
+                ? `复用 ${userAssetId}`
+                : userAssetSummary ?? "未匹配到可用素材"
+            }
+            hint={userAssetId && userAssetSummary ? userAssetSummary : undefined}
+          />
+          {gapSummary && !userAssetId ? (
+            <MigrationField label="缺口说明" value={gapSummary} />
+          ) : null}
+        </dl>
+      )}
+
       <div className="grid gap-3 md:grid-cols-[minmax(0,280px)_1fr]">
         <div
           className={cn(
             "relative overflow-hidden rounded-md border border-border bg-black/90",
-            showMedia ? "aspect-video" : "flex min-h-[140px] items-center justify-center bg-muted/30",
+            showMedia
+              ? "aspect-video"
+              : "flex min-h-[140px] items-center justify-center bg-muted/30",
           )}
           data-testid={`scene-media-${scene.id}`}
         >
@@ -101,10 +143,10 @@ export function StoryboardSceneCard({
 
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            {media.provider && KNOWN_MEDIA_PROVIDERS.has(media.provider) ? (
-              <GeneratedAssetBadge provider={media.provider} />
+            {visualProvider && KNOWN_MEDIA_PROVIDERS.has(visualProvider) ? (
+              <GeneratedAssetBadge provider={visualProvider} />
             ) : null}
-            <span className="text-xs text-muted-foreground">画面意图</span>
+            <span className="text-xs text-muted-foreground">视觉素材来源</span>
           </div>
           <p className="text-sm text-muted-foreground">{scene.visual}</p>
           <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2">
@@ -115,6 +157,26 @@ export function StoryboardSceneCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MigrationField({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:gap-3">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="space-y-1">
+        <p className="text-sm text-foreground">{value}</p>
+        {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      </dd>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import type { TaskEvent } from "@videomaker/contracts";
 
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
+import type { MigrationProgressContext } from "@/features/structure-migration/useGenerationMigrationArtifacts";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 
 export type MultiTaskProgressEntry = {
@@ -24,6 +25,7 @@ type MultiTaskProgressPanelProps = {
   retryBusy?: boolean;
   retryLabel?: string;
   onGoToScriptReview?: () => void;
+  getMigrationContext?: (taskId: string) => MigrationProgressContext | null;
 };
 
 export function MultiTaskProgressPanel({
@@ -37,6 +39,7 @@ export function MultiTaskProgressPanel({
   retryBusy = false,
   retryLabel = "重试任务",
   onGoToScriptReview,
+  getMigrationContext,
 }: MultiTaskProgressPanelProps) {
   if (tasks.length === 0) {
     return (
@@ -69,6 +72,7 @@ export function MultiTaskProgressPanel({
         retryBusy={retryBusy}
         retryLabel={retryLabel}
         onGoToScriptReview={onGoToScriptReview}
+        migrationContext={getMigrationContext?.(single.taskId) ?? undefined}
         onRetry={
           single.event?.status === "failed" && onRetry
             ? () => onRetry(single.taskId)
@@ -96,6 +100,7 @@ export function MultiTaskProgressPanel({
           retryBusy={retryBusy}
           retryLabel={retryLabel}
           onGoToScriptReview={onGoToScriptReview}
+          migrationContext={getMigrationContext?.(task.taskId) ?? undefined}
           onRetry={
             task.event?.status === "failed" && onRetry
               ? () => onRetry(task.taskId)

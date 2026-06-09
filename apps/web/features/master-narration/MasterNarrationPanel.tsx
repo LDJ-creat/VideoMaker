@@ -1,7 +1,8 @@
 "use client";
 
-import type { GenerationPlan } from "@videomaker/contracts";
-import { Clock, Mic, SplitSquareHorizontal } from "lucide-react";
+import type { GapReport, GenerationPlan, VideoStructure } from "@videomaker/contracts";
+import { Clock, Layers, Mic } from "lucide-react";
+import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,6 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  buildSlotMigrationRowsFromPlan,
+  migrationSummaryFromRows,
+} from "@/features/structure-migration/buildSlotMigrationRows";
 import {
   deriveMasterFromStoryboard,
   estimateSpeechDurationSec,
@@ -22,9 +27,15 @@ import { getVariantLabel } from "@/lib/variantRegistry";
 
 type MasterNarrationPanelProps = {
   plan: GenerationPlan;
+  structure?: VideoStructure | null;
+  gapReport?: GapReport | null;
 };
 
-export function MasterNarrationPanel({ plan }: MasterNarrationPanelProps) {
+export function MasterNarrationPanel({
+  plan,
+  structure,
+  gapReport,
+}: MasterNarrationPanelProps) {
   const master = resolveMasterNarration(plan);
   const scenes = [...plan.storyboard].sort(
     (left, right) => left.startSec - right.startSec,
@@ -34,6 +45,20 @@ export function MasterNarrationPanel({ plan }: MasterNarrationPanelProps) {
   const derivedFallback =
     !plan.masterNarration?.trim() && master === deriveMasterFromStoryboard(plan.storyboard);
 
+  const migrationRows = useMemo(() => {
+    if (!structure) return [];
+    return buildSlotMigrationRowsFromPlan(structure, plan, gapReport ?? null);
+  }, [gapReport, plan, structure]);
+
+  const migrationBySlot = useMemo(
+    () => new Map(migrationRows.map((row) => [row.slotId, row])),
+    [migrationRows],
+  );
+
+  const migrationSummary = migrationRows.length
+    ? migrationSummaryFromRows(migrationRows)
+    : null;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -41,11 +66,12 @@ export function MasterNarrationPanel({ plan }: MasterNarrationPanelProps) {
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Mic className="h-5 w-5 text-primary" aria-hidden />
-                全片口播
+                <Layers className="h-5 w-5 text-primary" aria-hidden />
+                全片拆解
               </CardTitle>
               <CardDescription>
-                变体 {getVariantLabel(plan.variant)} · 全片叙事层（TTS / 字幕源）
+                变体 {getVariantLabel(plan.variant)} · 样例结构 → Brief → 素材补全 → 分镜口播
+                {migrationSummary ? ` · ${migrationSummary}` : ""}
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -68,42 +94,53 @@ export function MasterNarrationPanel({ plan }: MasterNarrationPanelProps) {
           ) : null}
 
           {master ? (
-            <div
-              className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-base leading-relaxed tracking-wide"
-              data-testid="master-narration-text"
-            >
-              {master}
+            <div className="space-y-2">
+              <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Mic className="h-3.5 w-3.5" aria-hidden />
+                全片口播稿
+              </p>
+              <div
+                className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-base leading-relaxed tracking-wide"
+                data-testid="master-narration-text"
+              >
+                {master}
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">暂无全片口播文本。</p>
           )}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <SplitSquareHorizontal className="h-4 w-4 text-primary" aria-hidden />
-            分镜预览
-          </CardTitle>
-          <CardDescription>
-            各槽位画面素材与口播切分；左侧为分镜视频/图片，右侧为 TTS 与字幕使用的 script。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {scenes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">暂无分镜数据。</p>
-          ) : (
-            scenes.map((scene, index) => (
-              <StoryboardSceneCard
-                key={scene.id}
-                scene={scene}
-                index={index}
-                master={master}
-                media={resolveStoryboardSceneMedia(plan, scene)}
-              />
-            ))
-          )}
+          <div className="space-y-3 border-t border-border pt-4">
+            <div>
+              <p className="text-sm font-medium">槽位拆解</p>
+              <p className="text-xs text-muted-foreground">
+                每个结构槽位的迁移意图、视觉素材来源与分镜口播。
+              </p>
+            </div>
+            {scenes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">暂无分镜数据。</p>
+            ) : (
+              scenes.map((scene, index) => {
+                const migration = migrationBySlot.get(scene.slotId);
+                return (
+                  <StoryboardSceneCard
+                    key={scene.id}
+                    scene={scene}
+                    index={index}
+                    master={master}
+                    media={resolveStoryboardSceneMedia(plan, scene)}
+                    roleLabel={migration?.roleLabel}
+                    visualIntent={migration?.visualIntent ?? scene.visual}
+                    scriptIntent={migration?.scriptIntent}
+                    userAssetId={migration?.userAssetId}
+                    userAssetSummary={migration?.userAssetSummary}
+                    gapSummary={migration?.gapSummary}
+                    completionProvider={migration?.completionProvider}
+                  />
+                );
+              })
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -5,7 +5,7 @@ export type WorkbenchPhase = "prepare" | "generate" | "output";
 export const PHASE_PANELS: Record<WorkbenchPhase, WorkbenchPanel[]> = {
   prepare: ["input", "analysis", "knowledge"],
   generate: ["progress", "script-review"],
-  output: ["gap", "narration", "result"],
+  output: ["narration", "result"],
 };
 
 export const PHASE_LABELS: Record<WorkbenchPhase, string> = {

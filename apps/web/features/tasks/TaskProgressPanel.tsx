@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TaskArtifactPreview } from "@/features/tasks/TaskArtifactPreview";
+import { GenerationMigrationProgressPanel } from "@/features/structure-migration/GenerationMigrationProgressPanel";
+import type { MigrationProgressContext } from "@/features/structure-migration/useGenerationMigrationArtifacts";
 import { getTaskStageLabel } from "@/features/tasks/stageLabels";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 import {
@@ -46,6 +48,7 @@ type TaskProgressPanelProps = {
   retryBusy?: boolean;
   retryLabel?: string;
   onGoToScriptReview?: () => void;
+  migrationContext?: MigrationProgressContext;
 };
 
 function shortTaskId(taskId: string): string {
@@ -65,6 +68,7 @@ export function TaskProgressPanel({
   retryBusy = false,
   retryLabel = "重试任务",
   onGoToScriptReview,
+  migrationContext,
 }: TaskProgressPanelProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const displayProgress = useSmoothedModelCallProgress(event);
@@ -168,6 +172,14 @@ export function TaskProgressPanel({
           ) : null}
           <Progress value={displayProgress} />
         </div>
+
+        {migrationContext ? (
+          <GenerationMigrationProgressPanel
+            context={migrationContext}
+            event={event}
+            defaultExpanded
+          />
+        ) : null}
 
         {!compact && projectId ? (
           <TaskArtifactPreview
