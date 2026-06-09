@@ -1,14 +1,14 @@
 # Generation Script Review E2E Checklist
 
-Prerequisites: API + worker + web running; ModelGateway text provider configured; optional video provider for short-form path.
+Prerequisites: API + worker + web running; ModelGateway text provider configured.
 
 ## Duration target
 
 - [ ] Open project workbench → **录入** panel shows **目标时长**
 - [ ] Recommendation matches analyzed sample `metadata.durationSec`
-- [ ] Set target ≤60s → hint shows short-form strategy
-- [ ] Set target >60s → hint shows long-form composed strategy
-- [ ] Start generation → brief persists `durationTarget`
+- [ ] Duration hint shows unified composed strategy (not short/long split)
+- [ ] User selects **成片画幅** explicitly in Brief (not auto-switched by duration)
+- [ ] Start generation → brief persists `durationTarget` and `aspectRatio`
 
 ## Master review (per variant)
 
@@ -34,10 +34,11 @@ Prerequisites: API + worker + web running; ModelGateway text provider configured
 - [ ] `GET /api/generations/{generationId}/agent-runs` lists `storyboard_writer` run with matching `generationId`
 - [ ] Task remains `awaiting_review` after NL revise (no retry until approve)
 
-## Strategy branch
+## Generation strategy
 
-- [ ] ≤60s: `generation-plan.json` includes `generationStrategy: short_form_direct`
-- [ ] >60s: `generationStrategy: long_form_composed` and per-slot material path runs
+- [ ] Any target duration: `generation-plan.json` includes `generationStrategy: long_form_composed`
+- [ ] Per-slot material completion runs for weak/missing visual slots
+- [ ] Legacy artifacts with `short_form_direct` still resume after normalize
 
 ## Resume / retry semantics
 

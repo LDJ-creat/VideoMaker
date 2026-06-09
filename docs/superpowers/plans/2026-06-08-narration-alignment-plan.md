@@ -43,7 +43,7 @@ masterNarration (approved script)
 |-----------------------|----------|
 | `global` | Single `action-master-tts` → `generated/master.wav` → one `vo-master` clip |
 | `per_scene` | Legacy `{slotId}.wav` per storyboard scene |
-| *(unset)* | `long_form_composed` → `global`; `short_form_direct` → `per_scene` |
+| *(unset)* | Default **`global`** (all durations use `long_form_composed`; legacy per-scene plans keep `ttsMode: per_scene` when inferred from completion actions) |
 
 - `TTSProvider`: `slotId == __master__` synthesizes `ctx.master_narration`.
 - `assemble_generation_plan`: writes `plan.ttsMode`; skips per-scene placeholder subtitles when global.

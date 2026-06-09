@@ -1,7 +1,9 @@
 # Generation Human Review and Duration Strategy Plan
 
+> **Superseded (2026-06-09):** Short/long strategy split at 60s removed. All durations use `long_form_composed`; aspect ratio follows Brief only. See unified generation strategy change in repo history.
+
 **Date:** 2026-06-08  
-**Status:** Implemented
+**Status:** Implemented (strategy split superseded)
 
 ## Summary
 

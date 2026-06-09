@@ -2,12 +2,13 @@
 
 Prerequisites: API + worker + web running; Model Gateway **tts** provider configured (e.g. DashScope `sambert-zhide-v1`); optional Pexels for B-roll.
 
-## Full generation (>60s, global TTS)
+## Generation (global TTS, all durations)
 
-- [ ] Brief `durationTarget` > 60s → `generationStrategy: long_form_composed`
+- [ ] Brief includes `durationTarget` and explicit `aspectRatio`
 - [ ] Approve master + storyboard (human review) or `VIDEOMAKER_HUMAN_REVIEW_MODE=false` for CI
 - [ ] After material stage, open `generations/{id}/generation-plan.json`:
-  - [ ] `ttsMode: "global"`
+  - [ ] `generationStrategy: "long_form_composed"`
+  - [ ] `ttsMode: "global"` (unless `VIDEOMAKER_TTS_MODE=per_scene`)
   - [ ] `voiceover` track: **one** clip `vo-master`, `sourceRef: materials/master.wav`
   - [ ] `narrationDurationSec` present and ≈ ffprobe duration of `master.wav`
   - [ ] `timeline.durationSec >= narrationDurationSec`
@@ -22,14 +23,10 @@ Prerequisites: API + worker + web running; Model Gateway **tts** provider config
 - [ ] `generated/master.wav` created (global) or slot wavs refreshed (per_scene)
 - [ ] New `output.mp4` overwrites render folder; duration matches narration (~3 min for ~180s script)
 
-## Short form (≤60s, per_scene)
+## Optional per-scene TTS override
 
-- [ ] `ttsMode: "per_scene"` (default for `short_form_direct`)
-- [ ] Multiple `vo-{slotId}` clips; subtitles `subtitle-{slotId}-*` aligned within each vo window
-
-## Regression / env
-
-- [ ] `VIDEOMAKER_TTS_MODE=per_scene` restores legacy per-scene TTS on long form
+- [ ] `VIDEOMAKER_TTS_MODE=per_scene` → `ttsMode: "per_scene"` and multiple `vo-{slotId}` clips
+- [ ] Subtitles `subtitle-{slotId}-*` aligned within each vo window when per_scene enabled
 - [ ] `VIDEOMAKER_NARRATION_TIMELINE_MODE=ripple_overflow` extends per-scene slots when WAV > scene window (per_scene only)
 - [ ] Worker logs may show WAV header fallback warning for DashScope — timeline still correct
 

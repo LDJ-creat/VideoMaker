@@ -235,15 +235,13 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_ASSET_TEXT_MAX_CHARS` | Max UTF-8 chars read from text assets during understanding | `8000` |
 | `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
-| `VIDEOMAKER_SHORT_FORM_MAX_SEC` | Target duration ≤ this uses `short_form_direct` strategy | `60` |
 | `VIDEOMAKER_DURATION_TARGET_MAX_SEC` | Max user-configurable target duration (seconds) | `600` |
-| `VIDEOMAKER_SHORT_FORM_VIDEO_GEN` | Allow one full short-form `video_generation` job | `1` |
 | `VIDEOMAKER_HUMAN_REVIEW_MODE` | Pause generation for master/storyboard approval (API default `true`; set `false` for CI/fixture one-shot) | `true` |
 | `VIDEOMAKER_PEXELS_API_KEY` | Pexels API Authorization header for stock media search | empty (skip stock layer) |
 | `VIDEOMAKER_STOCK_MEDIA_ENABLED` | Enable Pexels stock search in gap completion | `true` |
 | `VIDEOMAKER_STOCK_MATCH_MIN_SCORE` | Minimum relevance score to accept a Pexels candidate | `0.55` |
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
-| `VIDEOMAKER_TTS_MODE` | TTS synthesis: `global` (single `master.wav`) or `per_scene` (`{slotId}.wav`) | unset → `long_form_composed` uses `global`, else `per_scene` |
+| `VIDEOMAKER_TTS_MODE` | TTS synthesis: `global` (single `master.wav`) or `per_scene` (`{slotId}.wav`) | unset → `global` |
 | `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
 | `VIDEOMAKER_RENDER_BACKEND` | Final MP4: `ffmpeg`, `hyperframes`, or unset (auto: ffmpeg with HF fallback on effect/packaging text) | unset (auto) |
 | `VIDEOMAKER_FFMPEG_RENDER_FPS` | FFmpeg render FPS for still→video and re-encode | `30` |
@@ -302,7 +300,7 @@ Pipelines and tools:
 
 - **Perception:** `SampleAnalysisPipeline` — metadata, shots, Whisper ASR, keyframe extraction (algorithm inputs to Agents)
 - **Sample analysis:** `p0_demo_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
-- **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (two-phase master/storyboard when human review enabled) → user approval gates → `packaging_designer` → material completion (`short_form_direct` ≤60s or `long_form_composed`) → HyperFrames render
+- **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (two-phase master/storyboard when human review enabled) → user approval gates → `packaging_designer` → material completion (`long_form_composed`: global TTS + per-slot gap completion) → HyperFrames / FFmpeg render
 - **Revise:** `revise_pipeline` — `edit_intent_parser` + partial stage re-run
 - **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.); TTS factory supports `openai_compatible` + **`volcengine_tts`** (Seed TTS 2.0 V3 chunked stream)
 - **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
