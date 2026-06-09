@@ -46,8 +46,24 @@ export type ProviderSettingsUpdate = {
   driver?: string;
 };
 
+export type TtsPreferences = {
+  resourceId: string;
+  speaker: string;
+  modelVariant: string;
+  speechRate: number;
+  loudnessRate: number;
+  emotion: string | null;
+  emotionScale: number;
+  contextTexts: string;
+  explicitLanguage: string;
+  format: string;
+  sampleRate: number;
+  chunkCharLimit: number;
+};
+
 export type ModelGatewayPreferences = {
   directMultimodalAnalysisEnabled: boolean;
+  tts?: Partial<TtsPreferences>;
 };
 
 export type StructureAnalysisRoutePreview = "direct_multimodal" | "map_reduce";
@@ -89,6 +105,7 @@ export type ModelGatewayStatusResponse = {
     video: ProviderStatus;
   };
   preferences: ModelGatewayPreferences;
+  ttsPreferences: TtsPreferences;
   analysisRoutePreview: StructureAnalysisRoutePreview;
 };
 

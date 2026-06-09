@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   getModelGatewayStatus,
@@ -44,6 +46,7 @@ import {
   type ModelGatewaySettingsUpdate,
   type ModelGatewayStatusResponse,
   type ProviderStatus,
+  type TtsPreferences,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -126,6 +129,23 @@ const PROVIDER_ORDER: ProviderKey[] = [
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_VIDEO_UNDERSTANDING_BASE_URL =
   "https://ark.cn-beijing.volces.com/api/v3";
+const DEFAULT_VOLCENGINE_TTS_BASE_URL =
+  "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+
+const DEFAULT_TTS_PREFERENCES: TtsPreferences = {
+  resourceId: "seed-tts-2.0",
+  speaker: "zh_female_vv_uranus_bigtts",
+  modelVariant: "seed-tts-2.0-expressive",
+  speechRate: 0,
+  loudnessRate: 0,
+  emotion: null,
+  emotionScale: 4,
+  contextTexts: "",
+  explicitLanguage: "zh",
+  format: "pcm",
+  sampleRate: 24000,
+  chunkCharLimit: 400,
+};
 
 const REQUIRED_PROVIDERS: ProviderKey[] = ["text", "image"];
 
@@ -133,7 +153,23 @@ function defaultBaseUrlForProvider(key: ProviderKey): string {
   if (key === "videoUnderstanding") {
     return DEFAULT_VIDEO_UNDERSTANDING_BASE_URL;
   }
+  if (key === "tts") {
+    return DEFAULT_VOLCENGINE_TTS_BASE_URL;
+  }
   return DEFAULT_BASE_URL;
+}
+
+function ttsPrefsFromStatus(status: ModelGatewayStatusResponse): TtsPreferences {
+  return { ...DEFAULT_TTS_PREFERENCES, ...status.ttsPreferences };
+}
+
+function isTtsPrefsDirty(
+  form: TtsPreferences,
+  saved: TtsPreferences,
+): boolean {
+  return (Object.keys(DEFAULT_TTS_PREFERENCES) as Array<keyof TtsPreferences>).some(
+    (key) => form[key] !== saved[key],
+  );
 }
 
 function analysisRoutePreviewLabel(
@@ -180,7 +216,8 @@ function isProviderDirty(
     form.baseUrl.trim() !== savedBase.trim() ||
     form.model.trim() !== savedModel.trim() ||
     form.apiKey.trim().length > 0 ||
-    (key === "video" && form.driver.trim() !== savedDriver.trim())
+    (key === "video" && form.driver.trim() !== savedDriver.trim()) ||
+    (key === "tts" && form.driver.trim() !== savedDriver.trim())
   );
 }
 
@@ -359,6 +396,12 @@ function ProviderFormFields({
               /chat/completions 的完整 endpoint（如火山方舟）。
             </p>
           ) : null}
+          {providerKey === "tts" ? (
+            <p className="text-xs text-muted-foreground">
+              豆包语音请使用 openspeech 端点；API Key 来自豆包语音控制台，与方舟
+              Ark Key 不同。
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <Label htmlFor={`${providerKey}-model`}>Model</Label>
@@ -395,6 +438,21 @@ function ProviderFormFields({
             />
           </div>
         )}
+        {providerKey === "tts" && (
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor={`${providerKey}-driver`}>Driver</Label>
+            <NativeSelect
+              id={`${providerKey}-driver`}
+              className="h-9 py-1"
+              value={form.driver || "openai_compatible"}
+              onChange={(e) => onFieldChange("driver", e.target.value)}
+              disabled={busy}
+            >
+              <option value="openai_compatible">OpenAI 兼容</option>
+              <option value="volcengine_tts">豆包语音 V3</option>
+            </NativeSelect>
+          </div>
+        )}
       </div>
 
       {onTestConnection ? (
@@ -414,6 +472,106 @@ function ProviderFormFields({
           {probeResult ? <ProviderProbeResultBanner result={probeResult} /> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function TtsPreferencesFields({
+  form,
+  busy,
+  onChange,
+}: {
+  form: TtsPreferences;
+  busy: boolean;
+  onChange: (field: keyof TtsPreferences, value: string | number | null) => void;
+}) {
+  return (
+    <div className="space-y-3 border-t border-border/50 pt-3">
+      <p className="text-xs font-medium text-muted-foreground">豆包 TTS 精细参数</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor="tts-resource-id">Resource ID</Label>
+          <Input
+            id="tts-resource-id"
+            value={form.resourceId}
+            onChange={(e) => onChange("resourceId", e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tts-speaker">Speaker（音色 ID）</Label>
+          <Input
+            id="tts-speaker"
+            value={form.speaker}
+            onChange={(e) => onChange("speaker", e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tts-model-variant">Model Variant</Label>
+          <NativeSelect
+            id="tts-model-variant"
+            className="h-9 py-1"
+            value={form.modelVariant}
+            onChange={(e) => onChange("modelVariant", e.target.value)}
+            disabled={busy}
+          >
+            <option value="seed-tts-2.0-expressive">seed-tts-2.0-expressive</option>
+            <option value="seed-tts-2.0-standard">seed-tts-2.0-standard</option>
+          </NativeSelect>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tts-emotion">Emotion（可选）</Label>
+          <Input
+            id="tts-emotion"
+            value={form.emotion ?? ""}
+            onChange={(e) => onChange("emotion", e.target.value || null)}
+            disabled={busy}
+            placeholder="如 happy / sad"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tts-speech-rate">语速 speechRate ({form.speechRate})</Label>
+          <input
+            id="tts-speech-rate"
+            type="range"
+            min={-50}
+            max={100}
+            value={form.speechRate}
+            onChange={(e) => onChange("speechRate", Number(e.target.value))}
+            disabled={busy}
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="tts-loudness-rate">音量 loudnessRate ({form.loudnessRate})</Label>
+          <input
+            id="tts-loudness-rate"
+            type="range"
+            min={-50}
+            max={100}
+            value={form.loudnessRate}
+            onChange={(e) => onChange("loudnessRate", Number(e.target.value))}
+            disabled={busy}
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label htmlFor="tts-context-texts">语气指令 contextTexts</Label>
+          <Textarea
+            id="tts-context-texts"
+            value={form.contextTexts}
+            onChange={(e) => onChange("contextTexts", e.target.value)}
+            disabled={busy}
+            rows={3}
+            placeholder="短视频口播，语气自然有起伏"
+          />
+          <p className="text-xs text-muted-foreground">
+            会与样本 structure.audio.voProfile 自动映射的指令拼接；2.0 音色需
+            seed-tts-2.0-expressive。
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -450,6 +608,7 @@ export function ModelGatewayStatusPanel({
     Partial<Record<ProviderKey, ModelGatewayProviderProbeResponse>>
   >({});
   const [directMultimodalEnabled, setDirectMultimodalEnabled] = useState(true);
+  const [ttsPrefs, setTtsPrefs] = useState<TtsPreferences>(DEFAULT_TTS_PREFERENCES);
 
   const refresh = useCallback(async () => {
     try {
@@ -458,6 +617,7 @@ export function ModelGatewayStatusPanel({
       setDirectMultimodalEnabled(
         data.preferences?.directMultimodalAnalysisEnabled ?? true,
       );
+      setTtsPrefs(ttsPrefsFromStatus(data));
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
         next[key] = formFromStatus(key, data.providers[key]);
@@ -575,6 +735,9 @@ export function ModelGatewayStatusPanel({
         if (key === "video" && form.driver.trim()) {
           entry.driver = form.driver.trim();
         }
+        if (key === "tts" && form.driver.trim()) {
+          entry.driver = form.driver.trim();
+        }
         if (form.apiKey.trim()) {
           entry.apiKey = form.apiKey.trim();
         }
@@ -595,12 +758,18 @@ export function ModelGatewayStatusPanel({
         body.preferences = {
           directMultimodalAnalysisEnabled: directMultimodalEnabled,
         };
+        if (status && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status))) {
+          body.preferences.tts = ttsPrefs;
+        }
+      } else if (status && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status))) {
+        body.preferences = { tts: ttsPrefs };
       }
       const { data } = await updateModelGatewaySettings(body);
       setStatus(data);
       setDirectMultimodalEnabled(
         data.preferences?.directMultimodalAnalysisEnabled ?? true,
       );
+      setTtsPrefs(ttsPrefsFromStatus(data));
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
         next[key] = formFromStatus(key, data.providers[key]);
@@ -627,28 +796,45 @@ export function ModelGatewayStatusPanel({
 
   const preferencesDirty =
     status != null &&
-    directMultimodalEnabled !==
-      (status.preferences?.directMultimodalAnalysisEnabled ?? true);
+    (directMultimodalEnabled !==
+      (status.preferences?.directMultimodalAnalysisEnabled ?? true) ||
+      isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status)));
 
   const videoUnderstandingConfigured =
     status?.providers.videoUnderstanding.configured === true &&
     status?.providers.videoUnderstanding.hasApiKey === true;
 
   const renderProviderForm = (key: ProviderKey) => (
-    <ProviderFormFields
-      providerKey={key}
-      form={forms![key]}
-      status={status!.providers[key]}
-      busy={busy}
-      probing={probingProvider === key}
-      probeResult={probeResults[key] ?? null}
-      onFieldChange={(field, value) => updateField(key, field, value)}
-      onTestConnection={
-        key === "text" || key === "videoUnderstanding"
-          ? () => void handleTestConnection(key)
-          : undefined
-      }
-    />
+    <div className="space-y-3">
+      <ProviderFormFields
+        providerKey={key}
+        form={forms![key]}
+        status={status!.providers[key]}
+        busy={busy}
+        probing={probingProvider === key}
+        probeResult={probeResults[key] ?? null}
+        onFieldChange={(field, value) => updateField(key, field, value)}
+        onTestConnection={
+          key === "text" || key === "videoUnderstanding"
+            ? () => void handleTestConnection(key)
+            : undefined
+        }
+      />
+      {key === "tts" &&
+      (forms![key].driver === "volcengine_tts" ||
+        status!.providers.tts.driver === "volcengine_tts") ? (
+        <TtsPreferencesFields
+          form={ttsPrefs}
+          busy={busy}
+          onChange={(field, value) =>
+            setTtsPrefs((prev) => ({
+              ...prev,
+              [field]: value,
+            }))
+          }
+        />
+      ) : null}
+    </div>
   );
 
   return (

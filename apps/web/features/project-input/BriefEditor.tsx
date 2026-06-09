@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import type { UserBriefRequest } from "@/lib/apiClient";
 import { saveBrief } from "@/lib/apiClient";
@@ -159,9 +160,9 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2 lg:col-span-2">
             <Label htmlFor="brief-category">内容类型</Label>
-            <select
+            <NativeSelect
               id="brief-category"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:max-w-md"
+              className="lg:max-w-md"
               value={contentCategory}
               onChange={(event) =>
                 setContentCategory(event.target.value as ContentCategory)
@@ -172,7 +173,7 @@ export const BriefEditor = forwardRef<BriefEditorHandle, BriefEditorProps>(
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {categoryDescription ? (
               <p className="text-xs text-muted-foreground">{categoryDescription}</p>
             ) : null}

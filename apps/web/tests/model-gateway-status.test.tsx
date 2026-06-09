@@ -81,6 +81,7 @@ describe("ModelGatewayStatusPanel", () => {
         preferences: {
           directMultimodalAnalysisEnabled: true,
         },
+        ttsPreferences: fixtureModelGatewayStatus.ttsPreferences,
         analysisRoutePreview: "map_reduce",
         providers: {
           ...fixtureModelGatewayStatus.providers,

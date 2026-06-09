@@ -49,5 +49,19 @@ export const fixtureModelGatewayStatus: ModelGatewayStatusResponse = {
   preferences: {
     directMultimodalAnalysisEnabled: true,
   },
+  ttsPreferences: {
+    resourceId: "seed-tts-2.0",
+    speaker: "zh_female_vv_uranus_bigtts",
+    modelVariant: "seed-tts-2.0-expressive",
+    speechRate: 0,
+    loudnessRate: 0,
+    emotion: null,
+    emotionScale: 4,
+    contextTexts: "",
+    explicitLanguage: "zh",
+    format: "pcm",
+    sampleRate: 24000,
+    chunkCharLimit: 400,
+  },
   analysisRoutePreview: "map_reduce",
 };
