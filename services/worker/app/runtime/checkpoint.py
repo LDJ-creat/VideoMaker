@@ -10,6 +10,7 @@ CHECKPOINT_VERSION = "p0-v1"
 
 ANALYSIS_STAGES = (
     "downloading",
+    "extracting_poster",
     "extracting_metadata",
     "extracting_audio",
     "transcribing",
@@ -159,6 +160,10 @@ def is_analysis_stage_done(stage: str, analysis_root: Path, *, metadata: dict[st
         if checkpoint.videoPath and Path(checkpoint.videoPath).is_file():
             return True
         return False
+
+    if stage == "extracting_poster":
+        poster = analysis_root.parent / "poster.jpg"
+        return poster.is_file() and poster.stat().st_size > 0
 
     if stage == "extracting_metadata":
         data = _read_json(analysis_root / "metadata.json")

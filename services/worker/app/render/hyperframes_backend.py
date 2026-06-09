@@ -8,6 +8,7 @@ from uuid import uuid4
 from app.render.backend import RenderBackend, RenderOptions, RenderOutput
 from app.render.composition_preview import build_composition_preview
 from app.tools.hyperframes_tool import HyperFramesTool
+from video.poster import extract_video_poster
 
 
 def _artifact_ref(artifact_type: str, uri: str) -> dict[str, Any]:
@@ -44,6 +45,8 @@ class HyperFramesRenderBackend(RenderBackend):
         ]
         if tool_result.get("ok") and output_path.exists():
             artifact_refs.append(_artifact_ref("video", str(output_path)))
+            if output_path.stat().st_size > 0:
+                extract_video_poster(output_path, preview.render_root / "poster.jpg")
 
         options.emit_progress("completed")
         return RenderOutput(

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from unittest.mock import patch
+
 import pytest
 
 from app.render.backend import RenderOptions
@@ -99,20 +101,27 @@ def test_ffmpeg_backend_writes_preview_and_output(tmp_path: Path) -> None:
     backend = FfmpegRenderBackend(tool=FFmpegTool(command_runner=_ffmpeg_runner))
     stages: list[str] = []
 
-    output = backend.render(
-        RenderOptions(
-            project_id=project_id,
-            generation_id=generation_id,
-            timeline=_timeline(),
-            storage_root=storage,
-            emit_progress=stages.append,
-            aspect_ratio="9:16",
+    def fake_poster_extract(video_path: Path, output_path: Path, **kwargs):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"poster")
+        return {"ok": True, "sourceTimeSec": 0.1}
+
+    with patch("app.render.ffmpeg_backend.extract_video_poster", side_effect=fake_poster_extract):
+        output = backend.render(
+            RenderOptions(
+                project_id=project_id,
+                generation_id=generation_id,
+                timeline=_timeline(),
+                storage_root=storage,
+                emit_progress=stages.append,
+                aspect_ratio="9:16",
+            )
         )
-    )
 
     assert output.error is None
     assert (render_root / "preview.html").is_file()
     assert (render_root / "output.mp4").is_file()
+    assert (render_root / "poster.jpg").is_file()
     log = json.loads((render_root / "render-log.json").read_text(encoding="utf-8"))
     assert log.get("backend") == "ffmpeg"
     assert "building_timeline" in stages

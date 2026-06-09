@@ -18,6 +18,7 @@ from app.tools.opencv_tool import (
 from app.perception.sample_facts import slim_audio_profile
 from app.tools.whisper_tool import WHISPER_SOFT_FAIL_CODES, WhisperTool
 from app.tools.ytdlp_tool import YtDlpTool
+from video.poster import extract_video_poster
 
 
 def _is_tool_error(payload: dict[str, Any]) -> bool:
@@ -176,6 +177,26 @@ class SampleAnalysisPipeline:
             return self._result(context, failed_event, skipped_stages, executed_stages)
 
         checkpoint.videoPath = str(selected_video_path)
+
+        poster_path = sample_root / "poster.jpg"
+        if should_skip_analysis_stage(
+            "extracting_poster",
+            checkpoint,
+            analysis_root,
+            resume=resume,
+        ):
+            skipped_stages.append("extracting_poster")
+            context.emit_event("extracting_poster", 12, "(resumed) poster already extracted")
+        else:
+            executed_stages.append("extracting_poster")
+            context.emit_event("extracting_poster", 12, "extracting sample poster")
+            poster_result = extract_video_poster(selected_video_path, poster_path)
+            if not poster_result.get("ok"):
+                pipeline_warnings.append(
+                    f"poster_extract:{poster_result.get('error', 'unknown')}"
+                )
+            checkpoint.mark_stage_complete("extracting_poster")
+            checkpoint.save(checkpoint_path)
 
         metadata: dict[str, Any]
         metadata_path = analysis_root / "metadata.json"

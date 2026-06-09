@@ -11,6 +11,7 @@ from app.render.backend import RenderBackend, RenderOptions, RenderOutput
 from app.render.composition_preview import build_composition_preview
 from app.render.timeline_compiler.compile import compile_timeline_to_mp4
 from app.tools.ffmpeg_tool import FFmpegTool
+from video.poster import extract_video_poster
 
 
 def _artifact_ref(artifact_type: str, uri: str) -> dict[str, Any]:
@@ -67,6 +68,11 @@ class FfmpegRenderBackend(RenderBackend):
         options.emit_progress("rendering")
         if compile_result.output_path and compile_result.output_path.exists():
             artifact_refs.append(_artifact_ref("video", str(compile_result.output_path)))
+            if compile_result.output_path.stat().st_size > 0:
+                extract_video_poster(
+                    compile_result.output_path,
+                    preview.render_root / "poster.jpg",
+                )
 
         options.emit_progress("completed")
         return RenderOutput(artifact_refs=artifact_refs)
