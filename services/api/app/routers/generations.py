@@ -102,6 +102,22 @@ def get_generation_agent_runs(generation_id: str, request: Request) -> dict[str,
     return {"runs": runs}
 
 
+@router.get("/{generation_id}/composition-patterns")
+def list_composition_patterns(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    from app.services.knowledge_store import KnowledgeStore
+
+    knowledge = KnowledgeStore(request.app.state.db, request.app.state.storage_root)
+    patterns = knowledge.list_composition_pattern_candidates(
+        project_id=str(record["projectId"]),
+        generation_id=generation_id,
+    )
+    return {"generationId": generation_id, "patterns": patterns}
+
+
 @router.get("/{generation_id}")
 def get_generation(generation_id: str, request: Request) -> dict[str, Any]:
     record = _project_store(request).get_generation(generation_id)

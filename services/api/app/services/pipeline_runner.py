@@ -179,7 +179,13 @@ class SubprocessDemoPipeline:
 
         env = _augment_worker_env(os.environ.copy())
         shared_root = _shared_root()
-        env["PYTHONPATH"] = os.pathsep.join([str(self._worker_root), str(shared_root)])
+        composition_root = self._worker_root.parent / "composition"
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(self._worker_root), str(shared_root), str(composition_root)]
+        )
+        fixture_mode = os.getenv("VIDEOMAKER_FIXTURE_MODE")
+        if fixture_mode is not None:
+            env["VIDEOMAKER_FIXTURE_MODE"] = fixture_mode
         self._inject_stock_media_env(env)
 
         logger.info(
@@ -365,6 +371,25 @@ class SubprocessDemoPipeline:
                 "projectId": project_id,
                 "userBrief": user_brief,
                 "candidates": candidates,
+            }
+        )
+
+    def run_composition_pattern_promote(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        slot_id: str,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            {
+                **self._payload_base(),
+                "mode": "composition_pattern_promote",
+                "taskId": task_id,
+                "projectId": project_id,
+                "generationId": generation_id,
+                "slotId": slot_id,
             }
         )
 
@@ -1060,3 +1085,22 @@ class PipelineRunner:
             return updated
 
         raise ValueError("No sample or generation found for task")
+
+    def run_composition_pattern_promote(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        slot_id: str,
+    ) -> dict[str, Any]:
+        pipeline = self._get_pipeline()
+        runner = getattr(pipeline, "run_composition_pattern_promote", None)
+        if runner is None:
+            raise RuntimeError("Pipeline does not support composition pattern promote")
+        return runner(
+            project_id=project_id,
+            task_id=task_id,
+            generation_id=generation_id,
+            slot_id=slot_id,
+        )

@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from knowledge.index_builder import build_entry_meta
-from knowledge.paths import category_slug, draft_dir, published_entry_dir, rel_uri, resolve_storage_path
+from knowledge.paths import (
+    category_slug,
+    draft_dir,
+    published_entry_dir,
+    rel_uri,
+    resolve_storage_path,
+    validate_storage_segment,
+)
 
 from app.db.session import Database
 from app.services.media_paths import resolve_existing_file, sample_media_path
@@ -22,6 +29,22 @@ KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE = (
     "已有样例视频的结构分析结果，知识库条目只能作为生成时的参考经验，"
     "无法替换为项目主结构。"
 )
+
+_PROMOTE_READY_STATUSES = frozenset({"succeeded"})
+
+
+def _worker_result_error_message(result: dict[str, Any], *, default: str) -> str:
+    top_level = result.get("error")
+    if isinstance(top_level, str) and top_level.strip():
+        return top_level.strip()
+    final_event = result.get("finalEvent")
+    if isinstance(final_event, dict):
+        error = final_event.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("code")
+            if message:
+                return str(message)
+    return default
 
 
 def _utc_now_iso() -> str:
@@ -682,22 +705,91 @@ class KnowledgeStore:
                 return True
         return False
 
+    def list_composition_pattern_candidates(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+    ) -> list[dict[str, Any]]:
+        from composition.patterns.list_candidates import list_composition_pattern_candidates
+
+        validate_storage_segment(project_id, field="project_id")
+        validate_storage_segment(generation_id, field="generation_id")
+        return list_composition_pattern_candidates(
+            self.storage_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            get_published_entry=self.get_entry,
+        )
+
+    def _assert_generation_ready_for_promote(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+    ) -> None:
+        from app.services.project_store import ProjectStore
+
+        record = ProjectStore(self.database).get_generation(generation_id)
+        if record is None:
+            raise ValueError("generation_not_found")
+        if str(record.get("projectId") or "") != project_id:
+            raise ValueError("generation_project_mismatch")
+        status = str(record.get("status") or "")
+        if status not in _PROMOTE_READY_STATUSES:
+            raise ValueError("generation_not_ready")
+
     def promote_composition_pattern(
         self,
         *,
         project_id: str,
         generation_id: str,
         slot_id: str,
-        user_score: int,
-        title: str | None = None,
-        category: str | None = None,
         confirm: bool = False,
+        pipeline_runner: Any | None = None,
     ) -> dict[str, Any]:
         if not confirm:
             raise ValueError("Promote requires explicit confirm=true")
+
+        validate_storage_segment(project_id, field="project_id")
+        validate_storage_segment(generation_id, field="generation_id")
+        validate_storage_segment(slot_id, field="slot_id")
+        self._assert_generation_ready_for_promote(
+            project_id=project_id,
+            generation_id=generation_id,
+        )
+
         from composition.patterns.deposit import PromoteRejected, promote_pattern
-        from composition.render.hyperframes_cli import HyperFramesCli
+        from composition.patterns.deposit import composition_draft_dir
         from composition.types import PatternPromoteRequest
+
+        draft = composition_draft_dir(
+            self.storage_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            slot_id=slot_id,
+        )
+        if not draft.is_dir():
+            raise ValueError("draft_not_found")
+
+        if pipeline_runner is None:
+            raise ValueError("pipeline_runner_required")
+
+        import uuid
+
+        task_id = f"composition-promote-{uuid.uuid4().hex[:10]}"
+        prepare_result = pipeline_runner.run_composition_pattern_promote(
+            project_id=project_id,
+            task_id=task_id,
+            generation_id=generation_id,
+            slot_id=slot_id,
+        )
+        if not prepare_result.get("ok"):
+            message = _worker_result_error_message(
+                prepare_result,
+                default="composition pattern prepare failed",
+            )
+            raise ValueError(message)
 
         try:
             published = promote_pattern(
@@ -706,11 +798,7 @@ class KnowledgeStore:
                     project_id=project_id,
                     generation_id=generation_id,
                     slot_id=slot_id,
-                    user_score=user_score,
-                    title=title,
-                    category=category,
                 ),
-                hyperframes_cli=HyperFramesCli(),
             )
         except PromoteRejected as exc:
             raise ValueError(str(exc)) from exc
@@ -724,19 +812,22 @@ class KnowledgeStore:
         spec_uri = rel_uri(self.storage_root, published_dir / "spec.template.json")
         slot_roles = meta.get("slotRoles") or [slot_id]
         created_at = now_iso()
+        title = str(published.get("title") or meta.get("title") or f"Composition {slot_id}")
+        summary = str(published.get("summary") or meta.get("summary") or f"Composition pattern from {generation_id}/{slot_id}")
+        category = str(published.get("category") or meta.get("category") or "composition")
         entry = {
             "id": entry_id,
             "status": "published",
             "entryKind": "composition_pattern",
-            "title": title or meta.get("title") or f"Composition {slot_id}",
-            "category": category or meta.get("category") or "composition",
+            "title": title,
+            "category": category,
             "categorySlug": slug,
-            "style": meta.get("style") or "composition",
+            "style": "composition",
             "hookType": None,
             "tempo": None,
             "durationBucket": None,
             "slotPattern": ",".join(str(item) for item in slot_roles),
-            "summary": meta.get("summary") or f"Composition pattern from {generation_id}/{slot_id}",
+            "summary": summary,
             "skillMdUri": skill_uri,
             "structureJsonUri": spec_uri,
             "sourceProjectId": project_id,

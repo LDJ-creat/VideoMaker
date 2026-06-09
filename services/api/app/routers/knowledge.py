@@ -152,9 +152,6 @@ def promote_knowledge_draft(
 class PromoteCompositionPatternRequest(BaseModel):
     generation_id: str = Field(alias="generationId")
     slot_id: str = Field(alias="slotId")
-    user_score: int = Field(alias="userScore", ge=1, le=5)
-    title: str | None = None
-    category: str | None = None
     confirm: bool = False
 
     model_config = {"populate_by_name": True}
@@ -173,13 +170,13 @@ def promote_composition_pattern(
             project_id=project_id,
             generation_id=payload.generation_id,
             slot_id=payload.slot_id,
-            user_score=payload.user_score,
-            title=payload.title,
-            category=payload.category,
             confirm=payload.confirm,
+            pipeline_runner=request.app.state.pipeline_runner,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc) or "worker_failed") from exc
     return {"entry": entry}
 
 
