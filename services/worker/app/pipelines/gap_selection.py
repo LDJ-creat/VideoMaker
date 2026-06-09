@@ -9,6 +9,7 @@ from app.stock.stock_eligibility import (
     pexels_configured,
     stock_media_eligible,
 )
+from structure.slot_roles import GAP_HYPERFRAMES_PRIMARY_ROLES, VISUAL_ROLES
 
 __all__ = [
     "VideoGenQuota",
@@ -21,8 +22,6 @@ __all__ = [
     "WEAK_MATCH_THRESHOLD",
 ]
 
-PACKAGING_ROLES = frozenset({"hook_text", "benefit_card", "comparison"})
-VISUAL_ROLES = frozenset({"hook_visual", "product_closeup", "usage_scene"})
 VO_KEYWORDS = ("voiceover", "narration", "narrated", "口播", "旁白", "解说", "配音", "spoken")
 WEAK_MATCH_THRESHOLD = 0.38
 
@@ -117,7 +116,7 @@ def select_provider(
     role = str(slot.get("role", ""))
     required = list(slot.get("requiredAssetType") or [])
 
-    if role in PACKAGING_ROLES or "packaging" in required:
+    if role in GAP_HYPERFRAMES_PRIMARY_ROLES or "packaging" in required:
         return "hyperframes_material"
 
     score = _weak_match_score(weak_match)

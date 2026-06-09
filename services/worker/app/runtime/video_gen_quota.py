@@ -4,7 +4,9 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-VISUAL_SLOT_ROLES = frozenset({"hook_visual", "product_closeup", "usage_scene"})
+from structure.slot_roles import VISUAL_ROLES
+
+VISUAL_SLOT_ROLES = VISUAL_ROLES
 
 
 def provisional_gap_report(

@@ -375,3 +375,73 @@ def test_coerce_normalizes_direct_route_v3_llm_shapes() -> None:
     assert trigger["triggerType"] == "resonance"
     assert trigger["mechanism"] == "强共鸣"
     assert trigger["segmentId"] == "seg-hook"
+
+
+def test_coerce_maps_demonstration_alias_to_usage_scene() -> None:
+    payload = {
+        "narrative": {
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "solution",
+                    "startSec": 0,
+                    "endSec": 5,
+                    "scriptSummary": "步骤演示",
+                    "visualSummary": "手部操作特写",
+                    "intent": "教程",
+                }
+            ]
+        },
+        "slots": [
+            {
+                "id": "slot-1",
+                "segmentId": "seg-1",
+                "role": "demonstration",
+                "visualIntent": "分步操作",
+                "scriptIntent": "讲解步骤",
+                "importance": "recommended",
+            }
+        ],
+        "evidence": [],
+    }
+    coerced = coerce_video_structure(
+        payload,
+        project_id="project-1",
+        source_video_id="sample-1",
+    )
+    assert coerced["slots"][0]["role"] == "usage_scene"
+
+
+def test_coerce_defaults_packaging_required_asset_type_for_benefit_card() -> None:
+    payload = {
+        "narrative": {
+            "segments": [
+                {
+                    "id": "seg-1",
+                    "role": "benefit",
+                    "startSec": 0,
+                    "endSec": 3,
+                    "scriptSummary": "卖点列举",
+                    "visualSummary": "信息卡动效",
+                    "intent": "利益点",
+                }
+            ]
+        },
+        "slots": [
+            {
+                "id": "slot-1",
+                "segmentId": "seg-1",
+                "role": "benefit_card",
+                "visualIntent": "三卖点卡片",
+                "scriptIntent": "列举卖点",
+                "importance": "must_have",
+            }
+        ],
+        "evidence": [],
+    }
+    coerced = coerce_video_structure(
+        payload,
+        project_id="project-1",
+        source_video_id="sample-1",
+    )
+    assert coerced["slots"][0]["requiredAssetType"] == ["text", "packaging"]

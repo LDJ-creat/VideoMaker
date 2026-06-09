@@ -113,9 +113,42 @@ Return **only** this shape (no extra top-level keys):
 
 - One primary slot per segment unless clearly needed otherwise.
 - **`role` enum (vary across slots):** `hook_visual`, `hook_text`, `product_closeup`, `usage_scene`, `benefit_card`, `comparison`, `proof`, `transition`, `cta`.
-- Map from segment role when unsure: hook→`hook_visual`; problem/proof→`proof`; solution→`product_closeup`; benefit→`benefit_card`; comparison→`comparison`; cta→`cta`; transition→`transition`.
+- Map from segment role when unsure: hook→`hook_visual`; problem/proof→`proof`; solution→`product_closeup` **only when the segment shows a specific product/subject hero shot**; benefit→`benefit_card`; comparison→`comparison`; cta→`cta`; transition→`transition`.
+- **`solution` segment ≠ always `product_closeup`:** tutorials, demos, and step-by-step how-to without a branded SKU → use `usage_scene` instead.
 - `visualIntent` ≠ `scriptIntent`; both specific and in Chinese.
 - Avoid generic English like "engaging opening" or "clear call-to-action".
+
+## Slot role glossary
+
+| `role` | Meaning | Typical visuals | Material hint |
+|--------|---------|-----------------|---------------|
+| `hook_visual` | Opening attention grabber | Strong contrast, fast cut, suspense | Stock/AIGC OK; not necessarily the product |
+| `hook_text` | Opening on-screen text card | Title, number hook, question overlay | HyperFrames packaging |
+| `product_closeup` | **Specific subject/SKU hero** | Pack shot, logo, identifiable product | User asset or AIGC; **never** generic stock |
+| `usage_scene` | Generic B-roll / demo / lifestyle | Office, outdoor, hands-on steps | Stock-friendly |
+| `benefit_card` | Selling-point info card | Text + motion graphics | HyperFrames packaging |
+| `comparison` | Before/after or vs. card | Split layout, contrast copy | HyperFrames packaging |
+| `proof` | Testimonial, data, trust | Quote card or talking proof | Packaging and/or VO |
+| `transition` | Segment bridge | Wipe, stinger, chapter card | HyperFrames packaging |
+| `cta` | Call-to-action closing card | Offer, link, urgency | HyperFrames packaging |
+
+## `requiredAssetType` and `packagingRequirements`
+
+Use these fields to clarify material strategy when role alone is ambiguous:
+
+- **`requiredAssetType` enum:** `video`, `image`, `text`, `voiceover`, `generated_visual`, `packaging`.
+- Default inference (system may coerce if omitted):
+  - Packaging roles (`hook_text`, `benefit_card`, `comparison`, `proof`, `transition`, `cta`) → `["text", "packaging"]`.
+  - Visual roles (`hook_visual`, `product_closeup`, `usage_scene`) → `["video", "image"]`.
+- Set `generated_visual` when the slot is motion-graphic / infographic native (not live-action B-roll).
+- Set `packaging` when the slot needs HyperFrames overlay even if base footage exists elsewhere.
+- **`packagingRequirements`:** short tags for downstream completion, e.g. `["lower_third", "caption", "price_tag", "product_hero"]`.
+- **`packagingHint`:** one-line Chinese note on overlay style when non-obvious.
+
+**Hard rules:**
+
+- Do **not** use `product_closeup` when the brief has no concrete `productName` / `subjectName` and the segment is a generic demo — use `usage_scene`.
+- Do **not** emit deprecated roles such as `demonstration`; use `usage_scene` for tutorials and step demos.
 
 
 

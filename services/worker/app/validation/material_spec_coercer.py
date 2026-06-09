@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from structure.slot_roles import PACKAGING_ROLES
+
 _VALID_TEMPLATES = frozenset({"benefit-card", "title-lower-third", "ken-burns", "custom", "composition"})
 _ALLOWED_PARAM_KEYS = frozenset({"title", "bullets", "colors", "assetRefs", "subtitle"})
 
@@ -41,10 +43,6 @@ _ROLE_DEFAULT_TEMPLATE: dict[str, str] = {
     "usage_scene": "ken-burns",
 }
 
-_PACKAGING_ROLES = frozenset(
-    {"benefit_card", "comparison", "proof", "transition", "cta", "hook_text"}
-)
-
 _COLOR_PARAM_KEYS: dict[str, str] = {
     "primary": "primary",
     "primarycolor": "primary",
@@ -72,7 +70,7 @@ def _template_without_image_assets(*, slot: dict[str, Any] | None) -> str:
     role = str((slot or {}).get("role", "")).strip()
     if role == "hook_text":
         return "title-lower-third"
-    if role in _PACKAGING_ROLES:
+    if role in PACKAGING_ROLES:
         return "benefit-card"
     return "benefit-card"
 

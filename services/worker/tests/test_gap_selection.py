@@ -93,7 +93,7 @@ def test_weak_match_image_without_quota_falls_back_to_image() -> None:
 
 @pytest.mark.parametrize(
     "role",
-    ["hook_text", "benefit_card", "comparison"],
+    ["hook_text", "benefit_card", "comparison", "transition", "cta"],
 )
 def test_select_provider_packaging_roles(role: str) -> None:
     slot = _slot(role=role, required=["text", "packaging"])

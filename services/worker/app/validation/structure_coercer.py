@@ -4,31 +4,14 @@ import re
 from pathlib import Path
 from typing import Any
 
+from structure.slot_roles import default_required_asset_types, normalize_slot_role
+
 _ALLOWED_METADATA_KEYS = frozenset(
     {"durationSec", "width", "height", "fps", "codec", "hasAudio"}
 )
 _ASR_RANGE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:to|-)\s*(\d+(?:\.\d+)?)")
 _SHOT_BOUNDARY_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 _LOW_VALUE_EVIDENCE_PATTERN = re.compile(r"\d+\s+overlapping\s+shot\s+boundaries", re.IGNORECASE)
-_SLOT_ROLE_ALIASES = {
-    "demonstration": "demonstration",
-    "demo": "demonstration",
-    "tutorial": "demonstration",
-    "attention_grabber": "hook_visual",
-    "intro": "hook_visual",
-    "pain_point": "proof",
-    "problem_visual": "proof",
-    "problem": "proof",
-    "product_intro": "product_closeup",
-    "solution": "product_closeup",
-    "benefit": "benefit_card",
-    "call_to_action": "cta",
-    "cta_visual": "cta",
-    "hook": "hook_visual",
-    "proof": "proof",
-    "comparison": "comparison",
-    "transition": "transition",
-}
 _DEFAULT_PACKAGING = {
     "titleCards": [],
     "stickers": [],
@@ -375,23 +358,7 @@ def _attach_keyframe_evidence(
 
 
 def _normalize_slot_role(role: str) -> str:
-    raw = str(role or "").strip()
-    allowed = {
-        "hook_visual",
-        "hook_text",
-        "product_closeup",
-        "usage_scene",
-        "demonstration",
-        "benefit_card",
-        "comparison",
-        "proof",
-        "transition",
-        "cta",
-    }
-    if raw in allowed:
-        return raw
-    normalized = _SLOT_ROLE_ALIASES.get(raw, raw)
-    return normalized if normalized in allowed else "usage_scene"
+    return normalize_slot_role(role)
 
 
 _SEGMENT_ROLE_ALIASES = {
@@ -635,16 +602,23 @@ def _normalize_slots(
                 visual_intent = seg_visual
             elif seg_script and script_intent != seg_script:
                 script_intent = seg_script
-        role = _normalize_slot_role(str(slot.get("role", "usage_scene")))
-        if role == "usage_scene" and segment.get("role"):
+        raw_slot_role = str(slot.get("role", "")).strip()
+        if raw_slot_role:
+            role = _normalize_slot_role(raw_slot_role)
+        elif segment.get("role"):
             role = _normalize_slot_role(str(segment.get("role")))
+        else:
+            role = "usage_scene"
         slot_payload: dict[str, Any] = {
                 "id": str(slot.get("id") or f"{segment_id}-{role}"),
                 "segmentId": segment_id,
                 "role": role,
                 "startSec": float(slot.get("startSec", segment.get("startSec", 0.0))),
                 "endSec": float(slot.get("endSec", segment.get("endSec", 0.0))),
-                "requiredAssetType": list(slot.get("requiredAssetType") or ["video", "image"]),
+                "requiredAssetType": list(
+                    slot.get("requiredAssetType")
+                    or default_required_asset_types(role)
+                ),
                 "visualIntent": visual_intent,
                 "scriptIntent": script_intent,
                 "importance": str(slot.get("importance") or "recommended"),

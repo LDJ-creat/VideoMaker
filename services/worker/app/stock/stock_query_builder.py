@@ -52,10 +52,9 @@ def build_deterministic_stock_query(
     stock_slot = completion_slot_for_stock(slot, brief=brief_dict)
     role = str(stock_slot.get("role", ""))
     role_hint = {
-        "usage_scene": "lifestyle usage scene",
+        "usage_scene": "lifestyle usage scene tutorial demonstration",
         "hook_visual": "attention grabbing visual hook",
         "product_closeup": "product close up",
-        "demonstration": "tutorial demonstration scene",
     }.get(role, "b-roll footage")
 
     parts = [role_hint, visual, intent, script, reason, str(brief_dict.get("topic", ""))]
