@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from app.pipelines.visual_style_bible import augment_slot_generation_prompt
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.tools.image_gen_tool import ImageGenTool, ToolError
 
@@ -47,6 +48,11 @@ def _prompt_for_slot(ctx: MaterialContext, slot_id: str) -> str:
             visual = str(scene.get("visual", "")).strip()
             script = str(scene.get("script", "")).strip()
             if visual and script:
-                return f"{visual}. Narration context: {script}"
-            return visual or script or f"Generate visual for slot {slot_id}"
-    return f"Generate visual for slot {slot_id}"
+                base = f"{visual}. Narration context: {script}"
+            else:
+                base = visual or script or f"Generate visual for slot {slot_id}"
+            return augment_slot_generation_prompt(base, ctx.visual_style_bible)
+    return augment_slot_generation_prompt(
+        f"Generate visual for slot {slot_id}",
+        ctx.visual_style_bible,
+    )

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from app.agents.runner import AgentRunner
 from app.agents.storyboard_writer import run_storyboard_writer
+from app.knowledge.context_resolver import resolve_knowledge_context
 from app.pipelines.script_draft import load_script_draft, save_script_draft
 from app.runtime.checkpoint import generation_artifact_root
 from app.runtime.task_context import TaskContext
@@ -102,6 +103,58 @@ def _structure_summary(structure: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _load_sample_analysis(
+    storage_root: Path,
+    project_id: str,
+    sample_id: str,
+) -> dict[str, Any] | None:
+    if not sample_id:
+        return None
+    analysis_path = (
+        storage_root
+        / "projects"
+        / project_id
+        / "samples"
+        / sample_id
+        / "analysis"
+        / "sample-analysis.json"
+    )
+    if not analysis_path.is_file():
+        return None
+    payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
+def _weak_slot_count(gap_report: dict[str, Any]) -> int:
+    weak_slots = gap_report.get("weakSlots")
+    if isinstance(weak_slots, list):
+        return len(weak_slots)
+    return 0
+
+
+def _resolve_knowledge_context_for_revise(
+    *,
+    storage_root: Path,
+    database_path: Path | None,
+    project_id: str,
+    structure: dict[str, Any],
+    gap_report: dict[str, Any],
+) -> dict[str, Any]:
+    sample_id = str(structure.get("sourceVideoId") or "").strip()
+    sample_analysis = (
+        _load_sample_analysis(storage_root, project_id, sample_id) if sample_id else None
+    )
+    return resolve_knowledge_context(
+        storage_root=storage_root,
+        database_path=database_path,
+        project_id=project_id,
+        level=1,
+        weak_slot_count=_weak_slot_count(gap_report),
+        video_structure=structure,
+        sample_analysis=sample_analysis,
+    )
+
+
 def revise_script_draft(
     runner: AgentRunner,
     *,
@@ -111,6 +164,7 @@ def revise_script_draft(
     instruction: str,
     context: TaskContext,
     structure: dict[str, Any] | None = None,
+    database_path: Path | None = None,
 ) -> dict[str, Any]:
     instruction_text = str(instruction or "").strip()
     if not instruction_text:
@@ -151,6 +205,13 @@ def revise_script_draft(
     gap_report = _read_json(generation_root / "gap-report.json") or {}
     duration_target = _load_duration_target(generation_root, draft)
     variant = str(draft.get("variant") or "default")
+    knowledge_context = _resolve_knowledge_context_for_revise(
+        storage_root=storage_root_path,
+        database_path=database_path,
+        project_id=project_id,
+        structure=structure_payload,
+        gap_report=gap_report if isinstance(gap_report, dict) else {},
+    )
 
     revision_id = str(uuid.uuid4())
     meta_base = {
@@ -171,11 +232,25 @@ def revise_script_draft(
         "durationTarget": duration_target,
         "variant": variant,
     }
+    if knowledge_context.get("primary") is not None:
+        llm_inputs["knowledgeContext"] = {
+            "level": knowledge_context.get("level"),
+            "primaryEntryId": (knowledge_context.get("primary") or {}).get("entryId"),
+            "referenceEntryIds": [
+                item.get("entryId")
+                for item in knowledge_context.get("references") or []
+                if isinstance(item, dict) and item.get("entryId")
+            ],
+        }
     if scope == "master":
         llm_inputs["masterNarration"] = str(draft.get("masterNarration") or "")
+        if isinstance(draft.get("visualStyleBible"), dict):
+            llm_inputs["visualStyleBible"] = draft["visualStyleBible"]
     else:
         llm_inputs["masterNarration"] = str(draft.get("masterNarration") or "")
         llm_inputs["storyboard"] = list(draft.get("storyboard") or [])
+        if isinstance(draft.get("visualStyleBible"), dict):
+            llm_inputs["visualStyleBible"] = draft["visualStyleBible"]
 
     writer_kwargs: dict[str, Any] = {
         "structure": structure_payload,
@@ -188,11 +263,14 @@ def revise_script_draft(
         "duration_target": duration_target,
         "instruction": instruction_text,
         "master_narration": str(draft.get("masterNarration") or ""),
+        "knowledge_context": knowledge_context,
     }
     if scope == "storyboard":
         writer_kwargs["current_storyboard"] = [
             dict(scene) for scene in draft.get("storyboard") or [] if isinstance(scene, dict)
         ]
+    if isinstance(draft.get("visualStyleBible"), dict):
+        writer_kwargs["visual_style_bible"] = dict(draft["visualStyleBible"])
 
     normalized: dict[str, Any] | None = None
     raw_output: str | None = None
@@ -205,6 +283,8 @@ def revise_script_draft(
         merged = dict(draft)
         if scope == "master":
             merged["masterNarration"] = str(writer_output.get("masterNarration") or "")
+            if isinstance(writer_output.get("visualStyleBible"), dict):
+                merged["visualStyleBible"] = writer_output["visualStyleBible"]
             merged["masterNarrationStatus"] = "draft"
         else:
             merged["storyboard"] = list(writer_output.get("storyboard") or [])

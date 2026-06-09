@@ -81,6 +81,8 @@ def seed_revise_generation(
             snapshot["masterNarration"] = plan["masterNarration"]
         if isinstance(plan.get("packagingPlan"), dict):
             snapshot["packagingPlan"] = plan["packagingPlan"]
+        if isinstance(plan.get("visualStyleBible"), dict):
+            snapshot["visualStyleBible"] = plan["visualStyleBible"]
         if snapshot:
             (target_root / "revise-snapshot.json").write_text(
                 json.dumps(snapshot, indent=2, ensure_ascii=False),

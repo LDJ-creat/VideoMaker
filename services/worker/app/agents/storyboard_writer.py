@@ -6,6 +6,10 @@ from app.agents.runner import AgentRunner
 from app.config.variants import load_agent_overrides
 from app.pipelines.master_narration import apply_master_narration_to_storyboard
 from app.pipelines.narration_script import is_creative_direction_text
+from app.pipelines.visual_style_bible import (
+    knowledge_entry_id_from_context,
+    normalize_visual_style_bible,
+)
 from app.runtime.task_context import TaskContext
 
 
@@ -17,6 +21,44 @@ VALID_SOURCES = {
     "asset_reuse",
     "generated",
 }
+VALID_PHASES = {
+    "master_only",
+    "storyboard_from_master",
+    "revise_master",
+    "revise_storyboard",
+}
+DEPRECATED_PHASES = {"full"}
+
+
+def slim_structure_for_script(structure: dict[str, Any]) -> dict[str, Any]:
+    """Drop perception-heavy blocks that add tokens without helping script writing."""
+    if not isinstance(structure, dict):
+        return {}
+    slim: dict[str, Any] = {}
+    for key in ("id", "projectId", "sourceVideoId", "version", "confidence"):
+        if key in structure:
+            slim[key] = structure[key]
+    metadata = structure.get("metadata")
+    if isinstance(metadata, dict):
+        slim["metadata"] = metadata
+    narrative = structure.get("narrative")
+    if isinstance(narrative, dict):
+        slim["narrative"] = narrative
+    slots = structure.get("slots")
+    if isinstance(slots, list):
+        slim["slots"] = slots
+    for block in ("context", "verbal", "visual", "audio", "transfer"):
+        value = structure.get(block)
+        if isinstance(value, dict):
+            slim[block] = value
+    rhythm = structure.get("rhythm")
+    if isinstance(rhythm, dict):
+        slim["rhythm"] = {
+            key: rhythm[key]
+            for key in ("totalDurationSec", "tempo", "beatPoints", "avgShotDurationSec", "shotCount")
+            if key in rhythm
+        }
+    return slim
 
 
 def _slot_lookup(structure: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -102,11 +144,27 @@ def _optional_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return {"summary": summary} if summary else {}
 
 
-def _assert_master_only(payload: dict[str, Any]) -> dict[str, Any]:
+def _assert_master_only(
+    payload: dict[str, Any],
+    *,
+    structure: dict[str, Any],
+    knowledge_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     master = str(payload.get("masterNarration") or "").strip()
     if not master:
         raise ValueError("storyboard_writer master_only output must include non-empty masterNarration")
-    return {"masterNarration": master, **_optional_summary(payload)}
+    knowledge_entry_id = knowledge_entry_id_from_context(knowledge_context)
+    bible = normalize_visual_style_bible(
+        payload.get("visualStyleBible") if isinstance(payload.get("visualStyleBible"), dict) else None,
+        structure=structure,
+        knowledge_entry_id=knowledge_entry_id,
+    )
+    result: dict[str, Any] = {
+        "masterNarration": master,
+        "visualStyleBible": bible,
+        **_optional_summary(payload),
+    }
+    return result
 
 
 def _assert_storyboard_from_master(
@@ -135,6 +193,7 @@ def _assert_storyboard(
     *,
     structure: dict[str, Any],
 ) -> dict[str, Any]:
+    """Legacy one-shot validator — retained for unit tests only."""
     storyboard = payload.get("storyboard")
     if not isinstance(storyboard, list):
         raise ValueError("storyboard_writer output must include storyboard array")
@@ -162,31 +221,43 @@ def run_storyboard_writer(
     inventory: dict[str, Any],
     gap_report: dict[str, Any],
     context: TaskContext,
+    phase: str,
     progress: int = 52,
     generation_id: str | None = None,
     variant: str = "default",
     agent_overrides: dict[str, Any] | None = None,
     knowledge_context: dict[str, Any] | None = None,
-    phase: str = "full",
     master_narration: str | None = None,
+    visual_style_bible: dict[str, Any] | None = None,
     duration_target: dict[str, Any] | None = None,
     instruction: str | None = None,
     current_storyboard: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    normalized_phase = str(phase or "").strip()
+    if normalized_phase in DEPRECATED_PHASES:
+        raise ValueError(
+            f"storyboard_writer phase '{normalized_phase}' is deprecated; "
+            "use master_only then storyboard_from_master"
+        )
+    if normalized_phase not in VALID_PHASES:
+        raise ValueError(f"Invalid storyboard_writer phase: {normalized_phase}")
+
     variant_overrides = load_agent_overrides(variant, "storyboard_writer")
     if agent_overrides:
         variant_overrides = {**variant_overrides, **agent_overrides}
     inputs: dict[str, Any] = {
-        "structure": structure,
+        "structureForScript": slim_structure_for_script(structure),
         "inventory": inventory,
         "gapReport": gap_report,
         "variantOverrides": variant_overrides,
-        "phase": phase,
+        "phase": normalized_phase,
     }
     if duration_target is not None:
         inputs["durationTarget"] = duration_target
     if master_narration is not None:
         inputs["masterNarration"] = master_narration
+    if visual_style_bible is not None:
+        inputs["visualStyleBible"] = visual_style_bible
     if instruction is not None:
         inputs["instruction"] = instruction
     if current_storyboard is not None:
@@ -194,17 +265,25 @@ def run_storyboard_writer(
     if knowledge_context:
         inputs["knowledgeContext"] = knowledge_context
 
-    if phase in {"master_only", "revise_master"}:
-        post_validate = lambda payload: _assert_master_only(payload)
-    elif phase in {"storyboard_from_master", "revise_storyboard"}:
+    if normalized_phase in {"master_only", "revise_master"}:
+        post_validate = lambda payload: _assert_master_only(
+            payload,
+            structure=structure,
+            knowledge_context=knowledge_context,
+        )
+    else:
         approved_master = str(master_narration or "").strip()
+        locked_bible = visual_style_bible
+        if locked_bible is None and normalized_phase == "storyboard_from_master":
+            knowledge_entry_id = knowledge_entry_id_from_context(knowledge_context)
+            locked_bible = normalize_visual_style_bible(None, structure=structure, knowledge_entry_id=knowledge_entry_id)
+        if locked_bible is not None and normalized_phase in {"storyboard_from_master", "revise_storyboard"}:
+            inputs["visualStyleBible"] = locked_bible
         post_validate = lambda payload: _assert_storyboard_from_master(
             payload,
             structure=structure,
             master_narration=approved_master,
         )
-    else:
-        post_validate = lambda payload: _assert_storyboard(payload, structure=structure)
 
     output = runner.run(
         "storyboard_writer",

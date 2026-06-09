@@ -216,3 +216,45 @@ def test_revise_storyboard_updates_scenes(tmp_path: Path) -> None:
     assert isinstance(saved["storyboard"], list)
     assert len(saved["storyboard"]) >= 1
     assert saved["storyboardStatus"] == "draft"
+
+
+def test_revise_master_records_knowledge_context_in_revision_inputs(tmp_path: Path) -> None:
+    import sqlite3
+    import uuid as uuid_mod
+
+    from tests.test_knowledge_context_resolver import _init_schema, _seed_knowledge_db
+
+    project_id = "project-1"
+    generation_id = "gen-knowledge"
+    entry_id = str(uuid_mod.uuid4())
+    database_path = tmp_path / "knowledge.sqlite3"
+    storage_root = tmp_path
+    _init_schema(database_path)
+    _seed_knowledge_db(
+        database_path,
+        storage_root,
+        project_id=project_id,
+        entry_id=entry_id,
+    )
+
+    generation_root = _write_generation_artifacts(
+        tmp_path,
+        project_id=project_id,
+        generation_id=generation_id,
+    )
+    runner = _build_runner(tmp_path)
+    context = TaskContext(project_id=project_id, task_id="task-1", storage_root=tmp_path)
+
+    result = revise_script_draft(
+        runner,
+        project_id=project_id,
+        generation_id=generation_id,
+        scope="master",
+        instruction="开头更抓人",
+        context=context,
+        database_path=database_path,
+    )
+
+    revision_dir = generation_root / "script-nl-revisions" / result["revisionId"]
+    inputs = json.loads((revision_dir / "inputs.json").read_text(encoding="utf-8"))
+    assert inputs["knowledgeContext"]["primaryEntryId"] == entry_id

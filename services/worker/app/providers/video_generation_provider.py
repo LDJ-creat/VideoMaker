@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.pipelines.visual_style_bible import augment_slot_generation_prompt
 from app.runtime.asset_paths import asset_by_id, resolve_asset_path, resolve_match_asset_type
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.tools.image_gen_tool import ToolError
@@ -137,8 +138,10 @@ def _prompt_for_slot(ctx: MaterialContext, slot_id: str) -> str:
             "Keep the main subject and branding consistent with the reference frame. "
         )
         body = f"{visual}. {script}".strip() if visual or script else f"Slot {slot_id} video"
-        return prefix + body
+        return augment_slot_generation_prompt(prefix + body, ctx.visual_style_bible)
 
     if visual and script:
-        return f"{visual}. Narration context: {script}"
-    return visual or script or f"Generate short-form video clip for slot {slot_id}"
+        base = f"{visual}. Narration context: {script}"
+    else:
+        base = visual or script or f"Generate short-form video clip for slot {slot_id}"
+    return augment_slot_generation_prompt(base, ctx.visual_style_bible)

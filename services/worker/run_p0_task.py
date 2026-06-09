@@ -177,6 +177,7 @@ def main() -> int:
                 instruction=str(payload["instruction"]),
                 context=context,
                 structure=payload.get("structure"),
+                database_path=getattr(pipeline, "_database_path", None),
             )
         elif mode == "knowledge_selector":
             from app.agents.knowledge_selector import run_knowledge_selector

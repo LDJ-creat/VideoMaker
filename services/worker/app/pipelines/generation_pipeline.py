@@ -433,12 +433,110 @@ def draft_master_script(
         duration_target_sec=float(duration_target.get("targetSec", 0.0)),
     )
     draft["masterNarration"] = str(writer_output.get("masterNarration") or "")
+    if isinstance(writer_output.get("visualStyleBible"), dict):
+        draft["visualStyleBible"] = writer_output["visualStyleBible"]
     draft["masterNarrationStatus"] = "draft"
     draft["storyboard"] = []
     draft["storyboardStatus"] = "draft"
     draft["generationStrategy"] = resolve_generation_strategy(float(duration_target.get("targetSec", 30.0)))
     draft["durationTargetSec"] = float(duration_target.get("targetSec", 30.0))
     return save_script_draft(generation_root, draft)
+
+
+def _duration_target_from_structure(
+    structure: dict[str, Any],
+    duration_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(duration_target, dict) and duration_target.get("targetSec") is not None:
+        return duration_target
+    metadata = structure.get("metadata") if isinstance(structure.get("metadata"), dict) else {}
+    target_sec = float(metadata.get("durationSec", 30.0))
+    return {"targetSec": target_sec}
+
+
+def run_automated_script_drafting(
+    runner: AgentRunner,
+    *,
+    structure: dict[str, Any],
+    inventory: dict[str, Any],
+    gap_report: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    variant: str = "default",
+    revise_context: ReviseContext | None = None,
+    knowledge_context: dict[str, Any] | None = None,
+    duration_target: dict[str, Any] | None = None,
+    generation_root: Path | None = None,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    """Two-phase script drafting without human-review gates (master_only → storyboard_from_master)."""
+    resolved_duration = _duration_target_from_structure(structure, duration_target)
+    overrides = merge_agent_overrides(variant, "storyboard_writer", revise_context)
+
+    context.emit_event(
+        stage="drafting_master_script",
+        progress=46,
+        message="Drafting master narration script",
+    )
+    master_output = run_storyboard_writer(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        context=context,
+        generation_id=generation_id,
+        variant=variant,
+        agent_overrides=overrides,
+        knowledge_context=knowledge_context,
+        phase="master_only",
+        duration_target=resolved_duration,
+    )
+    master_narration = str(master_output.get("masterNarration") or "").strip()
+    if not master_narration:
+        raise ValueError("Automated master script drafting returned empty masterNarration")
+    visual_style_bible = dict(master_output.get("visualStyleBible") or {})
+
+    context.emit_event(
+        stage="drafting_storyboard",
+        progress=50,
+        message="Drafting storyboard scenes from master script",
+    )
+    storyboard_output = run_storyboard_writer(
+        runner,
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        context=context,
+        generation_id=generation_id,
+        variant=variant,
+        agent_overrides=overrides,
+        knowledge_context=knowledge_context,
+        phase="storyboard_from_master",
+        master_narration=master_narration,
+        visual_style_bible=visual_style_bible,
+        duration_target=resolved_duration,
+    )
+    storyboard = list(storyboard_output.get("storyboard") or [])
+
+    if generation_root is not None:
+        draft = empty_script_draft(
+            generation_id=generation_id,
+            project_id=str(inventory.get("projectId", context.project_id)),
+            variant=variant,
+            duration_target_sec=float(resolved_duration.get("targetSec", 30.0)),
+        )
+        draft["masterNarration"] = master_narration
+        draft["masterNarrationStatus"] = "approved"
+        if visual_style_bible:
+            draft["visualStyleBible"] = visual_style_bible
+        draft["storyboard"] = storyboard
+        draft["storyboardStatus"] = "approved"
+        draft["generationStrategy"] = resolve_generation_strategy(
+            float(resolved_duration.get("targetSec", 30.0))
+        )
+        draft["approvedBy"] = "automated"
+        save_script_draft(generation_root, draft)
+
+    return master_narration, storyboard, visual_style_bible
 
 
 def draft_storyboard_script(
@@ -475,6 +573,11 @@ def draft_storyboard_script(
         knowledge_context=knowledge_context,
         phase="storyboard_from_master",
         master_narration=str(draft.get("masterNarration") or ""),
+        visual_style_bible=(
+            dict(draft["visualStyleBible"])
+            if isinstance(draft.get("visualStyleBible"), dict)
+            else None
+        ),
         duration_target=duration_target,
     )
     draft = dict(draft)
@@ -501,6 +604,9 @@ def run_planning_from_script_draft(
     if draft is None or not storyboard_is_approved(draft):
         raise ValueError("Storyboard must be approved before planning completion")
     master_narration = str(draft.get("masterNarration") or "")
+    visual_style_bible = (
+        dict(draft["visualStyleBible"]) if isinstance(draft.get("visualStyleBible"), dict) else None
+    )
     storyboard = [dict(scene) for scene in draft.get("storyboard") or [] if isinstance(scene, dict)]
     strategy = str(
         draft.get("generationStrategy")
@@ -547,6 +653,7 @@ def run_planning_from_script_draft(
         packaging_plan=packaging_plan,
         variant=variant,
         master_narration=master_narration,
+        visual_style_bible=visual_style_bible,
         generation_strategy=strategy,
         duration_target_sec=target_sec,
     )
@@ -571,9 +678,12 @@ def run_planning_completion(
 
     storyboard: list[dict[str, Any]]
     master_narration = ""
+    visual_style_bible: dict[str, Any] | None = None
     if revise_context is not None and not revise_context.rerun_storyboard and snapshot:
         storyboard = list(snapshot.get("storyboard") or [])
         master_narration = str(snapshot.get("masterNarration") or "")
+        if isinstance(snapshot.get("visualStyleBible"), dict):
+            visual_style_bible = dict(snapshot["visualStyleBible"])
         if storyboard and not master_narration.strip():
             master_narration, storyboard = apply_master_narration_to_storyboard(
                 master_narration="",
@@ -581,12 +691,7 @@ def run_planning_completion(
                 structure=structure,
             )
     else:
-        context.emit_event(
-            stage="planning_completion",
-            progress=48,
-            message="Writing storyboard scenes",
-        )
-        writer_output = run_storyboard_writer(
+        master_narration, storyboard, visual_style_bible = run_automated_script_drafting(
             runner,
             structure=structure,
             inventory=inventory,
@@ -594,11 +699,10 @@ def run_planning_completion(
             context=context,
             generation_id=generation_id,
             variant=variant,
-            agent_overrides=merge_agent_overrides(variant, "storyboard_writer", revise_context),
+            revise_context=revise_context,
             knowledge_context=knowledge_context,
+            generation_root=generation_root,
         )
-        master_narration = str(writer_output.get("masterNarration") or "")
-        storyboard = list(writer_output.get("storyboard") or [])
 
     packaging_plan: dict[str, Any]
     if revise_context is not None and not revise_context.rerun_packaging and snapshot:
@@ -628,6 +732,7 @@ def run_planning_completion(
         packaging_plan=packaging_plan,
         variant=variant,
         master_narration=master_narration,
+        visual_style_bible=visual_style_bible,
     )
     return inventory, slot_matches, gap_report, plan
 
@@ -642,6 +747,7 @@ def assemble_generation_plan(
     packaging_plan: dict[str, Any],
     variant: str = "default",
     master_narration: str | None = None,
+    visual_style_bible: dict[str, Any] | None = None,
     generation_strategy: str | None = None,
     duration_target_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -747,6 +853,8 @@ def assemble_generation_plan(
         "packagingPlan": packaging_plan,
         "completionActions": completion_actions,
     }
+    if isinstance(visual_style_bible, dict) and visual_style_bible.get("summary"):
+        plan["visualStyleBible"] = visual_style_bible
     brief = inventory.get("userBrief") if isinstance(inventory.get("userBrief"), dict) else {}
     resolved_target = float(
         duration_target_sec
@@ -869,6 +977,9 @@ def run_generating_material(
         brand_colors=dict(brand_colors or {}),
         aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
         master_narration=str(plan.get("masterNarration") or ""),
+        visual_style_bible=(
+            dict(plan["visualStyleBible"]) if isinstance(plan.get("visualStyleBible"), dict) else None
+        ),
     )
     register_default_providers(ctx)
 

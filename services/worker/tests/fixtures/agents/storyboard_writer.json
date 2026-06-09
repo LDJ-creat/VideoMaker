@@ -1,12 +1,19 @@
 {
   "masterNarration": "还在担心出门效率低？便携果汁机让你随时喝鲜榨。真实场景对比，效率提升看得见。现在下单，点击购买。",
+  "visualStyleBible": {
+    "summary": "竖屏9:16；暖色自然光；浅米白与珊瑚橙点缀；生活感、清爽可信",
+    "palette": ["暖白", "珊瑚橙", "深灰"],
+    "lighting": "窗边自然光，柔阴影",
+    "cameraGrammar": "近景手持轻稳，竖屏构图",
+    "mood": "清爽生活感"
+  },
   "storyboard": [
     {
       "id": "scene-1",
       "slotId": "seg-hook-hook_visual-1",
       "startSec": 0.0,
       "endSec": 3.0,
-      "visual": "hook 使用 效率 提升 方便",
+      "visual": "暖色自然光下手持产品特写，竖屏9:16，浅米白背景",
       "script": "还在担心出门效率低？",
       "source": "text_completion"
     },
@@ -15,7 +22,7 @@
       "slotId": "seg-hook-hook_text-2",
       "startSec": 0.0,
       "endSec": 3.0,
-      "visual": "hook 使用 效率 提升 方便",
+      "visual": "同系暖色包装字幕，珊瑚橙强调关键词",
       "script": "便携果汁机让你随时喝鲜榨。",
       "source": "packaging_completion"
     },

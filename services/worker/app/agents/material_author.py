@@ -51,6 +51,7 @@ def run_material_author(
     variant_overrides: dict[str, Any] | None = None,
     brand_colors: dict[str, Any] | None = None,
     asset_refs: list[dict[str, Any]] | None = None,
+    visual_style_bible: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "systemPrompt": load_prompt(),
@@ -60,6 +61,8 @@ def run_material_author(
     }
     if asset_refs:
         inputs["assetRefs"] = asset_refs
+    if isinstance(visual_style_bible, dict) and visual_style_bible.get("summary"):
+        inputs["visualStyleBible"] = visual_style_bible
     payload = llm.generate_json(TASK_KEY, inputs, None)
     return _validate_material_output(payload, slot=slot, asset_refs=asset_refs)
 
@@ -72,6 +75,7 @@ def run_material_author_with_runner(
     variant_overrides: dict[str, Any] | None = None,
     brand_colors: dict[str, Any] | None = None,
     asset_refs: list[dict[str, Any]] | None = None,
+    visual_style_bible: dict[str, Any] | None = None,
     progress: int = 58,
     generation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -82,6 +86,8 @@ def run_material_author_with_runner(
     }
     if asset_refs:
         inputs["assetRefs"] = asset_refs
+    if isinstance(visual_style_bible, dict) and visual_style_bible.get("summary"):
+        inputs["visualStyleBible"] = visual_style_bible
     return runner.run(
         "material_author",
         task=TASK_KEY,

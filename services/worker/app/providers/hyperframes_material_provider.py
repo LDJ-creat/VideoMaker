@@ -134,6 +134,7 @@ def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[di
                 variant_overrides=ctx.variant_overrides,
                 brand_colors=ctx.brand_colors,
                 asset_refs=asset_refs,
+                visual_style_bible=ctx.visual_style_bible,
                 generation_id=ctx.generation_id,
             )
         else:
@@ -163,6 +164,7 @@ def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[di
                     variant_overrides=ctx.variant_overrides,
                     asset_refs=asset_refs,
                     aspect_ratio=ctx.aspect_ratio,
+                    visual_style_bible=ctx.visual_style_bible,
                     task_id=ctx.task_context.task_id if ctx.task_context else None,
                     generation_id=ctx.generation_id,
                     react_trace=react_trace,
