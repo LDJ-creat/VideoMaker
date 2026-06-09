@@ -783,6 +783,13 @@ export type CreateProjectFromKnowledgeTemplateResponse = {
   knowledgeSelection: ProjectKnowledgeSelection;
 };
 
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  coverUrl?: string | null;
+};
+
 export type ProjectKnowledgeSelectionMode = "auto" | "user_override" | "none";
 
 export type ProjectKnowledgeSelection = {
