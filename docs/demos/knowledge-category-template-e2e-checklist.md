@@ -12,6 +12,7 @@
 
 - [ ] 首页 `WorkflowStrip` 下方出现「结构模板库」区块
 - [ ] Category 卡片展示真实 poster 或暖色 fallback
+- [ ] direct_multimodal 样例 promote 后，首页 category 卡片展示 poster（`samples/{id}/poster.jpg`；无则 backfill）
 - [ ] 点击卡片进入 `/templates/{categorySlug}`，标题为 category 中文名而非 slug
 
 ## 详情与选用
@@ -30,5 +31,6 @@
 
 ```powershell
 cd services/api
-python -m pytest tests/test_knowledge_category_routes.py tests/test_sample_seed_service.py -q
+python -m pytest tests/test_knowledge_category_routes.py tests/test_sample_seed_service.py tests/test_poster_service.py -q
+python scripts/backfill_posters.py --dry-run
 ```

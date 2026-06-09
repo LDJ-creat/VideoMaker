@@ -69,7 +69,7 @@
 
 ```text
 ┌─────────────────────────────┐
-│ 封面 aspect-video + 胶片孔   │  posterUrl；无图 studio 暖渐变 + Film
+│ 封面 aspect-video + 胶片孔   │  有图：`poster.jpg`；无图 **Template Shelf Frame**（纸纹 + 分类 monogram + slot ghost + 内框）
 │  [Badge ai] 结构模板         │
 ├─────────────────────────────┤
 │ category (font-serif)        │
@@ -81,7 +81,32 @@
 
 **样式：** `rounded-2xl border border-border bg-card shadow-sm`；hover `border-primary/30 shadow-md`（无位移）。整卡 `Link` → `/templates/{categorySlug}`。
 
-**Fallback 封面：** `from-studio-cream to-studio-wheat` + `Film` 图标（不用 `projectCardTheme` hash）。
+**Fallback 封面（TemplateCoverPlaceholder）：**
+
+| 元素 | 规范 |
+|------|------|
+| 背景 | 浅色 `from-studio-cream via-background to-studio-wheat` + `bg-studio-texture`；暗色 `dark:from-stone-900/95 dark:via-card dark:to-amber-950/25`（禁止浅黄块） |
+| 内框 | `inset-3 rounded-lg border border-primary/10` |
+| 中心 | 分类名（最多 5 字，`placeholderDisplayName`）+ 右下角小 `Film` |
+| Ghost | 顶部 `slotPatterns[0]`（`font-mono text-[10px] opacity 25%`） |
+| 文案 | 「待收录样例封面」 |
+| 组件 | [`template-cover-placeholder.tsx`](../../../apps/web/components/home/template-cover-placeholder.tsx) |
+
+**禁止：** 与 ProjectCard 同构的单图标占位、`projectCardTheme` hash 渐变。
+
+### 3.2b ProjectCard 占位（我的创意库）
+
+**Fallback 封面（ProjectCoverPlaceholder）：**
+
+| 元素 | 规范 |
+|------|------|
+| 背景 | `getProjectCardTheme(name).gradient` + `bg-film-grain` +  subtle 斜向反光 |
+| 中心 | 项目名（最多 5 字）+ `Clapperboard` 图标 |
+| 文案 | 「等待样例或成片」 |
+| Hover | monogram `group-hover:scale-105` |
+| 组件 | [`project-cover-placeholder.tsx`](../../../apps/web/components/home/project-cover-placeholder.tsx) |
+
+**禁止：** `Film` / `VideoIcon`、studio 纸纹、cream 暖色块（与模板库区隔）。
 
 ### 3.3 状态
 
