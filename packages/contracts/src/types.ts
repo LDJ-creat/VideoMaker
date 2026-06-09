@@ -810,6 +810,32 @@ export type KnowledgeSkillOutput = {
   markdown: string;
 };
 
+export type CompositionPatternPromoteOutput = {
+  frontmatter: {
+    title: string;
+    category: string;
+    summary: string;
+    slotRoles: string[];
+    motionPattern: string;
+    [key: string]: unknown;
+  };
+  markdown: string;
+  materialSpec: MaterialSpec;
+};
+
+export type CompositionPatternCandidate = {
+  slotId: string;
+  slotRole: string;
+  storyboardSummary: string;
+  actionId?: string | null;
+  draftReady: boolean;
+  publishedEntry?: {
+    id: string;
+    title?: string;
+    updatedAt?: string;
+  } | null;
+};
+
 export type UploadBatchStatus = "uploading" | "complete" | "partial_failed";
 
 export type UploadBatch = {

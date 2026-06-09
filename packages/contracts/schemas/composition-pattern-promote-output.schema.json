@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/composition-pattern-promote-output.schema.json",
+  "title": "CompositionPatternPromoteOutput",
+  "type": "object",
+  "required": ["frontmatter", "markdown", "materialSpec"],
+  "properties": {
+    "frontmatter": {
+      "type": "object",
+      "required": ["title", "category", "summary", "slotRoles", "motionPattern"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "slotRoles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "motionPattern": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "markdown": { "type": "string", "minLength": 1 },
+    "materialSpec": { "$ref": "material-spec.schema.json" }
+  },
+  "additionalProperties": false
+}
