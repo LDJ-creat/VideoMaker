@@ -271,11 +271,18 @@ GET /api/generations/{generation_id}/script-draft
 PUT /api/generations/{generation_id}/script-draft
 POST /api/generations/{generation_id}/approve-master
 POST /api/generations/{generation_id}/approve-storyboard
+POST /api/generations/{generation_id}/revise/plan
+POST /api/generations/{generation_id}/revise/execute
+GET /api/generations/{generation_id}/revise/session
+POST /api/generations/{generation_id}/revise/cancel
 POST /api/generations/{generation_id}/revise
+POST /api/generations/{generation_id}/script-draft/nl-revise
 GET /api/generations/{generation_id}/agent-runs
 ```
 
-Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Revise re-runs skip human review gates (`human_review_mode=false`).
+**NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`, e.g. subtitle patch) update the same `generationId`; high-cost plans fork a new generation. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
+
+Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Fork revise re-runs skip human review gates (`human_review_mode=false`).
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
 
