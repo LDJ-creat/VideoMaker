@@ -16,13 +16,23 @@ Prerequisites: API + worker + web running; ModelGateway text provider configured
 - [ ] Progress panel shows amber **前往脚本审核** (not failed)
 - [ ] **脚本审核** tab shows independent variant tabs
 - [ ] Edit master text → **保存草稿** → reload preserves edits
+- [ ] **自然语言改脚本** (master): enter instruction → **应用修改** → master textarea updates; optional summary line shown
+- [ ] Multi-round NL (no chat history): second instruction applies to current draft text only (prior instruction text not sent to LLM)
 - [ ] **批准总脚本并生成分镜** resumes task → stage `drafting_storyboard`
 
 ## Storyboard review
 
 - [ ] Task pauses at `awaiting_storyboard_review`
 - [ ] Inline edit scene visual/script → save works
+- [ ] **自然语言改脚本** (storyboard): instruction revises scenes; master text unchanged (already approved)
 - [ ] **批准分镜并开始生成视频** resumes → material/render stages
+
+## NL revise debug artifacts
+
+- [ ] After NL revise: `generations/{generationId}/script-nl-revisions/{revisionId}/` contains `meta.json`, `inputs.json`, `raw-output.json`, `normalized.json`
+- [ ] `generations/{generationId}/script-nl-revisions/index.jsonl` appends one line per revise
+- [ ] `GET /api/generations/{generationId}/agent-runs` lists `storyboard_writer` run with matching `generationId`
+- [ ] Task remains `awaiting_review` after NL revise (no retry until approve)
 
 ## Strategy branch
 
