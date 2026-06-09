@@ -45,6 +45,7 @@ import {
   type InputWorkbenchPanelHandle,
 } from "@/features/workbench/InputWorkbenchPanel";
 import { WorkbenchStepper } from "@/features/workbench/WorkbenchStepper";
+import { ProjectTitleEditor } from "@/features/workbench/ProjectTitleEditor";
 import { computeWorkbenchPhaseState } from "@/features/workbench/workbenchPhases";
 import {
   PANEL_LABELS,
@@ -1523,11 +1524,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     <div className="space-y-6">
       <DataSourceBanner />
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-4 pt-1 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="font-serif text-2xl font-semibold tracking-tight">
-            {projectName ?? "项目工作台"}
-          </h1>
+          <ProjectTitleEditor
+            projectId={projectId}
+            name={projectName}
+            onNameChange={setProjectName}
+            onError={setDataError}
+          />
           <p className="mt-1 text-sm text-muted-foreground">
             可解释结构迁移
             <span className="mx-2 text-border">·</span>

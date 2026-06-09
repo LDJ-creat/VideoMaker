@@ -63,6 +63,24 @@ class ProjectStore:
             "createdAt": row["created_at"],
         }
 
+    def update_project(self, project_id: str, *, name: str) -> dict[str, Any] | None:
+        trimmed = name.strip()
+        if not trimmed:
+            raise ValueError("invalid_project_name")
+        updated_at = now_iso()
+        with self.database.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE projects
+                SET name = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (trimmed, updated_at, project_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get_project(project_id)
+
     def delete_project(self, project_id: str, *, storage_root: Path) -> bool:
         if self.get_project(project_id) is None:
             return False

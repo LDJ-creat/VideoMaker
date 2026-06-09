@@ -40,6 +40,10 @@ class CreateProjectRequest(BaseModel):
     name: str | None = None
 
 
+class UpdateProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
 class CreateProjectFromKnowledgeTemplateRequest(BaseModel):
     name: str = Field(min_length=1)
     category_slug: str = Field(alias="categorySlug", min_length=1)
@@ -402,6 +406,23 @@ def create_project_from_knowledge_template_route(
 @router.get("/{project_id}", response_model=CreateProjectResponse)
 def get_project(project_id: str, request: Request) -> dict[str, Any]:
     project = _project_store(request).get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.patch("/{project_id}", response_model=CreateProjectResponse)
+def update_project(
+    project_id: str,
+    payload: UpdateProjectRequest,
+    request: Request,
+) -> dict[str, Any]:
+    store = _project_store(request)
+    _ensure_project(store, project_id)
+    try:
+        project = store.update_project(project_id, name=payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project

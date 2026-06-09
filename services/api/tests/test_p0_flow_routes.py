@@ -194,6 +194,30 @@ def test_create_project_and_get(p0_client: TestClient):
     assert fetched.json()["name"] == "Demo"
 
 
+def test_update_project_name(p0_client: TestClient):
+    created = p0_client.post("/api/projects", json={"name": "Old Name"}).json()
+    project_id = created["id"]
+
+    response = p0_client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": "New Name"},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "New Name"
+
+    fetched = p0_client.get(f"/api/projects/{project_id}")
+    assert fetched.json()["name"] == "New Name"
+
+    listed = p0_client.get("/api/projects").json()["projects"]
+    assert listed[0]["name"] == "New Name"
+
+    invalid = p0_client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": "   "},
+    )
+    assert invalid.status_code == 422
+
+
 def test_list_projects(p0_client: TestClient):
     empty = p0_client.get("/api/projects")
     assert empty.status_code == 200

@@ -319,6 +319,17 @@ export async function getProject(
   return apiFetch(`/api/projects/${projectId}`);
 }
 
+export async function updateProject(
+  projectId: string,
+  payload: { name: string },
+): Promise<ApiResult<ProjectSummary>> {
+  return apiFetch(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function deleteProject(projectId: string): Promise<ApiResult<void>> {
   return apiFetch(`/api/projects/${projectId}`, {
     method: "DELETE",
