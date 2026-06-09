@@ -62,8 +62,8 @@ def test_duration_recommendation_after_sample_analysis(
     body = response.json()
     assert body["recommendedSec"] == 10.0
     assert body["defaultTargetSec"] == 10.0
-    assert body["shortFormMaxSec"] == 60
     assert body["maxTargetSec"] == 600
+    assert "shortFormMaxSec" not in body
 
 
 def test_duration_recommendation_defaults_without_structure(

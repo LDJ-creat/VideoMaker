@@ -69,7 +69,7 @@ def _write_script_draft(
         ],
         "storyboardStatus": storyboard_status,
         "durationTargetSec": 45,
-        "generationStrategy": "short_form_direct",
+        "generationStrategy": "long_form_composed",
     }
     (generation_root / "script-draft.json").write_text(
         json.dumps(draft, ensure_ascii=False),

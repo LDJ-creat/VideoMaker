@@ -44,6 +44,5 @@ def build_duration_recommendation(
         "sampleId": sample_id,
         "structureDurationSec": recommended,
         "defaultTargetSec": recommended,
-        "shortFormMaxSec": _env_float("VIDEOMAKER_SHORT_FORM_MAX_SEC", 60.0),
         "maxTargetSec": _env_float("VIDEOMAKER_DURATION_TARGET_MAX_SEC", 600.0),
     }
