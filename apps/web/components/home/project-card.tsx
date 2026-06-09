@@ -1,8 +1,9 @@
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { ArrowRight, Trash2, VideoIcon } from "lucide-react";
+import { ArrowRight, Trash2 } from "lucide-react";
 import Link from "next/link";
 
+import { ProjectCoverPlaceholder } from "@/components/home/project-cover-placeholder";
 import {
   Card,
   CardContent,
@@ -28,12 +29,20 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
         className="block h-full cursor-pointer"
       >
         <Card className="flex h-full flex-col overflow-hidden border-border bg-card shadow-sm transition-colors duration-200 hover:border-primary/30 hover:shadow-md">
-          <div
-            className={cn(
-              "relative aspect-video w-full shrink-0 overflow-hidden border-b border-border/50 bg-gradient-to-br",
-              theme.gradient,
+          <div className="relative aspect-video w-full shrink-0 overflow-hidden border-b border-border/50">
+            {project.coverUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={project.coverUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <ProjectCoverPlaceholder
+                projectName={project.name}
+                gradient={theme.gradient}
+              />
             )}
-          >
             <div
               className="pointer-events-none absolute inset-y-3 left-0 w-3 bg-[repeating-linear-gradient(180deg,transparent_0,transparent_6px,currentColor_6px,currentColor_10px)] opacity-[0.07]"
               aria-hidden="true"
@@ -42,14 +51,6 @@ export function ProjectCard({ project, onDelete }: ProjectCardProps) {
               className="pointer-events-none absolute inset-y-3 right-0 w-3 bg-[repeating-linear-gradient(180deg,transparent_0,transparent_6px,currentColor_6px,currentColor_10px)] opacity-[0.07]"
               aria-hidden="true"
             />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <VideoIcon
-                className={cn(
-                  "h-10 w-10 transition-transform duration-300 group-hover:scale-105",
-                  theme.iconColor,
-                )}
-              />
-            </div>
           </div>
 
           <div className="flex flex-1 flex-col">

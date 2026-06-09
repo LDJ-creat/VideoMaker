@@ -1,8 +1,8 @@
-import { Film } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { TemplateCoverPlaceholder } from "@/components/home/template-cover-placeholder";
 import type { KnowledgeCategorySummary } from "@/lib/apiClient";
 
 type TemplateCategoryCardProps = {
@@ -32,7 +32,11 @@ export function TemplateCategoryCard({ category }: TemplateCategoryCardProps) {
       href={href}
       className="block h-full cursor-pointer"
       data-testid="template-category-card"
-      aria-label={`${category.category}，${category.entryCount} 个参考样例`}
+      aria-label={
+        category.coverUrl
+          ? `${category.category}，${category.entryCount} 个参考样例`
+          : `${category.category}，暂无封面，${category.entryCount} 个参考样例`
+      }
     >
       <Card className="flex h-full flex-col overflow-hidden border-border bg-card shadow-sm transition-colors duration-200 hover:border-primary/30 hover:shadow-md">
         <div className="relative aspect-video w-full shrink-0 overflow-hidden border-b border-border/50 bg-muted">
@@ -45,9 +49,10 @@ export function TemplateCategoryCard({ category }: TemplateCategoryCardProps) {
               className="h-full w-full object-cover"
             />
           ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-studio-cream to-studio-wheat">
-              <Film className="h-8 w-8 text-primary/50" aria-hidden />
-            </div>
+            <TemplateCoverPlaceholder
+              category={category.category}
+              slotPattern={category.slotPatterns[0]}
+            />
           )}
           <div
             className="pointer-events-none absolute inset-y-3 left-0 w-3 bg-[repeating-linear-gradient(180deg,transparent_0,transparent_6px,currentColor_6px,currentColor_10px)] opacity-[0.07]"
@@ -83,7 +88,7 @@ export function TemplateCategoryCard({ category }: TemplateCategoryCardProps) {
 export function TemplateCategoryCardSkeleton() {
   return (
     <Card className="overflow-hidden border-border bg-card">
-      <div className="aspect-video w-full animate-pulse bg-muted" />
+      <div className="aspect-video w-full animate-pulse bg-gradient-to-br from-studio-cream via-muted to-studio-wheat bg-studio-texture dark:from-stone-900 dark:via-card dark:to-amber-950/20" />
       <div className="space-y-2 p-4">
         <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
         <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />

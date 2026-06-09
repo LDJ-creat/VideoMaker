@@ -143,6 +143,73 @@ describe("ProjectsPage home redesign", () => {
     );
   });
 
+  it("renders project cover image when coverUrl is provided", async () => {
+    vi.spyOn(apiClient, "listProjects").mockResolvedValue({
+      data: {
+        projects: [
+          {
+            id: "proj-cover",
+            name: "封面项目",
+            createdAt: "2026-06-01T10:00:00.000Z",
+            coverUrl: "/api/projects/proj-cover/media/file/samples/s1/poster.jpg",
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+
+    render(<ProjectsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("封面项目")).toBeInTheDocument(),
+    );
+
+    const img = screen.getByRole("presentation");
+    expect(img).toHaveAttribute(
+      "src",
+      "/api/projects/proj-cover/media/file/samples/s1/poster.jpg",
+    );
+  });
+
+  it("renders differentiated placeholders when covers are missing", async () => {
+    vi.spyOn(apiClient, "listProjects").mockResolvedValue({
+      data: {
+        projects: [
+          {
+            id: "proj-empty",
+            name: "为人处世",
+            createdAt: "2026-06-01T10:00:00.000Z",
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listKnowledgeCategories").mockResolvedValue({
+      data: {
+        categories: [
+          {
+            category: "教育",
+            categorySlug: "education",
+            entryCount: 1,
+            summary: "测试",
+            slotPatterns: ["hook → cta"],
+            updatedAt: "2026-06-09T10:00:00.000Z",
+            coverUrl: null,
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+
+    render(<ProjectsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("template-cover-placeholder")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("template-cover-placeholder")).toHaveTextContent("教育");
+    expect(screen.getByTestId("project-cover-placeholder")).toHaveTextContent("为人处世");
+  });
+
   it("opens delete confirmation for project cards", async () => {
     const user = userEvent.setup();
     vi.spyOn(apiClient, "listProjects").mockResolvedValue({

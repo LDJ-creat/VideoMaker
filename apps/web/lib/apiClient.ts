@@ -10,6 +10,7 @@ import type {
   KnowledgeCategoryDetail,
   CreateProjectFromKnowledgeTemplateRequest,
   CreateProjectFromKnowledgeTemplateResponse,
+  ProjectSummary,
   ProjectKnowledgeSelection,
   ScriptDraft,
   TaskEvent,
@@ -231,11 +232,7 @@ export type CreateSampleFromUrlRequest = {
 
 export type UserBriefRequest = UserBrief;
 
-export type ProjectSummary = {
-  id: string;
-  name: string;
-  createdAt: string;
-};
+export type { ProjectSummary };
 
 export type CookieUploadMode = "merge" | "replace";
 
