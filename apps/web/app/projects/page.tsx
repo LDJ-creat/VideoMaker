@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { HeroSection } from "@/components/home/hero-section";
 import { ProjectGrid } from "@/components/home/project-grid";
+import { TemplateCategorySection } from "@/components/home/template-category-section";
 import { WorkflowStrip } from "@/components/home/workflow-strip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { fixtureProject } from "@/fixtures";
@@ -165,6 +166,8 @@ export default function ProjectsPage() {
       />
 
       <WorkflowStrip />
+
+      <TemplateCategorySection />
 
       <ProjectGrid
         projects={projects}

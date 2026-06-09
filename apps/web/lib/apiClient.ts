@@ -5,6 +5,11 @@ import type {
   GenerationPlan,
   KnowledgeEntry,
   KnowledgeRecommendation,
+  KnowledgeCategorySummary,
+  KnowledgeCategoryEntryCard,
+  KnowledgeCategoryDetail,
+  CreateProjectFromKnowledgeTemplateRequest,
+  CreateProjectFromKnowledgeTemplateResponse,
   ProjectKnowledgeSelection,
   ScriptDraft,
   TaskEvent,
@@ -718,6 +723,36 @@ export type KnowledgeRecommendResponse = {
 export type KnowledgeSelectionResponse = {
   selection: ProjectKnowledgeSelection | null;
 };
+
+export type {
+  KnowledgeCategorySummary,
+  KnowledgeCategoryEntryCard,
+  KnowledgeCategoryDetail,
+  CreateProjectFromKnowledgeTemplateRequest,
+  CreateProjectFromKnowledgeTemplateResponse,
+};
+
+export async function listKnowledgeCategories(): Promise<
+  ApiResult<{ categories: KnowledgeCategorySummary[] }>
+> {
+  return apiFetch("/api/knowledge/categories");
+}
+
+export async function getKnowledgeCategory(
+  categorySlug: string,
+): Promise<ApiResult<KnowledgeCategoryDetail>> {
+  return apiFetch(`/api/knowledge/categories/${encodeURIComponent(categorySlug)}`);
+}
+
+export async function createProjectFromKnowledgeTemplate(
+  body: CreateProjectFromKnowledgeTemplateRequest,
+): Promise<ApiResult<CreateProjectFromKnowledgeTemplateResponse>> {
+  return apiFetch("/api/projects/from-knowledge-template", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 
 export async function listKnowledgeEntries(params?: {
   category?: string;

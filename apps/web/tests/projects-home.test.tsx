@@ -18,6 +18,10 @@ describe("ProjectsPage home redesign", () => {
       data: { projects: [] },
       meta: { dataSource: "fixture" },
     });
+    vi.spyOn(apiClient, "listKnowledgeCategories").mockResolvedValue({
+      data: { categories: [] },
+      meta: { dataSource: "api" },
+    });
   });
   afterEach(() => {
     cleanup();
@@ -104,6 +108,38 @@ describe("ProjectsPage home redesign", () => {
 
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith("/projects/proj-new"),
+    );
+  });
+
+  it("renders template category section when categories exist", async () => {
+    vi.spyOn(apiClient, "listKnowledgeCategories").mockResolvedValue({
+      data: {
+        categories: [
+          {
+            category: "美妆护肤",
+            categorySlug: "beauty-skincare",
+            entryCount: 2,
+            summary: "种草结构参考",
+            slotPatterns: ["hook → demo → cta"],
+            updatedAt: "2026-06-09T10:00:00.000Z",
+            coverUrl: "/cover.jpg",
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+
+    render(<ProjectsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("template-category-section")).toBeInTheDocument(),
+    );
+
+    expect(screen.getByText("结构模板库")).toBeInTheDocument();
+    expect(screen.getByTestId("template-category-card")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /美妆护肤/ })).toHaveAttribute(
+      "href",
+      "/templates/beauty-skincare",
     );
   });
 

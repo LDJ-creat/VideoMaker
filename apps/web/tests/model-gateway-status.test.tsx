@@ -7,6 +7,10 @@ import { ModelGatewayStatusPanel } from "@/features/settings/ModelGatewayStatusP
 import { fixtureModelGatewayStatus } from "@/fixtures";
 import * as apiClient from "@/lib/apiClient";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 describe("ModelGatewayStatusPanel", () => {
   beforeEach(() => {
     vi.spyOn(apiClient, "getModelGatewayStatus").mockResolvedValue({
@@ -199,6 +203,10 @@ describe("ProjectsPage model settings entry", () => {
     vi.spyOn(apiClient, "listProjects").mockResolvedValue({
       data: { projects: [] },
       meta: { dataSource: "fixture" },
+    });
+    vi.spyOn(apiClient, "listKnowledgeCategories").mockResolvedValue({
+      data: { categories: [] },
+      meta: { dataSource: "api" },
     });
   });
 
