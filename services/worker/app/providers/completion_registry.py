@@ -135,10 +135,19 @@ def order_completion_actions(
         if isinstance(slot, dict) and slot.get("id")
     }
 
-    def sort_key(action: dict[str, Any]) -> tuple[int, str]:
+    def sort_key(action: dict[str, Any]) -> tuple[int, str, int]:
         slot_id = str(action.get("slotId", ""))
         importance = importance_by_slot.get(slot_id, "nice_to_have")
-        return (0 if importance == "must_have" else 1, slot_id)
+        action_id = str(action.get("id") or "")
+        chain_rank = 0
+        if action_id.endswith("-finish") or action_id.endswith("-ken-burns"):
+            chain_rank = 99
+        elif "-chain-" in action_id:
+            try:
+                chain_rank = int(action_id.rsplit("-chain-", 1)[-1])
+            except ValueError:
+                chain_rank = 50
+        return (0 if importance == "must_have" else 1, slot_id, chain_rank)
 
     return sorted(actions, key=sort_key)
 
@@ -171,11 +180,6 @@ def execute_completion_plan(
                 retryable=False,
             )
         action_id = str(action["id"])
-        if action_id.endswith("-ken-burns"):
-            stock_video = ctx.generated_root / f"{action['slotId']}-stock.mp4"
-            if stock_video.is_file() and stock_video.stat().st_size > 0:
-                ctx.completed_action_ids.add(action_id)
-                continue
         if action_id in ctx.completed_action_ids and action_artifact_satisfied(action, ctx.generated_root):
             continue
         provider = ctx.providers.get(provider_name)

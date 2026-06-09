@@ -45,6 +45,37 @@ def _slot_id(slot: dict[str, Any]) -> str:
     return str(slot.get("id", ""))
 
 
+def _prefer_provider_order(variant_overrides: dict[str, Any] | None) -> list[str]:
+    overrides = variant_overrides or {}
+    prefer = [str(p) for p in (overrides.get("preferProviders") or []) if str(p).strip()]
+    if prefer:
+        return prefer
+    return [
+        "asset_reuse",
+        "stock_media_search",
+        "hyperframes_material",
+        "image_generation",
+        "video_generation",
+    ]
+
+
+def _pick_primary_from_candidates(
+    candidates: list[str],
+    *,
+    variant_overrides: dict[str, Any] | None,
+) -> str:
+    overrides = variant_overrides or {}
+    if str(overrides.get("videoGenPriority", "")).lower() == "high":
+        for preferred in ("video_generation", "image_generation"):
+            if preferred in candidates:
+                return preferred
+    order = _prefer_provider_order(variant_overrides)
+    for provider in order:
+        if provider in candidates:
+            return provider
+    return candidates[0]
+
+
 def _weak_match_score(weak_match: dict[str, Any] | None) -> float:
     if weak_match is None:
         return 0.0
@@ -136,15 +167,14 @@ def select_provider(
             )
 
     if is_visual_slot(slot):
+        candidates: list[str] = []
         if _should_try_stock(slot, inventory=inv, variant_overrides=variant_overrides):
-            return "stock_media_search"
-        return _aigc_visual_provider(
-            slot,
-            weak_match=weak_match,
-            quota=quota,
-            slot_id=slot_id,
-            variant_overrides=variant_overrides,
-        )
+            candidates.append("stock_media_search")
+        candidates.append("hyperframes_material")
+        if quota.can_generate_for_slot(slot_id) and not _prefer_image_over_video(variant_overrides):
+            candidates.append("video_generation")
+        candidates.append("image_generation")
+        return _pick_primary_from_candidates(candidates, variant_overrides=variant_overrides)
 
     if slot_needs_spoken_narration(slot):
         return "tts"
@@ -170,9 +200,11 @@ def select_provider_chain(
         impact=impact,
     )
     chain = [primary]
-    if primary == "stock_media_search" and slot_needs_motion(slot):
+    if primary == "stock_media_search" and is_visual_slot(slot):
         chain.append("hyperframes_material")
-    if primary == "image_generation" and slot_needs_motion(slot):
+    elif primary == "image_generation" and (slot_needs_motion(slot) or is_visual_slot(slot)):
+        chain.append("hyperframes_material")
+    elif primary == "asset_reuse" and is_visual_slot(slot):
         chain.append("hyperframes_material")
     return chain
 

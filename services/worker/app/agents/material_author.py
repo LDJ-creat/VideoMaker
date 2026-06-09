@@ -76,6 +76,7 @@ def run_material_author_with_runner(
     brand_colors: dict[str, Any] | None = None,
     asset_refs: list[dict[str, Any]] | None = None,
     visual_style_bible: dict[str, Any] | None = None,
+    finish_brief: dict[str, Any] | None = None,
     progress: int = 58,
     generation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -88,6 +89,8 @@ def run_material_author_with_runner(
         inputs["assetRefs"] = asset_refs
     if isinstance(visual_style_bible, dict) and visual_style_bible.get("summary"):
         inputs["visualStyleBible"] = visual_style_bible
+    if isinstance(finish_brief, dict):
+        inputs["finishBrief"] = finish_brief
     return runner.run(
         "material_author",
         task=TASK_KEY,

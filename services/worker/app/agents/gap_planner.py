@@ -4,7 +4,8 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_variant_gap_planner_overrides
-from app.pipelines.gap_selection import provider_rationale, select_provider_chain
+from app.pipelines.gap_reconcile import reconcile_provider_chain
+from app.pipelines.gap_selection import provider_rationale
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.agents.slot_mapper import classify_slot_matches
 from app.runtime.task_context import TaskContext
@@ -65,6 +66,12 @@ def reconcile_gap_buckets(
                 "reason": str(hint.get("reason", "")).strip() or _default_gap_reason(slot_id, bucket="weakSlots"),
                 "impact": hint.get("impact") or _default_impact(slot),
                 "suggestedFixes": list(hint.get("suggestedFixes") or ["hyperframes_material"]),
+                **(
+                    {"completionMode": hint["completionMode"]}
+                    if hint.get("completionMode")
+                    else {}
+                ),
+                **({"finishIntent": hint["finishIntent"]} if hint.get("finishIntent") else {}),
             }
         )
 
@@ -78,6 +85,12 @@ def reconcile_gap_buckets(
                 "reason": str(hint.get("reason", "")).strip() or _default_gap_reason(slot_id, bucket="missingSlots"),
                 "impact": hint.get("impact") or _default_impact(slot),
                 "suggestedFixes": list(hint.get("suggestedFixes") or ["hyperframes_material"]),
+                **(
+                    {"completionMode": hint["completionMode"]}
+                    if hint.get("completionMode")
+                    else {}
+                ),
+                **({"finishIntent": hint["finishIntent"]} if hint.get("finishIntent") else {}),
             }
         )
 
@@ -96,15 +109,18 @@ def _compose_gap_reason(
     providers: list[str],
 ) -> str:
     strategy = provider_rationale(primary_provider, slot, weak_match=weak_match)
-    if len(providers) > 1:
-        strategy = f"{strategy}；后续用 hyperframes_material 做 ken-burns 动效"
+    if len(providers) > 1 and providers[-1] == "hyperframes_material":
+        if primary_provider in {"stock_media_search", "asset_reuse", "video_generation"}:
+            strategy = f"{strategy}；后续用 hyperframes_material 对底片做 overlay 润色"
+        else:
+            strategy = f"{strategy}；后续用 hyperframes_material 做 ken-burns 动效"
     diagnosis = diagnosis.strip()
     if diagnosis:
         return f"{diagnosis}；补全策略：{strategy}"
     return strategy
 
 
-def apply_provider_selection(
+def apply_provider_reconciliation(
     gap_report: dict[str, Any],
     *,
     structure: dict[str, Any],
@@ -128,14 +144,13 @@ def apply_provider_selection(
                 updated.append(item)
                 continue
             weak_match = _match_for_slot(slot_id, slot_matches)
-            impact = str(item.get("impact", "medium"))
-            providers = select_provider_chain(
-                slot,
+            providers, mode, notes = reconcile_provider_chain(
+                llm_item=item,
+                slot=slot,
                 weak_match=weak_match,
                 quota=quota,
                 inventory=inventory,
                 variant_overrides=overrides,
-                impact=impact,
             )
             primary = providers[0]
             reason = _compose_gap_reason(
@@ -150,10 +165,32 @@ def apply_provider_selection(
                     **item,
                     "reason": reason,
                     "suggestedFixes": providers,
+                    "completionMode": mode,
+                    "reconcileNotes": notes,
                 }
             )
         gap_report[bucket] = updated
     return gap_report
+
+
+def apply_provider_selection(
+    gap_report: dict[str, Any],
+    *,
+    structure: dict[str, Any],
+    slot_matches: list[dict[str, Any]],
+    inventory: dict[str, Any] | None = None,
+    quota: VideoGenQuota | None = None,
+    variant_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible alias for ``apply_provider_reconciliation``."""
+    return apply_provider_reconciliation(
+        gap_report,
+        structure=structure,
+        slot_matches=slot_matches,
+        inventory=inventory,
+        quota=quota,
+        variant_overrides=variant_overrides,
+    )
 
 
 def run_gap_planner(
@@ -202,7 +239,7 @@ def run_gap_planner(
         structure=structure,
         slot_matches=slot_matches,
     )
-    gap_report = apply_provider_selection(
+    gap_report = apply_provider_reconciliation(
         gap_report,
         structure=structure,
         slot_matches=slot_matches,

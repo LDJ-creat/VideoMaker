@@ -10,6 +10,8 @@ from typing import Any
 from app.agents.material_author import run_material_author_with_runner
 from app.composition.engine_factory import create_composition_engine
 from app.composition.gateway_adapter import ModelGatewayToolAdapter
+from app.providers.base_media_resolver import is_finish_action, resolve_slot_base_media
+from app.providers.finish_brief import build_finish_brief_for_action
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.runtime.agent_run_store import AgentRunLog
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
@@ -36,21 +38,6 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _stock_image_refs(generated_root: Path, slot_id: str) -> list[dict[str, Any]] | None:
-    for suffix in (".jpg", ".png", ".webp"):
-        candidate = generated_root / f"{slot_id}-stock{suffix}"
-        if candidate.is_file() and candidate.stat().st_size > 0:
-            return [
-                {
-                    "id": f"stock-{slot_id}",
-                    "type": "image",
-                    "uri": str(candidate.resolve()),
-                    "createdAt": "1970-01-01T00:00:00Z",
-                }
-            ]
-    return None
-
-
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
     for scene in ctx.storyboard:
         if isinstance(scene, dict) and scene.get("slotId") == slot_id:
@@ -67,7 +54,25 @@ def _resolve_material_asset_refs(
     refs = action.get("assetRefs")
     if isinstance(refs, list) and refs:
         return refs
-    return _stock_image_refs(ctx.generated_root, slot_id)
+    base = resolve_slot_base_media(slot_id, ctx.generated_root)
+    if base is None:
+        return None
+    return [base]
+
+
+def _relative_asset_ref(base_media: dict[str, Any], generated_root: Path) -> dict[str, Any]:
+    uri = str(base_media.get("uri", ""))
+    path = Path(uri)
+    if path.is_file():
+        try:
+            rel = path.relative_to(generated_root.resolve())
+            return {
+                **base_media,
+                "uri": rel.as_posix(),
+            }
+        except ValueError:
+            pass
+    return base_media
 
 
 def expected_hyperframes_output(action: dict[str, Any], generated_root: Path) -> Path:
@@ -118,7 +123,13 @@ def _record_material_author_run(
     ctx.runner.observability_sink.record_agent_run(payload)
 
 
-def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[dict[str, Any]] | None) -> dict[str, Any]:
+def _author_spec(
+    ctx: MaterialContext,
+    slot: dict[str, Any],
+    asset_refs: list[dict[str, Any]] | None,
+    *,
+    finish_brief: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     author_slot = _material_author_slot(slot)
     started = time.perf_counter()
     errors: list[str] = []
@@ -136,6 +147,7 @@ def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[di
                 asset_refs=asset_refs,
                 visual_style_bible=ctx.visual_style_bible,
                 generation_id=ctx.generation_id,
+                finish_brief=finish_brief,
             )
         else:
             from composition.author.react_trace import FileReactTraceRecorder
@@ -165,6 +177,7 @@ def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[di
                     asset_refs=asset_refs,
                     aspect_ratio=ctx.aspect_ratio,
                     visual_style_bible=ctx.visual_style_bible,
+                    finish_brief=finish_brief,
                     task_id=ctx.task_context.task_id if ctx.task_context else None,
                     generation_id=ctx.generation_id,
                     react_trace=react_trace,
@@ -192,6 +205,33 @@ def _author_spec(ctx: MaterialContext, slot: dict[str, Any], asset_refs: list[di
         raise
 
 
+def _author_spec_with_retry(
+    ctx: MaterialContext,
+    slot: dict[str, Any],
+    asset_refs: list[dict[str, Any]] | None,
+    *,
+    finish_brief: dict[str, Any] | None = None,
+    max_attempts: int = 2,
+) -> dict[str, Any]:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _author_spec(ctx, slot, asset_refs, finish_brief=finish_brief)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_attempts:
+                break
+            LOGGER.warning(
+                "material_author attempt %s/%s failed for slot %s: %s",
+                attempt,
+                max_attempts,
+                slot.get("id"),
+                exc,
+            )
+    assert last_exc is not None
+    raise last_exc
+
+
 class HyperFramesMaterialProvider:
     name = "hyperframes_material"
 
@@ -207,42 +247,63 @@ class HyperFramesMaterialProvider:
             return _failure(action, slot_id, code="slot_not_found", message=str(exc))
 
         slot_role = str(slot.get("role") or "")
+        finish_action = is_finish_action(action_id)
+        base_media = resolve_slot_base_media(slot_id, ctx.generated_root)
         asset_refs = _resolve_material_asset_refs(action, ctx, slot_id=slot_id)
+        if asset_refs and base_media:
+            asset_refs = [_relative_asset_ref(ref, ctx.generated_root) for ref in asset_refs]
+
+        finish_brief: dict[str, Any] | None = None
+        if finish_action or isinstance(action.get("finishBrief"), dict):
+            finish_brief = build_finish_brief_for_action(
+                action=action,
+                slot=slot,
+                storyboard=list(ctx.storyboard),
+                gap_item=None,
+                base_media=_relative_asset_ref(base_media, ctx.generated_root) if base_media else None,
+                packaging_plan=ctx.packaging_plan,
+                source_provider=str(action.get("sourceProvider") or ""),
+                duration_sec=_duration_for_slot(ctx, slot_id),
+            )
+
         spec = action.get("materialSpec")
-        if spec is None and str(action_id).endswith("-ken-burns"):
-            stock_video = ctx.generated_root / f"{slot_id}-stock.mp4"
-            if stock_video.is_file() and stock_video.stat().st_size > 0:
-                return _failure(
-                    action,
-                    slot_id,
-                    code="ken_burns_not_needed",
-                    message="Stock video already materialized for slot; skip ken-burns chain step",
-                    retryable=False,
-                )
-            if asset_refs:
-                spec = build_ken_burns_spec(
-                    asset_refs,
-                    duration_sec=_duration_for_slot(ctx, slot_id),
-                )
         if spec is None:
             if ctx.runner is None or ctx.task_context is None:
-                return _failure(
-                    action,
-                    slot_id,
-                    code="material_author_unavailable",
-                    message="materialSpec missing and AgentRunner/TaskContext not configured",
-                    retryable=False,
-                )
-            try:
-                spec = _author_spec(ctx, slot, asset_refs)
-            except RuntimeError as exc:
-                return _failure(
-                    action,
-                    slot_id,
-                    code="material_author_unavailable",
-                    message=str(exc),
-                    retryable=False,
-                )
+                if finish_action and asset_refs:
+                    spec = build_ken_burns_spec(
+                        asset_refs,
+                        duration_sec=_duration_for_slot(ctx, slot_id),
+                    )
+                else:
+                    return _failure(
+                        action,
+                        slot_id,
+                        code="material_author_unavailable",
+                        message="materialSpec missing and AgentRunner/TaskContext not configured",
+                        retryable=False,
+                    )
+            else:
+                try:
+                    author = _author_spec_with_retry if finish_action else _author_spec
+                    spec = author(ctx, slot, asset_refs, finish_brief=finish_brief)
+                except Exception:
+                    if finish_action and asset_refs:
+                        LOGGER.warning(
+                            "material_author failed for finish action %s; falling back to ken-burns",
+                            action_id,
+                        )
+                        spec = build_ken_burns_spec(
+                            asset_refs,
+                            duration_sec=_duration_for_slot(ctx, slot_id),
+                        )
+                    else:
+                        return _failure(
+                            action,
+                            slot_id,
+                            code="material_author_failed",
+                            message="material_author could not author composition spec",
+                            retryable=False,
+                        )
 
         output_dir = ctx.generated_root / action_id / "composition"
         output_clip = expected_hyperframes_output(action, ctx.generated_root)

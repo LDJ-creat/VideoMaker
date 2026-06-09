@@ -93,6 +93,8 @@ def build_narration_actions(
 
 
 from app.pipelines.narration_alignment import chunk_subtitle_text, subtitle_time_windows
+from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
+from app.providers.finish_brief import build_finish_brief
 from app.pipelines.tts_mode import (
     MASTER_TTS_SLOT_ID,
     global_tts_eligible,
@@ -644,6 +646,12 @@ def run_planning_from_script_draft(
             agent_overrides=merge_agent_overrides(variant, "packaging_designer", revise_context),
         )
 
+    gap_report = reconcile_gap_finish_from_storyboard(
+        dict(gap_report),
+        storyboard=storyboard,
+        structure=structure,
+    )
+
     plan = assemble_generation_plan(
         structure=structure,
         inventory=inventory,
@@ -723,6 +731,12 @@ def run_planning_completion(
             agent_overrides=merge_agent_overrides(variant, "packaging_designer", revise_context),
         )
 
+    gap_report = reconcile_gap_finish_from_storyboard(
+        dict(gap_report),
+        storyboard=storyboard,
+        structure=structure,
+    )
+
     plan = assemble_generation_plan(
         structure=structure,
         inventory=inventory,
@@ -769,25 +783,40 @@ def assemble_generation_plan(
         if slot_id not in gap_by_slot:
             continue
         slot_gap = gap_by_slot[slot_id]
+        slot = slots_by_id.get(slot_id, {})
         fixes = list(slot_gap.get("suggestedFixes", [])) or ["hyperframes_material"]
+        completion_mode = str(slot_gap.get("completionMode") or "source_only")
+        finish_intent = slot_gap.get("finishIntent")
         for index, strategy in enumerate(fixes):
             if index == 0:
                 action_id = f"action-{slot_id}"
-            elif strategy == "hyperframes_material" and fixes[0] == "stock_media_search":
-                action_id = f"action-{slot_id}-ken-burns"
+            elif strategy == "hyperframes_material" and index > 0:
+                action_id = f"action-{slot_id}-finish"
             else:
                 action_id = f"action-{slot_id}-chain-{index}"
-            visual_actions.append(
-                {
-                    "id": action_id,
-                    "slotId": slot_id,
-                    "strategy": strategy,
-                    "provider": strategy,
-                    "reason": slot_gap["reason"],
-                    "rationale": slot_gap["reason"],
-                    "outputRef": f"completion://{slot_id}/{strategy}",
-                }
-            )
+            action: dict[str, Any] = {
+                "id": action_id,
+                "slotId": slot_id,
+                "strategy": strategy,
+                "provider": strategy,
+                "reason": slot_gap["reason"],
+                "rationale": slot_gap["reason"],
+                "outputRef": f"completion://{slot_id}/{strategy}",
+                "completionMode": completion_mode,
+            }
+            if finish_intent:
+                action["finishIntent"] = str(finish_intent)
+            if strategy == "hyperframes_material" and index > 0:
+                action["sourceProvider"] = str(fixes[index - 1])
+                action["finishBrief"] = build_finish_brief(
+                    gap_item=slot_gap,
+                    slot=slot,
+                    storyboard_scene=scene,
+                    base_media=None,
+                    packaging_plan=packaging_plan,
+                    source_provider=str(fixes[index - 1]),
+                )
+            visual_actions.append(action)
 
     resolved_strategy = generation_strategy or resolve_generation_strategy(
         float(
@@ -979,6 +1008,9 @@ def run_generating_material(
         master_narration=str(plan.get("masterNarration") or ""),
         visual_style_bible=(
             dict(plan["visualStyleBible"]) if isinstance(plan.get("visualStyleBible"), dict) else None
+        ),
+        packaging_plan=(
+            dict(plan["packagingPlan"]) if isinstance(plan.get("packagingPlan"), dict) else None
         ),
     )
     register_default_providers(ctx)

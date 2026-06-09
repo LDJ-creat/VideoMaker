@@ -40,6 +40,7 @@ class MaterialContext:
     aspect_ratio: str = "9:16"
     master_narration: str = ""
     visual_style_bible: dict[str, Any] | None = None
+    packaging_plan: dict[str, Any] | None = None
 
     @property
     def project_root(self) -> Path:
