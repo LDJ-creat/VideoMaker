@@ -127,6 +127,33 @@ class FakeDemoPipeline:
             "plan": plan,
         }
 
+    def revise_script_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        scope: str,
+        instruction: str,
+        structure: dict[str, Any] | None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        _ = (project_id, task_id, structure, emit)
+        return {
+            "ok": True,
+            "draft": {
+                "generationId": generation_id,
+                "projectId": project_id,
+                "variant": "high_click",
+                "masterNarration": f"revised-{instruction}",
+                "masterNarrationStatus": "draft",
+                "storyboard": [],
+                "storyboardStatus": "draft",
+            },
+            "summary": f"fake revise {scope}",
+            "revisionId": "rev-fake-1",
+        }
+
 
 @pytest.fixture()
 def p0_client(app_paths):

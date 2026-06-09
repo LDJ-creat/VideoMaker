@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -25,6 +25,11 @@ class ReviseGenerationRequest(BaseModel):
 class ScriptDraftUpdateRequest(BaseModel):
     masterNarration: str | None = None
     storyboard: list[dict[str, Any]] | None = None
+
+
+class ScriptDraftNlReviseRequest(BaseModel):
+    scope: Literal["master", "storyboard"]
+    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
 def _generation_root(storage_root: Path, project_id: str, generation_id: str) -> Path:
@@ -185,6 +190,70 @@ def update_script_draft(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"draft": saved}
+
+
+@router.post("/{generation_id}/script-draft/nl-revise")
+def nl_revise_script_draft(
+    generation_id: str,
+    payload: ScriptDraftNlReviseRequest,
+    request: Request,
+) -> dict[str, Any]:
+    from app.services.script_draft_service import (
+        load_script_draft,
+        validate_nl_revise_gate,
+    )
+
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+
+    try:
+        draft = load_script_draft(storage_root, project_id, generation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Script draft not found") from exc
+
+    task = _task_events(request).get_task(task_id)
+    task_stage = str(task.get("stage")) if task and task.get("stage") else None
+    try:
+        validate_nl_revise_gate(
+            scope=payload.scope,
+            draft=draft,
+            task_stage=task_stage,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    structure = store.get_latest_sample_structure(project_id)
+    runner = _pipeline_runner(request)
+    try:
+        result = runner.revise_script_draft(
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            scope=payload.scope,
+            instruction=payload.instruction,
+            structure=structure,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail="Script NL revise failed")
+
+    response: dict[str, Any] = {
+        "draft": result.get("draft"),
+        "revisionId": result.get("revisionId"),
+    }
+    if result.get("summary"):
+        response["summary"] = result["summary"]
+    return response
 
 
 @router.post("/{generation_id}/approve-master", status_code=status.HTTP_202_ACCEPTED)

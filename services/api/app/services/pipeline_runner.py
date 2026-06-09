@@ -78,6 +78,18 @@ class DemoPipeline(Protocol):
         emit: Any,
     ) -> dict[str, Any]: ...
 
+    def revise_script_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        scope: str,
+        instruction: str,
+        structure: dict[str, Any] | None,
+        emit: Any,
+    ) -> dict[str, Any]: ...
+
 
 def _worker_root() -> Path:
     return Path(__file__).resolve().parents[3] / "worker"
@@ -354,6 +366,30 @@ class SubprocessDemoPipeline:
                 "sourcePlan": source_plan,
             }
         )
+
+    def revise_script_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        scope: str,
+        instruction: str,
+        structure: dict[str, Any] | None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            **self._payload_base(),
+            "mode": "revise_script_draft",
+            "taskId": task_id,
+            "projectId": project_id,
+            "generationId": generation_id,
+            "scope": scope,
+            "instruction": instruction,
+        }
+        if structure is not None:
+            payload["structure"] = structure
+        return self._invoke(payload)
 
     def run_knowledge_selector(
         self,
@@ -840,6 +876,29 @@ class PipelineRunner:
             if isinstance(intents, list) and intents:
                 return intents
         return self._parse_edit_intent_rules(instruction, source_plan)
+
+    def revise_script_draft(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        scope: str,
+        instruction: str,
+        structure: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        pipeline = self._get_pipeline()
+        if hasattr(pipeline, "revise_script_draft"):
+            return pipeline.revise_script_draft(
+                project_id=project_id,
+                task_id=task_id,
+                generation_id=generation_id,
+                scope=scope,
+                instruction=instruction,
+                structure=structure,
+                emit=self._make_emit(task_id),
+            )
+        raise RuntimeError("Pipeline does not support revise_script_draft")
 
     @staticmethod
     def _parse_edit_intent_rules(instruction: str, source_plan: dict[str, Any]) -> list[dict[str, Any]]:

@@ -72,3 +72,26 @@ def approve_storyboard_draft(draft: dict[str, Any], *, approved_by: str = "user"
     merged["storyboardApprovedAt"] = _utc_now_iso()
     merged["approvedBy"] = approved_by
     return merged
+
+
+def validate_nl_revise_gate(
+    *,
+    scope: str,
+    draft: dict[str, Any],
+    task_stage: str | None,
+) -> None:
+    if scope == "master":
+        if task_stage != "awaiting_master_review":
+            raise ValueError("NL revise for master requires task stage awaiting_master_review")
+        if draft.get("masterNarrationStatus") == "approved":
+            raise ValueError("Master narration already approved")
+        return
+    if scope == "storyboard":
+        if task_stage != "awaiting_storyboard_review":
+            raise ValueError("NL revise for storyboard requires task stage awaiting_storyboard_review")
+        if draft.get("masterNarrationStatus") != "approved":
+            raise ValueError("Master narration must be approved before storyboard NL revise")
+        if draft.get("storyboardStatus") == "approved":
+            raise ValueError("Storyboard already approved")
+        return
+    raise ValueError(f"Invalid NL revise scope: {scope}")
