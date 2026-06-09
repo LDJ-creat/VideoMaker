@@ -129,6 +129,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
+| `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
 ## Current Implementation State
@@ -206,7 +207,9 @@ POST /api/settings/stock-media/test
 
 Per-project cookie routes under `/api/projects/{id}/cookies*` are deprecated; use global settings routes.
 
-Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT). Global preferences (e.g. `directMultimodalAnalysisEnabled`, default `true`) live in `model_gateway_preferences`; `analysisRoutePreview` is computed server-side from provider readiness + preference.
+Model gateway provider credentials (base URL, model, encrypted API key) persist in SQLite table `model_gateway_providers`; encryption key file: `storage/global/model-gateway.key`. `GET` never returns secrets. `fixtureMode` in the response reflects env `VIDEOMAKER_FIXTURE_MODE` only (configure in the API process, not via PUT). Global preferences (e.g. `directMultimodalAnalysisEnabled`, default `true`) live in `model_gateway_preferences`; `analysisRoutePreview` is computed server-side from provider readiness + preference. **TTS 精细参数**（`resourceId`, `speaker`, `modelVariant`, `speechRate`, `emotion`, `contextTexts` 等）持久化于 `model_gateway_preferences` key=`tts`，`GET /api/settings/model-gateway` 返回 `ttsPreferences`（无 secret）；`PUT` 通过 `preferences.tts` patch。
+
+**TTS (worker):** Provider driver 支持 `openai_compatible`（OpenAI `/audio/speech`、DashScope CosyVoice 等）与 **`volcengine_tts`**（豆包语音 openspeech V3 单向流式，`seed-tts-2.0`）。豆包 **API Key 来自豆包语音控制台**，与方舟 Ark Key 不同；Base URL 默认 `https://openspeech.bytedance.com/api/v3/tts/unidirectional`。生成时 `build_tts_synthesis_options()` 合并工作台 `ttsPreferences` 与样本 `structure.audio.voProfile`（pace/energy/persona/WPM）为 `context_texts` / `speech_rate` 等 per-call options。
 
 **Video generation (worker):** Configure a `video` provider in the workbench (DashScope: `baseUrl` e.g. `https://dashscope.aliyuncs.com/compatible-mode/v1`, models such as `wan2.6-i2v-flash` / `wan2.1-t2v-plus`). When `baseUrl` contains `dashscope`, the worker uses the `dashscope_wan` driver (`video-synthesis` + task poll). Otherwise set `VIDEO_DRIVER=generic_job` for a custom `POST /videos` job API.
 
@@ -291,7 +294,7 @@ Pipelines and tools:
 - **Sample analysis:** `p0_demo_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
 - **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (two-phase master/storyboard when human review enabled) → user approval gates → `packaging_designer` → material completion (`short_form_direct` ≤60s or `long_form_composed`) → HyperFrames render
 - **Revise:** `revise_pipeline` — `edit_intent_parser` + partial stage re-run
-- **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.)
+- **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.); TTS factory supports `openai_compatible` + **`volcengine_tts`** (Seed TTS 2.0 V3 chunked stream)
 - **Agents:** `structure_analyst`, `content_strategist`, `slot_mapper`, `gap_planner`, `storyboard_writer`, `packaging_designer`, `material_author`, `knowledge_author`, `knowledge_selector`, `structure_synthesizer`, `edit_intent_parser`
 - **Tools:** `ffmpeg_tool`, `opencv_tool`, `whisper_tool`, `ytdlp_tool`, `llm_tool`, `image_gen_tool`, `video_gen_tool`, `tts_tool`, `hyperframes_tool`
 - **Render:** `render_timeline_to_hyperframes`, `composition_preview`, `ffmpeg_backend` (default final MP4), `hyperframes_backend` (fallback / slot material via `hyperframes_material_tool`)
