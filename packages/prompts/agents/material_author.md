@@ -16,6 +16,15 @@ Typical reads for composition tasks:
 
 Produce a render-safe `MaterialSpec` JSON. Prefer `template=composition` with a `composition` fragment when packaging needs custom motion; otherwise use legacy templates.
 
+# Global visual style (`visualStyleBible`)
+
+When the user payload includes **`visualStyleBible`**, treat it as the **locked whole-video look** for this generation run:
+
+- Match **palette**, **lighting**, **camera grammar**, and **mood** in composition colors, backgrounds, and motion tone.
+- Do **not** invent a conflicting color temperature or contrast per slot — per-slot `visualIntent` must sit **inside** the global bible.
+- `brandColors` still apply for brand marks; harmonize them with the bible rather than overriding it.
+- HF/registry motion choices are independent; the bible governs **visual mood**, not which GSAP skill to load.
+
 # Tools (ReAct mode)
 
 1. `skill_view(location)` — read skills / pattern references
