@@ -12,12 +12,19 @@ from model_gateway.constants import (
     DEFAULT_BASE_URLS,
     DEFAULT_DRIVERS,
     DEFAULT_MODELS,
+    DEFAULT_VOLCENGINE_TTS_BASE_URL,
     PROVIDERS,
 )
+from model_gateway.tts_driver import resolve_effective_tts_driver, resolve_tts_base_url
 from model_gateway.analysis_route import (
     DEFAULT_PREFERENCES,
     normalize_preferences,
     resolve_analysis_route_preview,
+)
+from model_gateway.tts_preferences import (
+    DEFAULT_TTS_PREFERENCES,
+    normalize_tts_preferences,
+    patch_tts_preferences,
 )
 from model_gateway.crypto import decrypt_api_key, encrypt_api_key
 from model_gateway.fixture import is_fixture_mode
@@ -43,6 +50,7 @@ CREATE TABLE IF NOT EXISTS model_gateway_preferences (
 );
 """
 _PREFERENCES_KEY = "analysis"
+_TTS_PREFERENCES_KEY = "tts"
 
 
 class ProviderStatus(TypedDict):
@@ -57,6 +65,7 @@ class ModelGatewayStatusResponse(TypedDict):
     fixtureMode: bool
     providers: dict[str, ProviderStatus]
     preferences: dict[str, bool]
+    ttsPreferences: dict[str, Any]
     analysisRoutePreview: str
 
 
@@ -123,6 +132,40 @@ class ModelGatewayStore:
             return dict(DEFAULT_PREFERENCES)
         return normalize_preferences(payload if isinstance(payload, dict) else None)
 
+    def get_tts_preferences(self) -> dict[str, Any]:
+        self.ensure_initialized()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM model_gateway_preferences WHERE key = ?",
+                (_TTS_PREFERENCES_KEY,),
+            ).fetchone()
+        if row is None:
+            return dict(DEFAULT_TTS_PREFERENCES)
+        try:
+            payload = json.loads(str(row["value_json"]))
+        except json.JSONDecodeError:
+            return dict(DEFAULT_TTS_PREFERENCES)
+        return normalize_tts_preferences(payload if isinstance(payload, dict) else None)
+
+    def update_tts_preferences(self, patch: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_initialized()
+        current = self.get_tts_preferences()
+        merged = patch_tts_preferences(current, patch)
+        now = _now_iso()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO model_gateway_preferences (key, value_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                  value_json = excluded.value_json,
+                  updated_at = excluded.updated_at
+                """,
+                (_TTS_PREFERENCES_KEY, json.dumps(merged, ensure_ascii=False), now),
+            )
+            connection.commit()
+        return merged
+
     def update_preferences(self, patch: dict[str, Any]) -> dict[str, bool]:
         self.ensure_initialized()
         current = self.get_preferences()
@@ -158,10 +201,12 @@ class ModelGatewayStore:
                 credentials,
             )
         preferences = self.get_preferences()
+        tts_preferences = self.get_tts_preferences()
         return {
             "fixtureMode": is_fixture_mode(),
             "providers": providers,
             "preferences": preferences,
+            "ttsPreferences": tts_preferences,
             "analysisRoutePreview": resolve_analysis_route_preview(
                 preferences=preferences,
                 video_understanding=providers["videoUnderstanding"],
@@ -204,6 +249,10 @@ class ModelGatewayStore:
                     base_url = str(base_url or "").strip()
                     model = normalize_video_model(str(model or "").strip(), base_url=base_url)
                     driver = resolve_effective_video_driver(str(driver or "").strip(), base_url)
+                if provider == "tts":
+                    base_url = str(base_url or "").strip()
+                    driver = resolve_effective_tts_driver(str(driver or "").strip())
+                    base_url = resolve_tts_base_url(base_url, driver=driver)
 
                 if "apiKey" in patch:
                     api_key_value = patch["apiKey"]
@@ -237,7 +286,16 @@ class ModelGatewayStore:
         if provider_updates:
             self.update_providers(provider_updates)
         if preference_updates:
-            self.update_preferences(preference_updates)
+            analysis_patch = {
+                key: value
+                for key, value in preference_updates.items()
+                if key != "tts"
+            }
+            if analysis_patch:
+                self.update_preferences(analysis_patch)
+            tts_patch = preference_updates.get("tts")
+            if isinstance(tts_patch, dict):
+                self.update_tts_preferences(tts_patch)
         return self.get_status()
 
     def _load_all_rows(self) -> dict[str, sqlite3.Row]:
@@ -265,6 +323,9 @@ class ModelGatewayStore:
             if provider == "video":
                 model = normalize_video_model(model, base_url=base_url)
                 driver = resolve_effective_video_driver(driver, base_url)
+            if provider == "tts":
+                driver = resolve_effective_tts_driver(driver)
+                base_url = resolve_tts_base_url(base_url, driver=driver) or base_url
             api_key = decrypt_api_key(self._storage_root, row["api_key_ciphertext"])
             raw[provider] = ProviderCredentials(
                 base_url=base_url,
@@ -300,15 +361,30 @@ def _ensure_default_preferences(connection: sqlite3.Connection, now: str) -> Non
         "SELECT key FROM model_gateway_preferences WHERE key = ?",
         (_PREFERENCES_KEY,),
     ).fetchone()
-    if row is not None:
-        return
-    connection.execute(
-        """
-        INSERT INTO model_gateway_preferences (key, value_json, updated_at)
-        VALUES (?, ?, ?)
-        """,
-        (_PREFERENCES_KEY, json.dumps(DEFAULT_PREFERENCES, ensure_ascii=False), now),
-    )
+    if row is None:
+        connection.execute(
+            """
+            INSERT INTO model_gateway_preferences (key, value_json, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (_PREFERENCES_KEY, json.dumps(DEFAULT_PREFERENCES, ensure_ascii=False), now),
+        )
+    tts_row = connection.execute(
+        "SELECT key FROM model_gateway_preferences WHERE key = ?",
+        (_TTS_PREFERENCES_KEY,),
+    ).fetchone()
+    if tts_row is None:
+        connection.execute(
+            """
+            INSERT INTO model_gateway_preferences (key, value_json, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (
+                _TTS_PREFERENCES_KEY,
+                json.dumps(DEFAULT_TTS_PREFERENCES, ensure_ascii=False),
+                now,
+            ),
+        )
 
 
 def _now_iso() -> str:

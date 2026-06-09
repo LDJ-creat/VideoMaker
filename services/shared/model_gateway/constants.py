@@ -4,6 +4,9 @@ PROVIDERS = ("text", "vision", "videoUnderstanding", "tts", "image", "video")
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+DEFAULT_VOLCENGINE_TTS_BASE_URL = (
+    "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+)
 DEFAULT_MODELS: dict[str, str] = {
     "text": "gpt-4o-mini",
     "vision": "gpt-4o-mini",
