@@ -27,8 +27,9 @@ from app.services.sample_selection_store import SampleSelectionStore
 from app.services.upload_batch_store import UploadBatchStore
 from app.services.variant_registry import get_variant_label, resolve_requested_variants
 from app.services.media_paths import asset_media_path, resolve_existing_file, sample_media_path
-from app.services.sample_keyframes import pick_sample_poster_url
+from app.services.poster_service import pick_project_cover_url, sample_poster_media_url
 from app.services.pipeline_runner import PipelineRunner
+from app.services.poster_extract import try_extract_sample_poster
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
 
@@ -56,6 +57,9 @@ class CreateProjectResponse(BaseModel):
     id: str
     name: str
     createdAt: str
+    coverUrl: str | None = Field(default=None, alias="coverUrl")
+
+    model_config = {"populate_by_name": True}
 
 
 class ProjectListResponse(BaseModel):
@@ -186,8 +190,8 @@ def _sample_summary(
         if batch is not None:
             batch_created_at = batch.get("createdAt")
     poster_url: str | None = None
-    if storage_root is not None and sample.get("structure") is not None:
-        poster_url = pick_sample_poster_url(
+    if storage_root is not None and video_uri:
+        poster_url = sample_poster_media_url(
             storage_root,
             project_id=project_id,
             sample_id=str(sample["id"]),
@@ -350,7 +354,19 @@ def _infer_asset_type(filename: str, content_type: str | None) -> str | None:
 
 @router.get("", response_model=ProjectListResponse)
 def list_projects(request: Request) -> dict[str, Any]:
-    projects = _project_store(request).list_projects()
+    store = _project_store(request)
+    selection_store = SampleSelectionStore(request.app.state.db)
+    storage_root = request.app.state.storage_root
+    projects = []
+    for project in store.list_projects():
+        enriched = dict(project)
+        enriched["coverUrl"] = pick_project_cover_url(
+            storage_root,
+            store,
+            selection_store,
+            str(project["id"]),
+        )
+        projects.append(enriched)
     return {"projects": projects}
 
 
@@ -434,6 +450,7 @@ async def upload_sample(
     destination = _artifact_store(request).resolve_project_path(project_id, relative_path)
     destination.write_bytes(await file.read())
     store.update_sample(sample_id, video_uri=str(destination))
+    try_extract_sample_poster(destination)
     if upload_batch_id:
         UploadBatchStore(request.app.state.db).add_sample_to_batch(upload_batch_id, sample_id)
     return {"id": sample_id, "taskId": None}

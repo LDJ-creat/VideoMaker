@@ -9,9 +9,8 @@ def test_get_sample_keyframes_returns_preview_urls(client, app, app_paths) -> No
     project_id = client.post("/api/projects", json={"name": "Keyframes"}).json()["id"]
     store = ProjectStore(app.state.db)
     sample = store.create_sample(
-        project_id,
+        project_id=project_id,
         source_kind="local",
-        file_name="source.mp4",
         video_uri=str(
             app_paths["storage_root"]
             / "projects"
@@ -69,9 +68,8 @@ def test_list_samples_includes_poster_url_when_keyframes_exist(
     project_id = client.post("/api/projects", json={"name": "Poster"}).json()["id"]
     store = ProjectStore(app.state.db)
     sample = store.create_sample(
-        project_id,
+        project_id=project_id,
         source_kind="local",
-        file_name="source.mp4",
         video_uri=str(
             app_paths["storage_root"]
             / "projects"
@@ -122,3 +120,44 @@ def test_list_samples_includes_poster_url_when_keyframes_exist(
     assert len(samples) == 1
     assert samples[0]["posterUrl"] is not None
     assert samples[0]["posterUrl"].endswith("poster.jpg")
+
+
+def test_list_samples_includes_poster_url_from_poster_jpg_without_structure(
+    client, app, app_paths
+) -> None:
+    from app.services.project_store import ProjectStore
+
+    project_id = client.post("/api/projects", json={"name": "PosterOnly"}).json()["id"]
+    store = ProjectStore(app.state.db)
+    sample = store.create_sample(
+        project_id=project_id,
+        source_kind="local",
+        video_uri=str(
+            app_paths["storage_root"]
+            / "projects"
+            / project_id
+            / "samples"
+            / "placeholder"
+            / "source.mp4"
+        ),
+    )
+    sample_id = sample["id"]
+    poster_path = (
+        app_paths["storage_root"]
+        / "projects"
+        / project_id
+        / "samples"
+        / sample_id
+        / "poster.jpg"
+    )
+    poster_path.parent.mkdir(parents=True, exist_ok=True)
+    poster_path.write_bytes(b"poster-bytes")
+
+    response = client.get(f"/api/projects/{project_id}/samples")
+    assert response.status_code == 200
+    samples = response.json()["samples"]
+    assert len(samples) == 1
+    assert samples[0]["hasStructure"] is False
+    assert samples[0]["posterUrl"] == (
+        f"/api/projects/{project_id}/media/file/samples/{sample_id}/poster.jpg"
+    )

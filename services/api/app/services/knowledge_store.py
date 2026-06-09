@@ -20,6 +20,7 @@ from knowledge.paths import (
 from app.db.session import Database
 from app.services.media_paths import resolve_existing_file, sample_media_path
 from app.services.sample_analysis import load_sample_analysis_artifact
+from app.services.poster_service import pick_category_cover_url
 from app.services.sample_keyframes import pick_sample_poster_url
 from app.services.task_events import now_iso
 
@@ -606,16 +607,12 @@ class KnowledgeStore:
                 pattern = str(item.get("slotPattern") or "").strip()
                 if pattern and pattern not in slot_patterns:
                     slot_patterns.append(pattern)
-            cover_url: str | None = None
-            for item in ordered:
-                if self.assess_entry_importable(item, project_store)[0]:
-                    cover_url = pick_sample_poster_url(
-                        self.storage_root,
-                        project_id=str(item["sourceProjectId"]),
-                        sample_id=str(item["sourceSampleId"]),
-                    )
-                    if cover_url:
-                        break
+            cover_url = pick_category_cover_url(
+                ordered,
+                project_store,
+                self.storage_root,
+                assess_importable=self.assess_entry_importable,
+            )
             summaries.append(
                 {
                     "category": latest.get("category") or slug,

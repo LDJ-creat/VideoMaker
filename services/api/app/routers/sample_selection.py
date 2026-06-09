@@ -12,6 +12,7 @@ from app.services.artifact_store import ArtifactStore
 from app.services.generation_responses import build_generation_plan_response
 from app.services.generation_run_store import GenerationRunStore
 from app.services.pipeline_runner import PipelineRunner
+from app.services.poster_extract import try_extract_sample_poster
 from app.services.project_store import ProjectStore
 from app.services.sample_recommender import SampleRecommender
 from app.services.sample_selection_store import SampleSelectionStore
@@ -116,6 +117,7 @@ async def upload_sample_batch(
         destination = artifacts.resolve_project_path(project_id, relative_path)
         destination.write_bytes(await file.read())
         store.update_sample(sample_id, video_uri=str(destination))
+        try_extract_sample_poster(destination)
         batch_store.add_sample_to_batch(batch["id"], sample_id)
         samples.append({"id": sample_id, "taskId": None})
 

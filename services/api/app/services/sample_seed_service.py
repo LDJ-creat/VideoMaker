@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.media_paths import resolve_existing_file
+from video.poster import extract_video_poster, sample_poster_path
 
 
 def _sample_root(storage_root: Path, project_id: str, sample_id: str) -> Path:
@@ -68,6 +69,14 @@ def import_sample_from_knowledge_entry(
     target_video = storage_root / "projects" / target_project_id / relative_video
     target_video.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_video, target_video)
+
+    source_poster = sample_poster_path(storage_root, source_project_id, source_sample_id)
+    target_poster = sample_poster_path(storage_root, target_project_id, new_sample_id)
+    if source_poster.is_file() and source_poster.stat().st_size > 0:
+        target_poster.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_poster, target_poster)
+    else:
+        extract_video_poster(target_video, target_poster)
 
     source_analysis = _sample_root(storage_root, source_project_id, source_sample_id) / "analysis"
     target_analysis = _sample_root(storage_root, target_project_id, new_sample_id) / "analysis"

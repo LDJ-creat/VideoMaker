@@ -138,3 +138,112 @@ def test_import_sample_from_knowledge_entry(tmp_path: Path) -> None:
     )
     assert copied_video.is_file()
     assert (copied_video.parent / "analysis" / "video-structure.json").is_file()
+
+
+def test_import_sample_copies_poster_when_present(tmp_path: Path, monkeypatch) -> None:
+    storage_root = tmp_path / "storage"
+    db_path = tmp_path / "test.sqlite3"
+    from app.db.session import Database, initialize_database
+
+    database = Database(db_path)
+    initialize_database(database, storage_root=storage_root)
+    project_store = ProjectStore(database)
+    knowledge_store = KnowledgeStore(database, storage_root)
+
+    source_project = project_store.create_project("Source")
+    source_project_id = source_project["id"]
+    source_sample = project_store.create_sample(
+        project_id=source_project_id,
+        source_kind="local",
+        status="uploaded",
+    )
+    source_sample_id = source_sample["id"]
+
+    video_path = (
+        storage_root
+        / "projects"
+        / source_project_id
+        / "samples"
+        / source_sample_id
+        / "source.mp4"
+    )
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    video_path.write_bytes(b"fake-video")
+    (video_path.parent / "poster.jpg").write_bytes(b"poster")
+    project_store.update_sample(source_sample_id, video_uri=str(video_path.resolve()))
+
+    entry_id = str(uuid.uuid4())
+    slug = "ecommerce"
+    knowledge_dir = storage_root / "knowledge" / slug / entry_id
+    knowledge_dir.mkdir(parents=True, exist_ok=True)
+    structure = _structure(source_project_id, source_sample_id)
+    (knowledge_dir / "video-structure.json").write_text(json.dumps(structure), encoding="utf-8")
+    (knowledge_dir / "structure-skill.md").write_text("## 适用场景\n\n测试\n", encoding="utf-8")
+
+    created_at = "2026-06-09T00:00:00Z"
+    with database.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO knowledge_entries (
+              id, status, title, category, category_slug, style, hook_type, tempo,
+              duration_bucket, slot_pattern, summary, skill_md_uri, structure_json_uri,
+              source_project_id, source_sample_id, version, entry_kind, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry_id,
+                "published",
+                "电商促销",
+                "电商带货",
+                slug,
+                "快节奏",
+                "pain_point",
+                "fast",
+                "30s",
+                "hook→cta",
+                "测试摘要",
+                f"knowledge/{slug}/{entry_id}/structure-skill.md",
+                f"knowledge/{slug}/{entry_id}/video-structure.json",
+                source_project_id,
+                source_sample_id,
+                1,
+                "structure",
+                created_at,
+                created_at,
+            ),
+        )
+
+    entry = knowledge_store.get_entry(entry_id)
+    assert entry is not None
+
+    target_project = project_store.create_project("Target")
+    target_project_id = target_project["id"]
+
+    extract_calls: list[tuple[Path, Path]] = []
+
+    def fake_extract(video: Path, output: Path, **kwargs):
+        extract_calls.append((video, output))
+        output.write_bytes(b"reextracted")
+        return {"ok": True}
+
+    monkeypatch.setattr("app.services.sample_seed_service.extract_video_poster", fake_extract)
+
+    new_sample_id = import_sample_from_knowledge_entry(
+        storage_root,
+        project_store,
+        knowledge_store,
+        target_project_id=target_project_id,
+        entry=entry,
+    )
+
+    target_poster = (
+        storage_root
+        / "projects"
+        / target_project_id
+        / "samples"
+        / new_sample_id
+        / "poster.jpg"
+    )
+    assert target_poster.is_file()
+    assert target_poster.read_bytes() == b"poster"
+    assert extract_calls == []

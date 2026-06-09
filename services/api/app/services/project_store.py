@@ -588,6 +588,20 @@ class ProjectStore:
             return None
         return self._parse_generation_row(row)
 
+    def list_generations_for_project(self, project_id: str) -> list[dict[str, Any]]:
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, structure_id, inventory_id, gap_report_json, plan_json,
+                       status, task_id, variant, generation_run_id, created_at, updated_at
+                FROM generations
+                WHERE project_id = ?
+                ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._parse_generation_row(row) for row in rows]
+
     def list_generations_for_run(self, generation_run_id: str) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
             rows = connection.execute(

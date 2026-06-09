@@ -84,14 +84,11 @@ def pick_sample_poster_url(
     project_id: str,
     sample_id: str,
 ) -> str | None:
-    """Best-scoring keyframe JPEG for sharp list thumbnails (not video downscale)."""
-    keyframes = load_sample_keyframes(
+    """UI poster for sample cards; prefers poster.jpg, legacy keyframes fallback."""
+    from app.services.poster_service import sample_poster_media_url
+
+    return sample_poster_media_url(
         storage_root,
         project_id=project_id,
         sample_id=sample_id,
     )
-    if not keyframes:
-        return None
-    best = max(keyframes, key=lambda item: float(item.get("score", 0.0)))
-    preview = best.get("previewUrl")
-    return str(preview) if preview else None
