@@ -136,10 +136,11 @@ def test_load_variant_gap_planner_overrides_from_registry() -> None:
     clear_registry_cache()
     high_click = load_variant_gap_planner_overrides("high_click")
     high_conversion = load_variant_gap_planner_overrides("high_conversion")
-    assert high_click.get("videoGenPriority") == "high"
-    assert "video_generation" in high_click.get("preferProviders", [])
-    assert high_conversion.get("videoGenPriority") == "high"
-    assert "image_generation" in high_conversion.get("preferProviders", [])
+    assert high_click.get("videoGenPriority") == "low"
+    assert high_click.get("stockMediaPriority") == "high"
+    assert "stock_media_search" in high_click.get("preferProviders", [])
+    assert high_conversion.get("videoGenPriority") == "low"
+    assert "hyperframes_material" in high_conversion.get("preferProviders", [])
 
 
 def test_apply_provider_selection_overrides_suggested_fixes() -> None:

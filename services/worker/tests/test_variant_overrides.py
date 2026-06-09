@@ -44,13 +44,15 @@ def test_variant_registry_gap_planner_overrides_differ() -> None:
     clear_registry_cache()
     high_click = load_variant_gap_planner_overrides("high_click")
     high_conversion = load_variant_gap_planner_overrides("high_conversion")
-    assert high_click["videoGenPriority"] == "high"
-    assert high_conversion["videoGenPriority"] == "high"
-    assert high_click["preferProviders"][0] == "hyperframes_material"
-    assert "video_generation" in high_conversion["preferProviders"]
+    assert high_click["videoGenPriority"] == "low"
+    assert high_conversion["videoGenPriority"] == "low"
+    assert high_click["preferProviders"][0] == "stock_media_search"
+    assert high_conversion["preferProviders"][0] == "stock_media_search"
+    assert "hyperframes_material" in high_click["preferProviders"]
+    assert "hyperframes_material" in high_conversion["preferProviders"]
 
 
-def test_high_click_prefers_video_generation_when_quota_available() -> None:
+def test_high_click_prefers_hyperframes_when_stock_unavailable() -> None:
     slot = _missing_visual_slot()
     overrides = load_variant_gap_planner_overrides("high_click")
     provider = select_provider(
@@ -60,10 +62,10 @@ def test_high_click_prefers_video_generation_when_quota_available() -> None:
         variant_overrides=overrides,
         impact="high",
     )
-    assert provider == "video_generation"
+    assert provider == "hyperframes_material"
 
 
-def test_high_conversion_prefers_video_generation_when_quota_available() -> None:
+def test_high_conversion_prefers_hyperframes_when_stock_unavailable() -> None:
     slot = _missing_visual_slot()
     overrides = load_variant_gap_planner_overrides("high_conversion")
     provider = select_provider(
@@ -74,7 +76,7 @@ def test_high_conversion_prefers_video_generation_when_quota_available() -> None
         variant_overrides=overrides,
         impact="high",
     )
-    assert provider == "video_generation"
+    assert provider == "hyperframes_material"
 
 
 def test_apply_provider_selection_uses_variant_specific_chain() -> None:
@@ -118,8 +120,8 @@ def test_apply_provider_selection_uses_variant_specific_chain() -> None:
         for item in high_conversion["missingSlots"]
         if item["slotId"] == "seg-hook-hook_visual-1"
     )
-    assert click_missing["suggestedFixes"][0] == "video_generation"
-    assert conversion_missing["suggestedFixes"][0] == "video_generation"
+    assert click_missing["suggestedFixes"][0] == "hyperframes_material"
+    assert conversion_missing["suggestedFixes"][0] == "hyperframes_material"
 
 
 def test_each_generation_gets_fresh_video_gen_quota() -> None:
@@ -181,5 +183,5 @@ def test_run_agent_generation_sets_variant_on_plan(tmp_path: Path) -> None:
     assert plan_conv["variant"] == "high_conversion"
     click_missing = gap_click["missingSlots"][0]["suggestedFixes"][0]
     conv_missing = gap_conv["missingSlots"][0]["suggestedFixes"][0]
-    assert click_missing == "video_generation"
-    assert conv_missing == "video_generation"
+    assert click_missing == "hyperframes_material"
+    assert conv_missing == "hyperframes_material"

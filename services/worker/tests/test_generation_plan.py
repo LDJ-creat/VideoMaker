@@ -406,8 +406,11 @@ def test_assemble_generation_plan_expands_stock_to_ken_burns_chain() -> None:
     ]
     assert [action["id"] for action in visual_actions] == [
         "action-slot-hook",
-        "action-slot-hook-ken-burns",
+        "action-slot-hook-finish",
     ]
+    finish_action = visual_actions[1]
+    assert finish_action["sourceProvider"] == "stock_media_search"
+    assert finish_action["finishBrief"]["sourceProvider"] == "stock_media_search"
 
 
 def test_build_narration_actions_global_mode() -> None:

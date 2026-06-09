@@ -164,7 +164,7 @@ def test_select_provider_tts_for_spoken_script() -> None:
     )
 
 
-def test_select_provider_visual_with_spoken_script_prefers_video() -> None:
+def test_select_provider_visual_with_spoken_script_still_visual_primary() -> None:
     slot = _slot(role="hook_visual", script_intent="需要口播解说开场")
     assert (
         select_provider(
@@ -174,7 +174,7 @@ def test_select_provider_visual_with_spoken_script_prefers_video() -> None:
             inventory={},
             variant_overrides={},
         )
-        == "video_generation"
+        == "hyperframes_material"
     )
 
 
@@ -188,4 +188,4 @@ def test_select_provider_chain_adds_ken_burns_for_motion_image() -> None:
         variant_overrides={},
         impact="high",
     )
-    assert chain == ["image_generation", "hyperframes_material"]
+    assert chain == ["hyperframes_material"]

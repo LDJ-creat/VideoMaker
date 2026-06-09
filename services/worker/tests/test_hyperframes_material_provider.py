@@ -220,6 +220,68 @@ def test_hyperframes_provider_builds_ken_burns_from_stock_image(tmp_path: Path) 
     assert (ctx.generated_root / f"action-{slot_id}-ken-burns.mp4").exists()
 
 
+def test_hyperframes_provider_finish_uses_stock_video_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "legacy")
+    structure = _load_structure_fixture()
+    spec = _load_material_spec_fixture()
+    storage_root = tmp_path / "storage"
+    task_context = TaskContext(
+        project_id="project-1",
+        task_id="task-hf-finish",
+        storage_root=storage_root,
+    )
+    agent_runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True, fixtures={"material_author": spec}),
+        prompt_loader=PromptLoader(),
+        observability_sink=LocalFileSink(AgentRunStore(storage_root)),
+        model_name="fixture",
+    )
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        runner=agent_runner,
+        task_context=task_context,
+        material_tool=material_tool,
+    )
+    slot_id = "seg-hook-hook_visual-1"
+    ctx.storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": slot_id,
+            "startSec": 0.0,
+            "endSec": 7.0,
+            "visual": "B-roll with lower third",
+            "script": "hook",
+            "source": "generated",
+        }
+    ]
+    ctx.packaging_plan = {"styleSummary": "demo", "subtitle": {"preset": "clean"}}
+    stock_video = ctx.generated_root / f"{slot_id}-stock.mp4"
+    stock_video.write_bytes(b"fake-mp4")
+    action = {
+        "id": f"action-{slot_id}-finish",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "sourceProvider": "stock_media_search",
+        "reason": "finish after stock",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+        "finishBrief": {
+            "completionMode": "source_then_polish",
+            "finishIntent": "添加字幕条",
+            "constraints": ["do_not_replace_base_media"],
+        },
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert (ctx.generated_root / f"action-{slot_id}-finish.mp4").exists()
+
+
 def test_hyperframes_provider_missing_runner_returns_error(tmp_path: Path) -> None:
     structure = _load_structure_fixture()
     ctx = _make_hf_ctx(tmp_path, structure=structure)
