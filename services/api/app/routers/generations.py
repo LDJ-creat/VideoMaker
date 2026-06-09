@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
+from knowledge.paths import validate_storage_segment
 from pydantic import BaseModel, Field
 
 from app.services.agent_runs import list_agent_runs_for_generation
@@ -20,6 +21,19 @@ MAX_REVISE_INSTRUCTION_LEN = 2000
 
 class ReviseGenerationRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
+
+
+class RevisePlanRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
+    newSession: bool = False
+
+
+class ReviseExecuteRequest(BaseModel):
+    planId: str = Field(min_length=1)
+
+
+class ReviseCancelRequest(BaseModel):
+    planId: str | None = None
 
 
 class ScriptDraftUpdateRequest(BaseModel):
@@ -336,27 +350,28 @@ def approve_storyboard_script(generation_id: str, request: Request) -> dict[str,
     return {"generationId": generation_id, "taskId": task_id, "draft": approved}
 
 
-@router.post("/{generation_id}/revise", status_code=status.HTTP_202_ACCEPTED)
-def revise_generation(
-    generation_id: str,
-    payload: ReviseGenerationRequest,
-    request: Request,
-) -> dict[str, Any]:
+def _get_generation_or_404(request: Request, generation_id: str) -> tuple[Any, str]:
     store = _project_store(request)
     source = store.get_generation(generation_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Generation not found")
+    return store, str(source["projectId"])
 
+
+def _load_revise_source_context(
+    request: Request,
+    generation_id: str,
+) -> tuple[Any, str, dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any], str]:
+    store, project_id = _get_generation_or_404(request, generation_id)
+    source = store.get_generation(generation_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
     if str(source.get("status")) != "succeeded":
         raise HTTPException(
             status_code=400,
             detail="Source generation must be succeeded before revise",
         )
-
-    project_id = str(source["projectId"])
     storage_root: Path = request.app.state.storage_root
-    runner = _pipeline_runner(request)
-
     source_plan = source.get("plan")
     if not isinstance(source_plan, dict):
         try:
@@ -366,24 +381,12 @@ def revise_generation(
                 status_code=400,
                 detail="Source generation has no plan artifacts for revise",
             ) from exc
-
-    try:
-        intents = runner.parse_edit_intent(
-            project_id=project_id,
-            instruction=payload.instruction,
-            source_plan=source_plan,
-        )
-        runner._validate_edit_intents(intents)  # noqa: SLF001
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     structure = store.get_latest_sample_structure(project_id)
     if structure is None:
         raise HTTPException(
             status_code=400,
             detail="No analyzed sample structure for project. Complete sample analysis first.",
         )
-
     brief = store.get_brief(project_id) or {
         "topic": "Demo topic",
         "sellingPoints": [],
@@ -392,6 +395,167 @@ def revise_generation(
     }
     assets = store.list_assets(project_id)
     variant = str(source.get("variant") or source_plan.get("variant") or "default")
+    return store, project_id, source_plan, structure, assets, brief, variant
+
+
+@router.get("/{generation_id}/revise/session")
+def get_revise_session(generation_id: str, request: Request) -> dict[str, Any]:
+    from app.services.revise_plan_service import (
+        find_latest_draft_plan,
+        list_recent_plans,
+        load_session,
+    )
+
+    _, project_id = _get_generation_or_404(request, generation_id)
+    storage_root: Path = request.app.state.storage_root
+    session = load_session(storage_root, project_id, generation_id)
+    if session is None:
+        return {"session": None, "plans": [], "pendingPlan": None}
+    plans = list_recent_plans(storage_root, project_id, generation_id, session)
+    pending_plan = find_latest_draft_plan(storage_root, project_id, generation_id, session)
+    return {"session": session, "plans": plans, "pendingPlan": pending_plan}
+
+
+@router.post("/{generation_id}/revise/plan")
+def plan_revise_generation(
+    generation_id: str,
+    payload: RevisePlanRequest,
+    request: Request,
+) -> dict[str, Any]:
+    import uuid
+
+    from app.services.revise_plan_service import (
+        append_session_turn,
+        create_or_load_session,
+        save_plan,
+        save_session,
+        supersede_draft_plans,
+    )
+
+    store, project_id, source_plan, *_ = _load_revise_source_context(request, generation_id)
+    storage_root: Path = request.app.state.storage_root
+    runner = _pipeline_runner(request)
+
+    session = create_or_load_session(
+        storage_root,
+        project_id,
+        generation_id,
+        new_session=payload.newSession,
+    )
+    supersede_draft_plans(storage_root, project_id, generation_id, session)
+
+    try:
+        planner_output = runner.plan_revise_generation(
+            project_id=project_id,
+            generation_id=generation_id,
+            instruction=payload.instruction,
+            source_plan=source_plan,
+            session=session,
+        )
+        runner._validate_edit_intents(list(planner_output.get("intents") or []))  # noqa: SLF001
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    turn_id = str(uuid.uuid4())
+    plan = runner.enrich_revise_plan(
+        planner_output,
+        source_generation_id=generation_id,
+        instruction=payload.instruction,
+        session_id=str(session["sessionId"]),
+        turn_id=turn_id,
+    )
+    try:
+        runner._validate_revise_plan(plan)  # noqa: SLF001
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    save_plan(storage_root, project_id, generation_id, plan)
+    append_session_turn(
+        session,
+        {
+            "turnId": turn_id,
+            "instruction": payload.instruction,
+            "planId": plan["planId"],
+            "planSummary": plan.get("summary"),
+            "costTier": plan.get("costTier"),
+            "status": "planned",
+            "createdAt": plan["createdAt"],
+        },
+    )
+    if planner_output.get("conversationSummary"):
+        session["conversationSummary"] = str(planner_output["conversationSummary"])
+    save_session(storage_root, project_id, generation_id, session)
+
+    return {"plan": plan, "sessionId": session["sessionId"]}
+
+
+@router.post("/{generation_id}/revise/execute", status_code=status.HTTP_202_ACCEPTED)
+def execute_revise_plan(
+    generation_id: str,
+    payload: ReviseExecuteRequest,
+    request: Request,
+) -> dict[str, Any]:
+    from app.services.revise_plan_service import (
+        load_plan,
+        mark_plan_executing,
+        write_revise_patch_context,
+    )
+
+    store, project_id, source_plan, structure, assets, brief, variant = _load_revise_source_context(
+        request, generation_id,
+    )
+    storage_root: Path = request.app.state.storage_root
+    runner = _pipeline_runner(request)
+
+    try:
+        plan = load_plan(storage_root, project_id, generation_id, payload.planId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Revise plan not found")
+    if str(plan.get("status")) != "draft":
+        raise HTTPException(status_code=400, detail="Revise plan is not in draft status")
+
+    intents = list(plan.get("intents") or [])
+    instruction = str(plan.get("instruction") or "")
+    execution_mode = str(plan.get("executionMode") or "fork")
+    plan_id = str(plan["planId"])
+
+    if execution_mode == "in_place":
+        task = _task_events(request).create_task(
+            project_id,
+            stage="applying_revise_patch",
+            message="Queued in-place revise patch",
+        )
+        store.update_generation(generation_id, status="queued", task_id=task["taskId"])
+        write_revise_patch_context(
+            storage_root,
+            project_id,
+            generation_id,
+            plan_id=plan_id,
+            task_id=task["taskId"],
+        )
+        plan = mark_plan_executing(
+            storage_root,
+            project_id,
+            generation_id,
+            plan,
+            task_id=task["taskId"],
+            result_generation_id=generation_id,
+        )
+        runner.start_revise_patch(
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task["taskId"],
+            plan=plan,
+        )
+        return {
+            "sourceGenerationId": generation_id,
+            "generationId": generation_id,
+            "taskId": task["taskId"],
+            "executionMode": "in_place",
+            "plan": plan,
+        }
 
     task = _task_events(request).create_task(
         project_id,
@@ -409,26 +573,105 @@ def revise_generation(
         project_id,
         new_generation["id"],
         intents,
-        instruction=payload.instruction,
+        instruction=instruction,
         source_generation_id=generation_id,
     )
-
+    plan = mark_plan_executing(
+        storage_root,
+        project_id,
+        generation_id,
+        plan,
+        task_id=task["taskId"],
+        result_generation_id=new_generation["id"],
+    )
     runner.start_revise(
         project_id=project_id,
         source_generation_id=generation_id,
         generation_id=new_generation["id"],
         task_id=task["taskId"],
-        instruction=payload.instruction,
+        instruction=instruction,
         intents=intents,
         structure=structure,
         user_brief=brief,
         assets=assets,
         variant=variant,
+        finalize_plan_id=plan_id,
     )
 
     return {
         "sourceGenerationId": generation_id,
         "generationId": new_generation["id"],
         "taskId": task["taskId"],
-        "intents": intents,
+        "executionMode": "fork",
+        "plan": plan,
+    }
+
+
+@router.post("/{generation_id}/revise/cancel")
+def cancel_revise_plan(
+    generation_id: str,
+    payload: ReviseCancelRequest,
+    request: Request,
+) -> dict[str, Any]:
+    from app.services.revise_plan_service import load_plan, load_session, save_plan, save_session
+
+    _, project_id = _get_generation_or_404(request, generation_id)
+    storage_root: Path = request.app.state.storage_root
+    session = load_session(storage_root, project_id, generation_id)
+    if session is None:
+        return {"cancelled": False, "cancelledPlanIds": []}
+
+    cancelled_ids: list[str] = []
+    for turn in session.get("turns") or []:
+        if not isinstance(turn, dict):
+            continue
+        plan_id = str(turn.get("planId") or "")
+        if payload.planId:
+            try:
+                target_plan_id = validate_storage_segment(payload.planId, field="plan_id")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if plan_id != target_plan_id:
+                continue
+        if turn.get("status") != "planned":
+            continue
+        try:
+            plan = load_plan(storage_root, project_id, generation_id, plan_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if plan is None or plan.get("status") != "draft":
+            continue
+        plan["status"] = "cancelled"
+        save_plan(storage_root, project_id, generation_id, plan)
+        turn["status"] = "cancelled"
+        cancelled_ids.append(plan_id)
+
+    save_session(storage_root, project_id, generation_id, session)
+    return {"cancelled": bool(cancelled_ids), "planIds": cancelled_ids}
+
+
+@router.post("/{generation_id}/revise", status_code=status.HTTP_202_ACCEPTED)
+def revise_generation(
+    generation_id: str,
+    payload: ReviseGenerationRequest,
+    request: Request,
+) -> dict[str, Any]:
+    plan_response = plan_revise_generation(
+        generation_id,
+        RevisePlanRequest(instruction=payload.instruction),
+        request,
+    )
+    plan = plan_response["plan"]
+    execute_response = execute_revise_plan(
+        generation_id,
+        ReviseExecuteRequest(planId=str(plan["planId"])),
+        request,
+    )
+    return {
+        "sourceGenerationId": generation_id,
+        "generationId": execute_response["generationId"],
+        "taskId": execute_response["taskId"],
+        "intents": plan.get("intents") or [],
+        "plan": plan,
+        "executionMode": execute_response.get("executionMode"),
     }

@@ -127,6 +127,40 @@ class FakeDemoPipeline:
             "plan": plan,
         }
 
+    def plan_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        session: dict[str, Any] | None = None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        _ = (project_id, task_id, generation_id, session, emit)
+        from app.services.pipeline_runner import PipelineRunner
+
+        planner_output = PipelineRunner.build_planner_output_from_rules(
+            instruction,
+            source_plan,
+        )
+        return {"ok": True, "plannerOutput": planner_output}
+
+    def execute_revise_patch(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        plan: dict[str, Any],
+        emit: Any,
+    ) -> dict[str, Any]:
+        _ = (project_id, task_id)
+        emit(status="running", stage="applying_revise_patch", progress=20, message="patch")
+        emit(status="succeeded", stage="completed", progress=100, message="patch done")
+        return {"ok": True, "plan": plan, "patchId": "patch-fake"}
+
     def revise_script_draft(
         self,
         *,

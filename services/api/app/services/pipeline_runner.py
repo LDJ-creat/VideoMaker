@@ -95,6 +95,53 @@ def _worker_root() -> Path:
     return Path(__file__).resolve().parents[3] / "worker"
 
 
+def _ensure_worker_pipelines_namespace() -> None:
+    """Register worker pipeline modules on the API ``app`` package for importlib loads."""
+    import importlib.util
+    import sys
+    import types
+
+    import app as api_app
+
+    pipelines_dir = _worker_root() / "app" / "pipelines"
+    if "app.pipelines" not in sys.modules:
+        pipelines_pkg = types.ModuleType("app.pipelines")
+        pipelines_pkg.__path__ = [str(pipelines_dir)]
+        sys.modules["app.pipelines"] = pipelines_pkg
+        api_app.pipelines = pipelines_pkg
+
+    intent_key = "app.pipelines.intent_applier"
+    if intent_key not in sys.modules:
+        intent_path = pipelines_dir / "intent_applier.py"
+        spec = importlib.util.spec_from_file_location(intent_key, intent_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load intent applier from {intent_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[intent_key] = module
+        sys.modules["app.pipelines"].intent_applier = module
+        spec.loader.exec_module(module)
+
+
+def _load_revise_plan_builder_module() -> Any:
+    import importlib.util
+    import sys
+
+    _ensure_worker_pipelines_namespace()
+    module_key = "app.pipelines.revise_plan_builder"
+    if module_key in sys.modules:
+        return sys.modules[module_key]
+
+    module_path = _worker_root() / "app" / "pipelines" / "revise_plan_builder.py"
+    spec = importlib.util.spec_from_file_location(module_key, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load revise plan builder from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_key] = module
+    sys.modules["app.pipelines"].revise_plan_builder = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
@@ -364,6 +411,50 @@ class SubprocessDemoPipeline:
                 "projectId": project_id,
                 "instruction": instruction,
                 "sourcePlan": source_plan,
+            }
+        )
+
+    def plan_revise(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        session: dict[str, Any] | None = None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            **self._payload_base(),
+            "mode": "plan_revise",
+            "taskId": task_id,
+            "projectId": project_id,
+            "generationId": generation_id,
+            "instruction": instruction,
+            "sourcePlan": source_plan,
+        }
+        if session is not None:
+            payload["session"] = session
+        return self._invoke(payload)
+
+    def execute_revise_patch(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        plan: dict[str, Any],
+        emit: Any,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            {
+                **self._payload_base(),
+                "mode": "execute_revise_patch",
+                "taskId": task_id,
+                "projectId": project_id,
+                "generationId": generation_id,
+                "plan": plan,
             }
         )
 
@@ -901,17 +992,37 @@ class PipelineRunner:
         raise RuntimeError("Pipeline does not support revise_script_draft")
 
     @staticmethod
+    def build_planner_output_from_rules(
+        instruction: str,
+        source_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        module = _load_revise_plan_builder_module()
+        return module.build_planner_output_from_rules(instruction, source_plan)
+
+    @staticmethod
+    def enrich_revise_plan(
+        planner_output: dict[str, Any],
+        *,
+        source_generation_id: str,
+        instruction: str,
+        session_id: str,
+        turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        module = _load_revise_plan_builder_module()
+        return module.enrich_revise_plan(
+            planner_output,
+            source_generation_id=source_generation_id,
+            instruction=instruction,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+
+    @staticmethod
     def _parse_edit_intent_rules(instruction: str, source_plan: dict[str, Any]) -> list[dict[str, Any]]:
-        import importlib.util
+        _ensure_worker_pipelines_namespace()
         import sys
 
-        module_path = _worker_root() / "app" / "pipelines" / "intent_applier.py"
-        spec = importlib.util.spec_from_file_location("videomaker_intent_applier", module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Could not load intent applier from {module_path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        module = sys.modules["app.pipelines.intent_applier"]
         source_summary = module.build_source_summary(source_plan)
         payload = module.parse_edit_intent_for_api(instruction, source_summary)
         intents = payload.get("intents")
@@ -934,6 +1045,147 @@ class PipelineRunner:
         except jsonschema.ValidationError as exc:
             raise ValueError(f"Invalid EditIntent payload: {exc.message}") from exc
 
+    @staticmethod
+    def _validate_revise_plan(plan: dict[str, Any]) -> None:
+        from app.services.revise_plan_service import validate_revise_plan
+
+        validate_revise_plan(plan)
+
+    @staticmethod
+    def validate_revise_plan(plan: dict[str, Any]) -> None:
+        PipelineRunner._validate_revise_plan(plan)
+
+    @staticmethod
+    def validate_revise_session(session: dict[str, Any]) -> None:
+        from app.services.revise_plan_service import validate_revise_session
+
+        validate_revise_session(session)
+
+    def plan_revise_generation(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        instruction: str,
+        source_plan: dict[str, Any],
+        session: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        task_id = "plan-revise"
+        pipeline = self._get_pipeline()
+        if hasattr(pipeline, "plan_revise"):
+            result = pipeline.plan_revise(
+                project_id=project_id,
+                task_id=task_id,
+                generation_id=generation_id,
+                instruction=instruction,
+                source_plan=source_plan,
+                session=session,
+                emit=self._make_emit(task_id),
+            )
+            planner_output = result.get("plannerOutput")
+            if isinstance(planner_output, dict):
+                return planner_output
+        return PipelineRunner.build_planner_output_from_rules(instruction, source_plan)
+
+    def start_revise_patch(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        plan: dict[str, Any],
+    ) -> None:
+        from app.services.revise_plan_service import (
+            clear_revise_patch_context,
+            mark_plan_executed,
+            mark_plan_execution_failed,
+        )
+
+        plan_id = str(plan.get("planId") or "")
+        source_generation = self.project_store.get_generation(generation_id)
+        restore_plan = source_generation.get("plan") if isinstance(source_generation, dict) else None
+
+        def job() -> None:
+            try:
+                self.project_store.update_generation(generation_id, status="running", task_id=task_id)
+                pipeline = self._get_pipeline()
+                if not hasattr(pipeline, "execute_revise_patch"):
+                    raise RuntimeError("Pipeline does not support execute_revise_patch")
+                result = pipeline.execute_revise_patch(
+                    project_id=project_id,
+                    task_id=task_id,
+                    generation_id=generation_id,
+                    plan=plan,
+                    emit=self._make_emit(task_id),
+                )
+                if result.get("ok"):
+                    self.project_store.update_generation(
+                        generation_id,
+                        status="succeeded",
+                        plan=result.get("plan"),
+                    )
+                    if plan_id:
+                        mark_plan_executed(
+                            self.storage_root,
+                            project_id,
+                            generation_id,
+                            plan_id,
+                            result_generation_id=generation_id,
+                            task_id=task_id,
+                        )
+                    clear_revise_patch_context(self.storage_root, project_id, generation_id)
+                else:
+                    self.project_store.update_generation(
+                        generation_id,
+                        status="succeeded",
+                        plan=restore_plan if isinstance(restore_plan, dict) else result.get("plan"),
+                    )
+                    if plan_id:
+                        mark_plan_execution_failed(
+                            self.storage_root,
+                            project_id,
+                            generation_id,
+                            plan_id,
+                        )
+                    self._ensure_task_failed(
+                        task_id,
+                        result=result,
+                        default_stage="applying_revise_patch",
+                        default_code="revise_patch_failed",
+                    )
+            except Exception as exc:  # pragma: no cover
+                logger.exception(
+                    "Revise patch failed task_id=%s generation_id=%s",
+                    task_id,
+                    generation_id,
+                )
+                self._emit(
+                    task_id,
+                    status="failed",
+                    stage="applying_revise_patch",
+                    progress=0,
+                    message="Revise patch failed",
+                    error={
+                        "code": "revise_patch_failed",
+                        "message": str(exc),
+                        "retryable": True,
+                    },
+                )
+                self.project_store.update_generation(
+                    generation_id,
+                    status="succeeded",
+                    plan=restore_plan if isinstance(restore_plan, dict) else None,
+                )
+                if plan_id:
+                    mark_plan_execution_failed(
+                        self.storage_root,
+                        project_id,
+                        generation_id,
+                        plan_id,
+                    )
+
+        self._run_task(task_id, job)
+
     def start_revise(
         self,
         *,
@@ -948,7 +1200,13 @@ class PipelineRunner:
         assets: list[dict[str, Any]],
         variant: str | None = None,
         resume: bool = False,
+        finalize_plan_id: str | None = None,
     ) -> None:
+        from app.services.revise_plan_service import (
+            mark_plan_executed,
+            mark_plan_execution_failed,
+        )
+
         def job() -> None:
             try:
                 self.project_store.update_generation(generation_id, status="running", task_id=task_id)
@@ -986,6 +1244,15 @@ class PipelineRunner:
                         gap_report=result["gapReport"],
                         plan=result["plan"],
                     )
+                    if finalize_plan_id:
+                        mark_plan_executed(
+                            self.storage_root,
+                            project_id,
+                            source_generation_id,
+                            finalize_plan_id,
+                            result_generation_id=generation_id,
+                            task_id=task_id,
+                        )
                 else:
                     self.project_store.update_generation(
                         generation_id,
@@ -993,6 +1260,13 @@ class PipelineRunner:
                         gap_report=result.get("gapReport"),
                         plan=result.get("plan"),
                     )
+                    if finalize_plan_id:
+                        mark_plan_execution_failed(
+                            self.storage_root,
+                            project_id,
+                            source_generation_id,
+                            finalize_plan_id,
+                        )
                     self._ensure_task_failed(
                         task_id,
                         result=result,
@@ -1018,6 +1292,13 @@ class PipelineRunner:
                     },
                 )
                 self.project_store.update_generation(generation_id, status="failed")
+                if finalize_plan_id:
+                    mark_plan_execution_failed(
+                        self.storage_root,
+                        project_id,
+                        source_generation_id,
+                        finalize_plan_id,
+                    )
 
         self._run_task(task_id, job)
 
@@ -1102,6 +1383,35 @@ class PipelineRunner:
                 / "generations"
                 / generation["id"]
             )
+            from app.services.revise_plan_service import load_plan, load_revise_patch_context
+
+            patch_context = load_revise_patch_context(
+                self.storage_root,
+                generation["projectId"],
+                generation["id"],
+            )
+            if patch_context is not None and patch_context.get("mode") == "execute_revise_patch":
+                plan_id = str(patch_context.get("planId") or "")
+                plan = (
+                    load_plan(
+                        self.storage_root,
+                        generation["projectId"],
+                        generation["id"],
+                        plan_id,
+                    )
+                    if plan_id
+                    else None
+                )
+                if plan is None:
+                    raise ValueError("Revise patch context is missing plan artifact")
+                self.start_revise_patch(
+                    project_id=generation["projectId"],
+                    generation_id=generation["id"],
+                    task_id=task_id,
+                    plan=plan,
+                )
+                return updated
+
             revise_context_path = generation_root / "revise-context.json"
             if revise_context_path.is_file():
                 revise_context = json.loads(revise_context_path.read_text(encoding="utf-8"))
