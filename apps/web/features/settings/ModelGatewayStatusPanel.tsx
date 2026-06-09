@@ -67,17 +67,18 @@ const PROVIDER_META: Record<
     label: "视觉",
     description: "样本关键帧理解、结构证据与多模态分析",
     icon: Eye,
+    required: true,
   },
   videoUnderstanding: {
     label: "视频理解",
     description: "样例视频直连多模态结构分析 + 用户素材统一理解（Doubao/Ark）",
     icon: ScanEye,
+    required: true,
   },
   image: {
     label: "生图",
     description: "缺口补全时的图片生成",
     icon: ImageIcon,
-    required: true,
   },
   video: {
     label: "生视频",
@@ -88,6 +89,7 @@ const PROVIDER_META: Record<
     label: "配音",
     description: "旁白与口播语音合成",
     icon: Mic,
+    required: true,
   },
 };
 
@@ -112,7 +114,7 @@ const PROVIDER_GROUPS: Array<{
   {
     id: "tts",
     title: "配音",
-    description: "用于全片旁白与口播（可选）",
+    description: "用于全片旁白与口播",
     providers: ["tts"],
   },
 ];
@@ -147,7 +149,12 @@ const DEFAULT_TTS_PREFERENCES: TtsPreferences = {
   chunkCharLimit: 400,
 };
 
-const REQUIRED_PROVIDERS: ProviderKey[] = ["text", "image"];
+const REQUIRED_PROVIDERS: ProviderKey[] = [
+  "text",
+  "vision",
+  "videoUnderstanding",
+  "tts",
+];
 
 function defaultBaseUrlForProvider(key: ProviderKey): string {
   if (key === "videoUnderstanding") {
@@ -170,12 +177,6 @@ function isTtsPrefsDirty(
   return (Object.keys(DEFAULT_TTS_PREFERENCES) as Array<keyof TtsPreferences>).some(
     (key) => form[key] !== saved[key],
   );
-}
-
-function analysisRoutePreviewLabel(
-  route: ModelGatewayStatusResponse["analysisRoutePreview"],
-): string {
-  return route === "direct_multimodal" ? "直连多模态" : "传统 Map-Reduce";
 }
 
 type ProviderFormState = {
@@ -607,16 +608,12 @@ export function ModelGatewayStatusPanel({
   const [probeResults, setProbeResults] = useState<
     Partial<Record<ProviderKey, ModelGatewayProviderProbeResponse>>
   >({});
-  const [directMultimodalEnabled, setDirectMultimodalEnabled] = useState(true);
   const [ttsPrefs, setTtsPrefs] = useState<TtsPreferences>(DEFAULT_TTS_PREFERENCES);
 
   const refresh = useCallback(async () => {
     try {
       const { data } = await getModelGatewayStatus();
       setStatus(data);
-      setDirectMultimodalEnabled(
-        data.preferences?.directMultimodalAnalysisEnabled ?? true,
-      );
       setTtsPrefs(ttsPrefsFromStatus(data));
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
@@ -754,21 +751,11 @@ export function ModelGatewayStatusPanel({
       if (Object.keys(providers).length > 0) {
         body.providers = providers;
       }
-      if (preferencesDirty) {
-        body.preferences = {
-          directMultimodalAnalysisEnabled: directMultimodalEnabled,
-        };
-        if (status && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status))) {
-          body.preferences.tts = ttsPrefs;
-        }
-      } else if (status && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status))) {
+      if (status && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status))) {
         body.preferences = { tts: ttsPrefs };
       }
       const { data } = await updateModelGatewaySettings(body);
       setStatus(data);
-      setDirectMultimodalEnabled(
-        data.preferences?.directMultimodalAnalysisEnabled ?? true,
-      );
       setTtsPrefs(ttsPrefsFromStatus(data));
       const next: Record<string, ProviderFormState> = {};
       for (const key of PROVIDER_ORDER) {
@@ -795,14 +782,7 @@ export function ModelGatewayStatusPanel({
   const hasDirtyChanges = dirtyProviders.size > 0;
 
   const preferencesDirty =
-    status != null &&
-    (directMultimodalEnabled !==
-      (status.preferences?.directMultimodalAnalysisEnabled ?? true) ||
-      isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status)));
-
-  const videoUnderstandingConfigured =
-    status?.providers.videoUnderstanding.configured === true &&
-    status?.providers.videoUnderstanding.hasApiKey === true;
+    status != null && isTtsPrefsDirty(ttsPrefs, ttsPrefsFromStatus(status));
 
   const renderProviderForm = (key: ProviderKey) => (
     <div className="space-y-3">
@@ -888,12 +868,6 @@ export function ModelGatewayStatusPanel({
                   有未保存修改
                 </Badge>
               )}
-              {status?.analysisRoutePreview ? (
-                <Badge variant="outline">
-                  样例分析：
-                  {analysisRoutePreviewLabel(status.analysisRoutePreview)}
-                </Badge>
-              ) : null}
             </div>
             <CardDescription className="text-left">
               全局模型凭据（本机 SQLite，密钥不回显）。点击标签可快速跳转；默认走真实模型，无
@@ -969,56 +943,6 @@ export function ModelGatewayStatusPanel({
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     {group.description}
                   </p>
-                  {group.id === "analysis" ? (
-                    <div className="mt-4 space-y-3 rounded-md border border-border/60 bg-background/80 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">
-                            启用直连多模态样例分析
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            配置视频理解模型后，优先单次多模态输出结构；关闭则走传统
-                            Map-Reduce。
-                          </p>
-                        </div>
-                        <label
-                          className={cn(
-                            "inline-flex items-center gap-2 text-sm",
-                            !videoUnderstandingConfigured &&
-                              "cursor-not-allowed opacity-60",
-                          )}
-                          title={
-                            videoUnderstandingConfigured
-                              ? undefined
-                              : "请先配置视频理解模型"
-                          }
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-border"
-                            checked={directMultimodalEnabled}
-                            disabled={
-                              busy || !videoUnderstandingConfigured
-                            }
-                            onChange={(event) =>
-                              setDirectMultimodalEnabled(event.target.checked)
-                            }
-                            data-testid="direct-multimodal-toggle"
-                          />
-                          {directMultimodalEnabled ? "已开启" : "已关闭"}
-                        </label>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        当前样例分析将使用：
-                        <span className="font-medium text-foreground">
-                          {analysisRoutePreviewLabel(
-                            status?.analysisRoutePreview ?? "map_reduce",
-                          )}
-                        </span>
-                        {preferencesDirty ? "（保存后生效）" : null}
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="px-5 py-5">
@@ -1100,7 +1024,7 @@ export function ModelGatewayStatusPanel({
               <p className="text-xs text-muted-foreground">
                 {dirtyProviders.size > 0
                   ? `${dirtyProviders.size} 项有未保存修改`
-                  : "分析偏好有未保存修改"}
+                  : "配音参数有未保存修改"}
               </p>
             ) : null}
           </div>
@@ -1116,7 +1040,7 @@ export function ModelGatewayStatusPanel({
       {!expanded && missingRequired && !loadError && (
         <CardContent className="border-t pt-3">
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            Live 演示前请展开并配置文本、生图等凭据。
+            Live 演示前请展开并配置文本、视觉、视频理解、配音等凭据。
           </p>
         </CardContent>
       )}

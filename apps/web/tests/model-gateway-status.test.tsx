@@ -82,7 +82,7 @@ describe("ModelGatewayStatusPanel", () => {
           directMultimodalAnalysisEnabled: true,
         },
         ttsPreferences: fixtureModelGatewayStatus.ttsPreferences,
-        analysisRoutePreview: "map_reduce",
+        analysisRoutePreview: "direct_multimodal",
         providers: {
           ...fixtureModelGatewayStatus.providers,
           text: {
@@ -91,11 +91,23 @@ describe("ModelGatewayStatusPanel", () => {
             driver: "openai_compatible",
             baseUrl: "https://api.openai.com/v1",
           },
-          image: {
+          vision: {
             configured: false,
             hasApiKey: false,
             driver: "openai_compatible",
             baseUrl: "https://api.openai.com/v1",
+          },
+          videoUnderstanding: {
+            configured: false,
+            hasApiKey: false,
+            driver: "openai_compatible",
+            baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+          },
+          tts: {
+            configured: false,
+            hasApiKey: false,
+            driver: "volcengine_tts",
+            baseUrl: "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
           },
         },
       },
@@ -106,7 +118,7 @@ describe("ModelGatewayStatusPanel", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(/Live 演示前请展开并配置文本、生图等凭据/),
+        screen.getByText(/Live 演示前请展开并配置文本、视觉、视频理解、配音等凭据/),
       ).toBeInTheDocument(),
     );
   });
@@ -150,52 +162,6 @@ describe("ModelGatewayStatusPanel", () => {
     const call = vi.mocked(apiClient.updateModelGatewaySettings).mock.calls[0]![0];
     expect(call.providers?.text?.model).toBe("gpt-4o-new");
     expect(call.providers?.text?.apiKey).toBeUndefined();
-  });
-
-  it("shows direct multimodal toggle disabled when videoUnderstanding is missing", async () => {
-    render(<ModelGatewayStatusPanel defaultExpanded />);
-
-    const toggle = await screen.findByTestId("direct-multimodal-toggle");
-    expect(toggle).toBeDisabled();
-    expect(screen.getByText(/当前样例分析将使用：/)).toBeInTheDocument();
-    expect(screen.getByText("传统 Map-Reduce")).toBeInTheDocument();
-  });
-
-  it("saves direct multimodal preference via PUT", async () => {
-    vi.mocked(apiClient.getModelGatewayStatus).mockResolvedValue({
-      data: {
-        ...fixtureModelGatewayStatus,
-        providers: {
-          ...fixtureModelGatewayStatus.providers,
-          videoUnderstanding: {
-            configured: true,
-            hasApiKey: true,
-            model: "doubao-seed-1-6-250615",
-            driver: "openai_compatible",
-            baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
-          },
-        },
-        analysisRoutePreview: "direct_multimodal",
-      },
-      meta: { dataSource: "api" },
-    });
-
-    const user = userEvent.setup();
-    render(<ModelGatewayStatusPanel defaultExpanded />);
-
-    const toggle = await screen.findByTestId("direct-multimodal-toggle");
-    expect(toggle).not.toBeDisabled();
-    await user.click(toggle);
-
-    await user.click(screen.getByRole("button", { name: "保存全部配置" }));
-
-    await waitFor(() =>
-      expect(apiClient.updateModelGatewaySettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          preferences: { directMultimodalAnalysisEnabled: false },
-        }),
-      ),
-    );
   });
 });
 
