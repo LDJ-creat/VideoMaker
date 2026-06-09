@@ -84,6 +84,7 @@ class ModelGatewayPreferencesUpdate(BaseModel):
         default=None,
         alias="directMultimodalAnalysisEnabled",
     )
+    tts: dict[str, Any] | None = None
 
 
 class ModelGatewaySettingsUpdate(BaseModel):
@@ -194,6 +195,8 @@ def put_model_gateway_settings(
             preference_updates["directMultimodalAnalysisEnabled"] = (
                 body.preferences.direct_multimodal_analysis_enabled
             )
+        if body.preferences.tts is not None:
+            preference_updates["tts"] = body.preferences.tts
     if not updates and not preference_updates:
         raise HTTPException(status_code=400, detail="No provider fields or preferences to update")
     try:

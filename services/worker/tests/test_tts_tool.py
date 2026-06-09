@@ -7,6 +7,25 @@ from app.tools.image_gen_tool import ToolError
 from app.tools.tts_tool import TTSTool
 
 
+def test_synthesize_passes_full_options_to_gateway(tmp_path: Path) -> None:
+    wav = b"RIFF----WAVEfmt "
+    gateway = MagicMock()
+    gateway.synthesize_speech.return_value = wav
+    tool = TTSTool(gateway=gateway)
+    options = {
+        "generationId": "gen-1",
+        "speaker": "zh_female_vv_uranus_bigtts",
+        "speechRate": 10,
+        "contextTexts": "自然口播",
+    }
+    tool.synthesize(
+        text="hello",
+        output_path=tmp_path / "voice.wav",
+        options=options,
+    )
+    gateway.synthesize_speech.assert_called_once_with("hello", options=options)
+
+
 def test_synthesize_writes_audio_and_emits_stage(tmp_path: Path) -> None:
     wav = b"RIFF----WAVEfmt "
     gateway = MagicMock()

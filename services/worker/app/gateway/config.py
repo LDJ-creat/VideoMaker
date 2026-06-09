@@ -11,6 +11,11 @@ except ImportError:  # pragma: no cover - tests may construct GatewayConfig dire
     ModelGatewayStore = None  # type: ignore[misc, assignment]
     ProviderCredentials = None  # type: ignore[misc, assignment]
 
+try:
+    from model_gateway.tts_preferences import DEFAULT_TTS_PREFERENCES
+except ImportError:  # pragma: no cover
+    DEFAULT_TTS_PREFERENCES = {}  # type: ignore[misc, assignment]
+
 
 def resolve_max_poll_sec() -> int:
     raw = os.getenv("VIDEO_MAX_POLL_SEC", "600").strip()
@@ -29,12 +34,15 @@ class GatewayConfig:
     image: ProviderConfig
     video_driver: str
     video: ProviderConfig
+    tts_driver: str = "openai_compatible"
+    tts_preferences: dict[str, object] = field(default_factory=dict)
     max_poll_sec: int = field(default_factory=resolve_max_poll_sec)
     poll_interval_sec: float = 3.0
 
     @classmethod
     def from_store(cls, store: ModelGatewayStore) -> GatewayConfig:
         credentials = store.get_credentials()
+        tts_preferences = store.get_tts_preferences()
         return cls(
             text=_to_provider_config(credentials["text"]),
             vision=_to_provider_config(credentials["vision"]),
@@ -43,6 +51,8 @@ class GatewayConfig:
             image=_to_provider_config(credentials["image"]),
             video_driver=credentials["video"].driver,
             video=_to_provider_config(credentials["video"]),
+            tts_driver=credentials["tts"].driver,
+            tts_preferences=dict(tts_preferences),
             max_poll_sec=resolve_max_poll_sec(),
         )
 

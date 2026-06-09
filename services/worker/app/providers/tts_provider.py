@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID, MASTER_TTS_WAV_NAME
+from app.pipelines.tts_voice_options import build_tts_synthesis_options
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.tools.image_gen_tool import ToolError
 from app.tools.tts_tool import TTSTool
@@ -34,8 +35,17 @@ class TTSProvider:
         else:
             text = _script_for_slot(ctx, slot_id)
             output_path = ctx.generated_root / f"{slot_id}.wav"
+        options = build_tts_synthesis_options(
+            structure=ctx.structure,
+            workbench_prefs=ctx.gateway.config.tts_preferences,
+            generation_id=ctx.generation_id,
+        )
         try:
-            artifact_ref = self._tool.synthesize(text=text, output_path=output_path)
+            artifact_ref = self._tool.synthesize(
+                text=text,
+                output_path=output_path,
+                options=options,
+            )
         except ToolError as exc:
             return {
                 "ok": False,

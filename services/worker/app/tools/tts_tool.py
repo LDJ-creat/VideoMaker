@@ -25,16 +25,20 @@ class TTSTool:
         text: str,
         output_path: Path,
         voice: str = "default",
+        options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self._emit_progress is not None:
             self._emit_progress("generating_tts", "Synthesizing speech")
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        options: dict[str, Any] = {}
-        if voice != "default":
-            options["voice"] = voice
+        merged: dict[str, Any] = dict(options or {})
+        if voice != "default" and "speaker" not in merged and "voice" not in merged:
+            merged["voice"] = voice
         try:
-            audio_bytes = self._gateway.synthesize_speech(text, options=options or None)
+            audio_bytes = self._gateway.synthesize_speech(
+                text,
+                options=merged or None,
+            )
         except Exception as exc:
             raise ToolError(
                 code="tts_failed",

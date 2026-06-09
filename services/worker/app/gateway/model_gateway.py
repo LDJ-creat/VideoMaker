@@ -12,7 +12,7 @@ from app.gateway.config import GatewayConfig
 from app.gateway.providers.base import GatewayError
 from app.gateway.providers.openai_compatible_chat import OpenAICompatibleChatProvider
 from app.gateway.providers.openai_compatible_image import OpenAICompatibleImageProvider
-from app.gateway.providers.openai_compatible_tts import OpenAICompatibleTTSProvider
+from app.gateway.providers.tts_factory import TTSProviderProtocol, create_tts_provider
 from app.gateway.providers.pluggable_video import (
     VideoJobResult,
     VideoProvider,
@@ -53,7 +53,7 @@ class ModelGateway:
     _chat_providers: dict[str, OpenAICompatibleChatProvider] = field(
         default_factory=dict, init=False, repr=False
     )
-    _tts_provider: OpenAICompatibleTTSProvider | None = field(
+    _tts_provider: TTSProviderProtocol | None = field(
         default=None, init=False, repr=False
     )
     _image_provider: OpenAICompatibleImageProvider | None = field(
@@ -85,10 +85,12 @@ class ModelGateway:
             )
         return self._chat_providers[profile]
 
-    def _tts(self) -> OpenAICompatibleTTSProvider:
+    def _tts(self) -> TTSProviderProtocol:
         if self._tts_provider is None:
-            self._tts_provider = OpenAICompatibleTTSProvider(
+            self._tts_provider = create_tts_provider(
+                self.config.tts_driver,
                 self.config.tts,
+                tts_preferences=self.config.tts_preferences,
                 client=self.client,
             )
         return self._tts_provider

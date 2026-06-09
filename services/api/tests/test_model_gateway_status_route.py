@@ -58,7 +58,33 @@ def test_model_gateway_status_returns_provider_shape(
     assert payload["providers"]["video"]["driver"] == "generic_job"
     assert payload["providers"]["videoUnderstanding"]["configured"] is False
     assert payload["preferences"]["directMultimodalAnalysisEnabled"] is True
+    assert payload["ttsPreferences"]["resourceId"] == "seed-tts-2.0"
+    assert payload["ttsPreferences"]["speaker"] == "zh_female_vv_uranus_bigtts"
     assert payload["analysisRoutePreview"] == "map_reduce"
+
+
+def test_model_gateway_put_tts_preferences(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _live_fixture_env(monkeypatch)
+    _put_text_and_image(client)
+
+    response = client.put(
+        "/api/settings/model-gateway",
+        json={
+            "preferences": {
+                "tts": {
+                    "speechRate": 20,
+                    "contextTexts": "短视频口播",
+                },
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ttsPreferences"]["speechRate"] == 20
+    assert payload["ttsPreferences"]["contextTexts"] == "短视频口播"
 
 
 def test_model_gateway_status_vision_uses_text_fallback_model(
