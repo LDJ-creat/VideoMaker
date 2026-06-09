@@ -511,6 +511,7 @@ export type DurationTarget = {
   source?: DurationTargetSource;
 };
 
+/** @deprecated Read-only compatibility for legacy artifacts; new generations always use long_form_composed. */
 export type GenerationStrategy = "short_form_direct" | "long_form_composed";
 
 export type AspectRatio = "9:16" | "16:9" | "1:1";
