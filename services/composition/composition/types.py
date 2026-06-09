@@ -15,6 +15,9 @@ class AuthorRequest:
     aspect_ratio: str = "9:16"
     pattern_l0: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
+    task_id: str | None = None
+    generation_id: str | None = None
+    react_trace: Any | None = None
 
 
 @dataclass
@@ -77,7 +80,6 @@ class PatternPromoteRequest:
     project_id: str
     generation_id: str
     slot_id: str
-    user_score: int
     title: str | None = None
     category: str | None = None
 

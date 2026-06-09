@@ -67,6 +67,9 @@ class CompositionEngine:
             aspect_ratio=request.aspect_ratio,
             pattern_l0=pattern_l0,
             validation_errors=request.validation_errors,
+            task_id=request.task_id,
+            generation_id=request.generation_id,
+            react_trace=request.react_trace,
         )
         return author_material_spec(
             enriched,
@@ -75,6 +78,7 @@ class CompositionEngine:
             storage_root=self.storage_root,
             hyperframes_cli=self._cli,
             fixture_spec=self._fixture_spec,
+            react_trace=enriched.react_trace,
         )
 
     def build_composition(self, spec: dict[str, Any], ctx: BuildContext) -> Path:

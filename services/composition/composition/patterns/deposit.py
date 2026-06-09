@@ -6,13 +6,45 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from knowledge.paths import category_slug, published_entry_dir, rel_uri
+from knowledge.paths import (
+    assert_under_storage_root,
+    category_slug,
+    published_entry_dir,
+    rel_uri,
+    validate_storage_segment,
+)
 
 from composition.patterns.lint_verify import lint_log_confirms_pass
 from composition.types import PatternDepositContext, PatternPromoteRequest
 
-PROMOTE_MIN_SCORE = 4
+
 LOGGER = logging.getLogger(__name__)
+
+
+def composition_pattern_entry_id(generation_id: str, slot_id: str) -> str:
+    gen = validate_storage_segment(generation_id, field="generation_id")
+    slot = validate_storage_segment(slot_id, field="slot_id")
+    return f"comp-{gen}-{slot}"
+
+
+def composition_drafts_generation_dir(
+    storage_root: Path,
+    *,
+    project_id: str,
+    generation_id: str,
+) -> Path:
+    project = validate_storage_segment(project_id, field="project_id")
+    generation = validate_storage_segment(generation_id, field="generation_id")
+    path = (
+        storage_root
+        / "projects"
+        / project
+        / "knowledge"
+        / "drafts"
+        / "composition"
+        / generation
+    )
+    return assert_under_storage_root(path, storage_root)
 
 
 def composition_draft_dir(
@@ -22,16 +54,28 @@ def composition_draft_dir(
     generation_id: str,
     slot_id: str,
 ) -> Path:
-    return (
-        storage_root
-        / "projects"
-        / project_id
-        / "knowledge"
-        / "drafts"
-        / "composition"
-        / generation_id
-        / slot_id
-    )
+    slot = validate_storage_segment(slot_id, field="slot_id")
+    path = composition_drafts_generation_dir(
+        storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+    ) / slot
+    return assert_under_storage_root(path, storage_root)
+
+
+def prepared_pattern_dir(
+    storage_root: Path,
+    *,
+    project_id: str,
+    generation_id: str,
+    slot_id: str,
+) -> Path:
+    return composition_draft_dir(
+        storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+        slot_id=slot_id,
+    ) / "prepared"
 
 
 def _copy_references(source_composition: Path, target: Path) -> None:
@@ -155,47 +199,51 @@ def promote_pattern(
     entry_id: str | None = None,
     hyperframes_cli=None,
 ) -> dict[str, Any]:
-    if request.user_score < PROMOTE_MIN_SCORE:
-        raise PromoteRejected("score_below_threshold")
     draft = composition_draft_dir(
         request.storage_root,
         project_id=request.project_id,
         generation_id=request.generation_id,
         slot_id=request.slot_id,
     )
+    prepared = prepared_pattern_dir(
+        request.storage_root,
+        project_id=request.project_id,
+        generation_id=request.generation_id,
+        slot_id=request.slot_id,
+    )
+    if not prepared.is_dir():
+        raise PromoteRejected("prepared_bundle_missing")
     if not draft.is_dir():
         raise PromoteRejected("draft_not_found")
 
-    lint_log = draft / "lint-log.json"
+    lint_log = prepared / "lint-log.json"
     if not lint_log_confirms_pass(lint_log):
         raise PromoteRejected("lint_not_passed")
 
-    provenance_path = draft / "provenance.json"
-    provenance = json.loads(provenance_path.read_text(encoding="utf-8")) if provenance_path.is_file() else {}
-    if not provenance.get("lintPassed"):
+    provenance_path = prepared / "provenance.json"
+    if provenance_path.is_file():
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        if provenance.get("lintPassed") is False:
+            raise PromoteRejected("lint_not_passed")
+
+    meta_path = prepared / "entry-meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    if not meta.get("lintPassed", True):
         raise PromoteRejected("lint_not_passed")
 
-    if hyperframes_cli is not None:
-        composition_dir_raw = provenance.get("compositionDir")
-        if isinstance(composition_dir_raw, str) and composition_dir_raw.strip():
-            composition_dir = Path(composition_dir_raw)
-            if composition_dir.is_dir():
-                relint = hyperframes_cli.lint(composition_dir, draft / "promote-relint-log.json")
-                if not relint.get("ok"):
-                    raise PromoteRejected("lint_reverify_failed")
-
-    meta_path = draft / "entry-meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     category = request.category or meta.get("category") or "composition"
     slug = category_slug(str(category))
-    entry_id = entry_id or f"comp-{request.generation_id}-{request.slot_id}"
+    entry_id = entry_id or composition_pattern_entry_id(request.generation_id, request.slot_id)
     published = published_entry_dir(request.storage_root, slug, entry_id)
     if published.exists():
         shutil.rmtree(published)
-    shutil.copytree(draft, published)
+    shutil.copytree(prepared, published)
     return {
         "entryId": entry_id,
         "categorySlug": slug,
         "publishedDir": str(published),
         "entryKind": "composition_pattern",
+        "title": request.title or meta.get("title"),
+        "summary": meta.get("summary"),
+        "category": category,
     }

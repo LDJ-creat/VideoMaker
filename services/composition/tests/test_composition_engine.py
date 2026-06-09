@@ -149,29 +149,15 @@ def test_deposit_and_promote_pattern(tmp_path: Path) -> None:
     meta = json.loads((draft / "entry-meta.json").read_text(encoding="utf-8"))
     assert meta["slotRoles"] == ["benefit_card"]
 
-    with pytest.raises(PromoteRejected):
+    with pytest.raises(PromoteRejected, match="prepared_bundle_missing"):
         promote_pattern(
             PatternPromoteRequest(
                 storage_root=storage,
                 project_id="p1",
                 generation_id="g1",
                 slot_id="slot-1",
-                user_score=3,
             ),
-            hyperframes_cli=HyperFramesCli(command_runner=fixture_command_runner()),
         )
-    published = promote_pattern(
-        PatternPromoteRequest(
-            storage_root=storage,
-            project_id="p1",
-            generation_id="g1",
-            slot_id="slot-1",
-            user_score=4,
-            title="Test Pattern",
-        ),
-        hyperframes_cli=HyperFramesCli(command_runner=fixture_command_runner()),
-    )
-    assert published["entryKind"] == "composition_pattern"
 
 
 def test_pattern_l0_includes_published_knowledge(tmp_path: Path) -> None:

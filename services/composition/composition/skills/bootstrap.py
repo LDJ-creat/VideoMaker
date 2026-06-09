@@ -34,5 +34,9 @@ def build_bootstrap_system_prompt(
         "# Output",
         "Use submit_material_spec with JSON matching material-spec schema.",
         "Prefer template=composition with composition.bodyHtml for rich motion graphics.",
+        "",
+        "# Pattern reuse",
+        "When a composition_pattern skill is listed, read composition-skill.md first, then spec.template.json.",
+        "Fill placeholders from the current slot; never copy unrelated product copy from the pattern.",
     ]
     return "\n".join(parts)
