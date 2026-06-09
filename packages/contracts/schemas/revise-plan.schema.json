@@ -1,12 +1,43 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://videomaker.local/schemas/edit-intent.schema.json",
-  "title": "EditIntent",
+  "$id": "https://videomaker.local/schemas/revise-plan.schema.json",
+  "title": "RevisePlan",
   "type": "object",
-  "required": ["intents"],
+  "additionalProperties": false,
+  "required": [
+    "planId",
+    "sessionId",
+    "turnId",
+    "sourceGenerationId",
+    "instruction",
+    "summary",
+    "costTier",
+    "requiresFullRender",
+    "executionMode",
+    "intents",
+    "executionSteps",
+    "status",
+    "createdAt"
+  ],
   "properties": {
+    "planId": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "turnId": { "type": "string", "minLength": 1 },
+    "sourceGenerationId": { "type": "string", "minLength": 1 },
+    "instruction": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "costTier": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "requiresFullRender": { "type": "boolean" },
+    "executionMode": {
+      "type": "string",
+      "enum": ["in_place", "fork"]
+    },
     "intents": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["target", "operation", "params", "rationale"],
@@ -70,7 +101,32 @@
         },
         "additionalProperties": false
       }
-    }
-  },
-  "additionalProperties": false
+    },
+    "executionSteps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["tool"],
+        "properties": {
+          "tool": { "type": "string", "minLength": 1 },
+          "params": { "type": "object" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "affectedSceneIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "approved", "executing", "executed", "cancelled", "superseded"]
+    },
+    "createdAt": { "type": "string", "minLength": 1 },
+    "executedAt": { "type": "string" },
+    "resultGenerationId": { "type": "string" },
+    "resultTaskId": { "type": "string" }
+  }
 }

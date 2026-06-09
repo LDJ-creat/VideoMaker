@@ -42,7 +42,8 @@ export type TaskStage =
   | "generating_tts"
   | "rendering_material"
   | "parsing_edit_intent"
-  | "applying_edit_intent";
+  | "applying_edit_intent"
+  | "applying_revise_patch";
 
 export type ArtifactType =
   | "video"
@@ -91,17 +92,109 @@ export type EditIntentOperation =
   | "reorder_selling_points"
   | "change_pace"
   | "change_packaging_style"
-  | "adjust_cta";
+  | "adjust_cta"
+  | "subtitle_patch"
+  | "timeline_scene_patch";
+
+export type EditIntentScope =
+  | "global"
+  | "scene"
+  | "track_subtitle"
+  | "track_audio"
+  | "track_video"
+  | "packaging";
+
+export type EditExecutionTool =
+  | "subtitle_patch"
+  | "timeline_scene_patch"
+  | "script_revise"
+  | "packaging_agent"
+  | "storyboard_agent"
+  | "material_regen"
+  | "full_pipeline";
 
 export type EditIntentItem = {
   target: EditIntentTarget;
   operation: EditIntentOperation;
   params: Record<string, unknown>;
   rationale: string;
+  scope?: EditIntentScope;
+  sceneIds?: string[];
+  slotIds?: string[];
+  executionTool?: EditExecutionTool;
 };
 
 export type EditIntent = {
   intents: EditIntentItem[];
+};
+
+export type ReviseCostTier = "low" | "medium" | "high";
+
+export type ReviseExecutionMode = "in_place" | "fork";
+
+export type RevisePlanStatus =
+  | "draft"
+  | "approved"
+  | "executing"
+  | "executed"
+  | "cancelled"
+  | "superseded";
+
+export type ReviseExecutionStep = {
+  tool: string;
+  params?: Record<string, unknown>;
+  description?: string;
+};
+
+export type RevisePlannerOutput = {
+  summary: string;
+  costTier: ReviseCostTier;
+  requiresFullRender: boolean;
+  executionMode: ReviseExecutionMode;
+  intents: EditIntentItem[];
+  executionSteps: ReviseExecutionStep[];
+  affectedSceneIds?: string[];
+  conversationSummary?: string;
+};
+
+export type RevisePlan = RevisePlannerOutput & {
+  planId: string;
+  sessionId: string;
+  turnId: string;
+  sourceGenerationId: string;
+  instruction: string;
+  status: RevisePlanStatus;
+  createdAt: string;
+  executedAt?: string;
+  resultGenerationId?: string;
+  resultTaskId?: string;
+};
+
+export type ReviseSessionTurnStatus =
+  | "planned"
+  | "approved"
+  | "executing"
+  | "executed"
+  | "cancelled"
+  | "failed";
+
+export type ReviseSessionTurn = {
+  turnId: string;
+  instruction: string;
+  planId: string;
+  planSummary?: string;
+  costTier?: ReviseCostTier;
+  status: ReviseSessionTurnStatus;
+  createdAt: string;
+};
+
+export type ReviseSession = {
+  sessionId: string;
+  sourceGenerationId: string;
+  status?: "active" | "archived";
+  conversationSummary?: string;
+  turns: ReviseSessionTurn[];
+  updatedAt: string;
 };
 
 export type MaterialTemplate =

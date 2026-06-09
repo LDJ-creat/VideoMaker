@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/revise-session.schema.json",
+  "title": "ReviseSession",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessionId", "sourceGenerationId", "turns", "updatedAt"],
+  "properties": {
+    "sessionId": { "type": "string", "minLength": 1 },
+    "sourceGenerationId": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["active", "archived"]
+    },
+    "conversationSummary": { "type": "string" },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["turnId", "instruction", "planId", "status", "createdAt"],
+        "properties": {
+          "turnId": { "type": "string", "minLength": 1 },
+          "instruction": { "type": "string", "minLength": 1 },
+          "planId": { "type": "string", "minLength": 1 },
+          "planSummary": { "type": "string" },
+          "costTier": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "approved", "executing", "executed", "cancelled", "failed"]
+          },
+          "createdAt": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "updatedAt": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,12 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://videomaker.local/schemas/edit-intent.schema.json",
-  "title": "EditIntent",
+  "$id": "https://videomaker.local/schemas/revise-planner-output.schema.json",
+  "title": "RevisePlannerOutput",
   "type": "object",
-  "required": ["intents"],
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "costTier",
+    "requiresFullRender",
+    "executionMode",
+    "intents",
+    "executionSteps"
+  ],
   "properties": {
+    "summary": { "type": "string", "minLength": 1 },
+    "costTier": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "requiresFullRender": { "type": "boolean" },
+    "executionMode": {
+      "type": "string",
+      "enum": ["in_place", "fork"]
+    },
     "intents": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["target", "operation", "params", "rationale"],
@@ -70,7 +89,25 @@
         },
         "additionalProperties": false
       }
-    }
-  },
-  "additionalProperties": false
+    },
+    "executionSteps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["tool"],
+        "properties": {
+          "tool": { "type": "string", "minLength": 1 },
+          "params": { "type": "object" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "affectedSceneIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "conversationSummary": { "type": "string" }
+  }
 }
