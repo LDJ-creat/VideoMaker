@@ -26,6 +26,7 @@
     },
     "narrationDurationSec": { "type": "number", "minimum": 0 },
     "masterNarration": { "type": "string" },
+    "visualStyleBible": { "$ref": "visual-style-bible.schema.json" },
     "storyboard": {
       "type": "array",
       "items": {

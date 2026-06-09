@@ -654,6 +654,19 @@ export type CompletionAction = {
   stockAttribution?: StockAttribution;
 };
 
+export type VisualStyleBible = {
+  summary: string;
+  palette?: string[];
+  lighting?: string;
+  cameraGrammar?: string;
+  mood?: string;
+  avoid?: string[];
+  derivedFrom?: {
+    structureId?: string;
+    knowledgeEntryId?: string;
+  };
+};
+
 export type GenerationPlan = {
   id: string;
   projectId: string;
@@ -667,6 +680,7 @@ export type GenerationPlan = {
   ttsMode?: "global" | "per_scene";
   narrationDurationSec?: number;
   masterNarration: string;
+  visualStyleBible?: VisualStyleBible;
   storyboard: StoryboardScene[];
   timeline: RenderTimeline;
   packagingPlan: PackagingPlan;
@@ -679,6 +693,7 @@ export type ScriptDraft = {
   variant: GenerationVariant;
   masterNarration: string;
   masterNarrationStatus: ScriptReviewStatus;
+  visualStyleBible?: VisualStyleBible;
   storyboard: StoryboardScene[];
   storyboardStatus: ScriptReviewStatus;
   generationStrategy?: GenerationStrategy;
