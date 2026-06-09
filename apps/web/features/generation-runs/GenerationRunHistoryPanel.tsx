@@ -14,27 +14,59 @@ import {
 import type { GenerationRunSummary } from "@/lib/apiClient";
 import { getGenerationRun, listGenerationRuns } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
-
-function generationRunStatusLabel(status: string): string {
-  if (status === "awaiting_review") return "等待脚本审核";
-  if (status === "completed") return "已完成";
-  if (status === "partial_failed") return "部分失败";
-  if (status === "running") return "进行中";
-  return status;
-}
+import {
+  formatGenerationRunMetaLine,
+  formatGenerationRunTitle,
+  formatShortRunId,
+} from "@/lib/formatGenerationRunDisplay";
+import {
+  generationRunStatusLabel,
+  generationStatusBadgeVariant,
+  generationStatusLabel,
+} from "@/lib/generationRunLabels";
+import type { GenerationRunGenerationSummary } from "@/lib/reloadGenerationRunResults";
+import { getVariantLabel } from "@/lib/variantRegistry";
 
 type GenerationRunHistoryPanelProps = {
   projectId: string;
   activeRunId?: string | null;
   onSelectRun?: (runId: string) => void;
+  onRetryTask?: (taskId: string) => void;
+  retryBusy?: boolean;
 };
+
+function orderGenerationsForRun(
+  run: GenerationRunSummary,
+  generations: GenerationRunGenerationSummary[],
+): GenerationRunGenerationSummary[] {
+  if (run.variantIds.length === 0) return generations;
+  const byVariant = new Map(
+    generations.map((entry) => [entry.variant ?? "", entry]),
+  );
+  const ordered: GenerationRunGenerationSummary[] = [];
+  for (const variantId of run.variantIds) {
+    const match = byVariant.get(variantId);
+    if (match) ordered.push(match);
+  }
+  for (const entry of generations) {
+    if (!ordered.includes(entry)) {
+      ordered.push(entry);
+    }
+  }
+  return ordered;
+}
 
 export function GenerationRunHistoryPanel({
   projectId,
   activeRunId,
   onSelectRun,
+  onRetryTask,
+  retryBusy = false,
 }: GenerationRunHistoryPanelProps) {
   const [runs, setRuns] = useState<GenerationRunSummary[]>([]);
+  const [runGenerations, setRunGenerations] = useState<
+    Record<string, GenerationRunGenerationSummary[]>
+  >({});
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +76,18 @@ export function GenerationRunHistoryPanel({
     try {
       const { data } = await listGenerationRuns(projectId);
       setRuns(data.runs);
+
+      const detailEntries = await Promise.all(
+        data.runs.map(async (run) => {
+          try {
+            const { data: detail } = await getGenerationRun(projectId, run.id);
+            return [run.id, detail.generations] as const;
+          } catch {
+            return [run.id, []] as const;
+          }
+        }),
+      );
+      setRunGenerations(Object.fromEntries(detailEntries));
     } catch (error) {
       setStatus(getErrorMessage(error));
     } finally {
@@ -55,47 +99,130 @@ export function GenerationRunHistoryPanel({
     void refresh();
   }, [refresh]);
 
-  const handleSelect = async (runId: string) => {
-    onSelectRun?.(runId);
-    try {
-      await getGenerationRun(projectId, runId);
-    } catch (error) {
-      setStatus(getErrorMessage(error));
-    }
-  };
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>生成历史</CardTitle>
-        <CardDescription>按批次/run 查看多次生成结果，不会互相覆盖。</CardDescription>
+        <CardDescription>
+          按时间查看每次生成的变体结果，成功与失败互不影响。
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-3">
+        {loading && runs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">正在加载生成记录…</p>
+        ) : null}
         {runs.length === 0 && !loading && (
           <p className="text-sm text-muted-foreground">暂无生成记录。</p>
         )}
-        {runs.map((run) => (
-          <div
-            key={run.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2"
-          >
-            <div className="space-y-1">
-              <p className="font-mono text-xs">{run.id}</p>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{generationRunStatusLabel(run.status)}</Badge>
-                <span className="text-xs text-muted-foreground">{run.createdAt}</span>
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={activeRunId === run.id ? "default" : "outline"}
-              onClick={() => void handleSelect(run.id)}
+        {runs.map((run, index) => {
+          const generations = orderGenerationsForRun(
+            run,
+            runGenerations[run.id] ?? [],
+          );
+          const variantSummaries = generations.map((entry) => ({
+            variant: entry.variant ?? entry.plan?.variant,
+            status: entry.status,
+          }));
+
+          return (
+            <div
+              key={run.id}
+              className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-3"
             >
-              查看
-            </Button>
-          </div>
-        ))}
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="space-y-1">
+                  <p
+                    className="text-sm font-medium leading-snug"
+                    data-testid={`run-title-${run.id}`}
+                  >
+                    {formatGenerationRunTitle(run.createdAt, index, runs.length)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatGenerationRunMetaLine(
+                      run.createdAt,
+                      run.status,
+                      variantSummaries,
+                    )}
+                  </p>
+                  <p
+                    className="font-mono text-[11px] text-muted-foreground/80"
+                    title={run.id}
+                  >
+                    批次 ID {formatShortRunId(run.id)}
+                  </p>
+                </div>
+
+                {generations.length > 0 ? (
+                  <div
+                    className="flex flex-wrap gap-2"
+                    data-testid={`run-variant-status-${run.id}`}
+                  >
+                    {generations.map((entry) => {
+                      const variantId =
+                        entry.variant ?? entry.plan?.variant ?? "default";
+                      const canRetry =
+                        (entry.status === "failed" ||
+                          entry.status === "cancelled") &&
+                        Boolean(entry.taskId) &&
+                        Boolean(onRetryTask);
+                      return (
+                        <div
+                          key={entry.generationId}
+                          className="flex flex-wrap items-center gap-1.5"
+                        >
+                          <Badge
+                            variant={generationStatusBadgeVariant(entry.status)}
+                          >
+                            {getVariantLabel(variantId)} ·{" "}
+                            {generationStatusLabel(entry.status)}
+                          </Badge>
+                          {canRetry ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2"
+                              disabled={retryBusy}
+                              onClick={() => {
+                                if (activeRunId !== run.id) {
+                                  onSelectRun?.(run.id);
+                                }
+                                onRetryTask!(entry.taskId!);
+                              }}
+                            >
+                              重试
+                            </Button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : run.variantIds.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {run.variantIds.map((variantId) => (
+                      <Badge key={variantId} variant="outline">
+                        {getVariantLabel(variantId)} · 加载中
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <Badge variant="outline">
+                    {generationRunStatusLabel(run.status)}
+                  </Badge>
+                )}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={activeRunId === run.id ? "default" : "outline"}
+                className="shrink-0"
+                onClick={() => onSelectRun?.(run.id)}
+              >
+                {activeRunId === run.id ? "当前查看" : "查看结果"}
+              </Button>
+            </div>
+          );
+        })}
         {status && (
           <p className="text-sm text-muted-foreground" role="status">
             {status}

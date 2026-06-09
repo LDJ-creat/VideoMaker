@@ -3,6 +3,7 @@
 import type { GenerationPlan } from "@videomaker/contracts";
 import type { ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Tabs,
   TabsContent,
@@ -10,12 +11,15 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
+import { generationStatusLabel } from "@/lib/generationRunLabels";
 import { getVariantLabel } from "@/lib/variantRegistry";
 
 export type VariantGenerationTab = {
   generationId: string;
   variant: string;
   label?: string;
+  status?: string;
+  taskId?: string;
   plan?: GenerationPlan | null;
   renderVideoUrl?: string;
 };
@@ -25,14 +29,55 @@ type VariantTabsProps = {
   activeGenerationId: string;
   onActiveChange: (generationId: string) => void;
   loading?: boolean;
+  retryBusy?: boolean;
+  onRetryTask?: (taskId: string) => void;
   renderPlan?: (plan: GenerationPlan, tab: VariantGenerationTab) => ReactNode;
 };
+
+function FailedVariantResult({
+  tab,
+  retryBusy,
+  onRetryTask,
+}: {
+  tab: VariantGenerationTab;
+  retryBusy?: boolean;
+  onRetryTask?: (taskId: string) => void;
+}) {
+  const canRetry =
+    (tab.status === "failed" || tab.status === "cancelled") &&
+    Boolean(tab.taskId) &&
+    Boolean(onRetryTask);
+
+  return (
+    <div
+      className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4"
+      data-testid={`variant-failed-${tab.generationId}`}
+    >
+      <p className="text-sm text-muted-foreground">
+        变体 {tab.label ?? getVariantLabel(tab.variant)}{" "}
+        {tab.status ? generationStatusLabel(tab.status) : "暂无计划数据"}
+      </p>
+      {canRetry ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={retryBusy}
+          onClick={() => onRetryTask!(tab.taskId!)}
+        >
+          {retryBusy ? "正在重新提交…" : "重试生成"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 export function VariantTabs({
   tabs,
   activeGenerationId,
   onActiveChange,
   loading,
+  retryBusy = false,
+  onRetryTask,
   renderPlan,
 }: VariantTabsProps) {
   if (tabs.length === 0) {
@@ -71,14 +116,15 @@ export function VariantTabs({
             ) : (
               <GenerationResultView
                 plan={tab.plan}
-                showTimeline
                 videoHref={tab.renderVideoUrl}
               />
             )
           ) : (
-            <p className="text-sm text-muted-foreground">
-              变体 {tab.label ?? tab.variant} 暂无计划数据
-            </p>
+            <FailedVariantResult
+              tab={tab}
+              retryBusy={retryBusy}
+              onRetryTask={onRetryTask}
+            />
           )}
         </TabsContent>
       ))}

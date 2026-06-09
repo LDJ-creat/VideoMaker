@@ -1,10 +1,10 @@
 "use client";
 
 import type { GenerationPlan } from "@videomaker/contracts";
-import { Film } from "lucide-react";
+import { ChevronDown, ChevronRight, Film } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -22,7 +22,9 @@ type GenerationResultViewProps = {
   plan: GenerationPlan;
   /** From API when renders/.../output.mp4 exists; skips client probe when set. */
   videoHref?: string;
+  /** When true, render the timeline section (collapsed by default). */
   showTimeline?: boolean;
+  timelineDefaultExpanded?: boolean;
 };
 
 async function probeVideoUrl(url: string): Promise<boolean> {
@@ -37,10 +39,14 @@ async function probeVideoUrl(url: string): Promise<boolean> {
 export function GenerationResultView({
   plan,
   videoHref,
-  showTimeline = false,
+  showTimeline = true,
+  timelineDefaultExpanded = false,
 }: GenerationResultViewProps) {
   const apiVideoUrl = videoHref?.trim() || null;
   const [probedVideoUrl, setProbedVideoUrl] = useState<string | null>(null);
+  const [timelineExpanded, setTimelineExpanded] = useState(
+    timelineDefaultExpanded,
+  );
 
   const probeTarget =
     !apiVideoUrl && plan.projectId && plan.id
@@ -89,6 +95,7 @@ export function GenerationResultView({
     narrationDurationSec != null &&
     durationTargetSec != null &&
     narrationDurationSec > durationTargetSec + 0.05;
+  const hasTimeline = showTimeline && plan.timeline.tracks.length > 0;
 
   return (
     <div className="space-y-4">
@@ -98,6 +105,7 @@ export function GenerationResultView({
           <CardDescription>
             变体 {plan.variant} · {plan.storyboard.length} 个分镜场景
             {plan.ttsMode ? ` · 口播 ${plan.ttsMode === "global" ? "全片" : "分镜"}` : ""}
+            {" · 槽位拆解见「全片拆解」"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -107,23 +115,6 @@ export function GenerationResultView({
               {durationTargetSec.toFixed(1)}s，成片已按口播延长尾镜。
             </p>
           ) : null}
-          <div className="grid gap-3">
-            {plan.storyboard.map((scene) => (
-              <div
-                key={scene.id}
-                className="rounded-lg border border-border p-3"
-              >
-                <div className="mb-1 flex items-center justify-between">
-                  <Badge variant="outline">{scene.source}</Badge>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {scene.startSec}–{scene.endSec}s
-                  </span>
-                </div>
-                <p className="text-sm font-medium">{scene.visual}</p>
-                <p className="text-sm text-muted-foreground">{scene.script}</p>
-              </div>
-            ))}
-          </div>
 
           {playableVideoUrl ? (
             <div className="space-y-2">
@@ -157,7 +148,36 @@ export function GenerationResultView({
         </CardContent>
       </Card>
 
-      {showTimeline && <TimelinePreview timeline={plan.timeline} />}
+      {hasTimeline ? (
+        <div className="space-y-2" data-testid="generation-result-timeline">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">时间线预览</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              aria-expanded={timelineExpanded}
+              onClick={() => setTimelineExpanded((value) => !value)}
+            >
+              {timelineExpanded ? (
+                <ChevronDown className="mr-1 h-4 w-4" />
+              ) : (
+                <ChevronRight className="mr-1 h-4 w-4" />
+              )}
+              {timelineExpanded ? "收起" : "展开"}
+            </Button>
+          </div>
+          {timelineExpanded ? (
+            <TimelinePreview timeline={plan.timeline} />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              总时长 {plan.timeline.durationSec}s ·{" "}
+              {plan.timeline.tracks.length} 轨
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

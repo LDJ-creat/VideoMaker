@@ -476,6 +476,7 @@ export async function getGenerationRun(
       generationId: string;
       variant?: string;
       status?: string;
+      taskId?: string | null;
       plan?: GenerationResponse;
     }>;
     provenance?: StructureProvenanceSummary | null;

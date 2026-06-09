@@ -118,7 +118,7 @@ describe("ProjectWorkbench", () => {
     cleanup();
   });
 
-  it("switches between input, progress, structure, gap, narration, and result panels", async () => {
+  it("switches between input, progress, structure, narration, and result panels", async () => {
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
 
@@ -133,12 +133,9 @@ describe("ProjectWorkbench", () => {
       screen.getByText("已分析样例"),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "缺口" }));
-    expect(screen.getByText(/缺口报告/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "全片口播" }));
+    await user.click(screen.getByRole("button", { name: "全片拆解" }));
     expect(
-      screen.getByRole("heading", { name: "全片口播" }),
+      screen.getByRole("heading", { name: "全片拆解" }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("master-narration-text")).toBeInTheDocument();
 
