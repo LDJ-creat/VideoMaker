@@ -375,11 +375,19 @@ class ModelGateway:
             if not isinstance(item, dict):
                 continue
             fn = item.get("function") if isinstance(item.get("function"), dict) else {}
+            raw_args = fn.get("arguments", {})
+            if isinstance(raw_args, str):
+                try:
+                    parsed_args = json.loads(raw_args) if raw_args.strip() else {}
+                except json.JSONDecodeError:
+                    parsed_args = {"raw": raw_args}
+            else:
+                parsed_args = raw_args if isinstance(raw_args, dict) else {}
             tool_calls.append(
                 {
                     "id": item.get("id", fn.get("name", "tool")),
                     "name": fn.get("name", ""),
-                    "arguments": fn.get("arguments", {}),
+                    "arguments": parsed_args,
                 }
             )
         content = message.get("content")

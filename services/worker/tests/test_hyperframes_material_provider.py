@@ -112,7 +112,10 @@ def test_hyperframes_provider_with_prefilled_spec(tmp_path: Path) -> None:
     ]
 
 
-def test_hyperframes_provider_runs_material_author_via_runner(tmp_path: Path) -> None:
+def test_hyperframes_provider_runs_material_author_via_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "legacy")
     structure = _load_structure_fixture()
     spec = _load_material_spec_fixture()
     storage_root = tmp_path / "storage"
@@ -147,7 +150,8 @@ def test_hyperframes_provider_runs_material_author_via_runner(tmp_path: Path) ->
     result = ctx.providers["hyperframes_material"].execute(action, ctx)
 
     assert result["ok"] is True
-    assert any(stage == "running_agent" for stage, _ in ctx._progress_events)  # type: ignore[attr-defined]
+    log_dir = storage_root / "projects" / "project-1" / "logs" / "agent-runs"
+    assert log_dir.is_dir() and any(log_dir.glob("*.json"))
 
 
 def test_hyperframes_provider_render_failure_returns_structured_error(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from model_gateway.chat_endpoint import resolve_chat_completions_url
+from model_gateway.chat_messages import normalize_messages_for_chat_api
 from app.gateway.providers.base import GatewayError, ProviderConfig
 
 _RETRYABLE_STATUS = {429, 502, 503}
@@ -51,7 +52,7 @@ class OpenAICompatibleChatProvider:
         url = resolve_chat_completions_url(base)
         body: dict[str, Any] = {
             "model": model or self.config.model,
-            "messages": messages,
+            "messages": normalize_messages_for_chat_api(messages),
         }
         if response_format is not None:
             body["response_format"] = response_format

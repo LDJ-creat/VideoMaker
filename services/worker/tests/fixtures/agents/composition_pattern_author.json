@@ -1,0 +1,19 @@
+{
+  "frontmatter": {
+    "title": "Benefit Card Stagger 包装动效",
+    "category": "composition",
+    "summary": "benefit_card 槽位卡片 stagger 入场与标题高亮的可复用包装动效。",
+    "slotRoles": ["benefit_card"],
+    "motionPattern": "stagger-fade-in"
+  },
+  "markdown": "## 适用场景\n\n- 卖点/利益点卡片包装\n- 需要 2–4 秒内完成多元素入场\n\n## 动效模式\n\n- 卡片容器 fade-in，子元素 stagger 0.08s\n- 标题使用 scale + opacity 强调\n\n## 占位符约定\n\n| 占位符 | 含义 |\n|--------|------|\n| {{title}} | 主标题文案 |\n| {{subtitle}} | 副标题/视觉意图 |\n\n## 适用 role\n\n- benefit_card\n- proof\n\n## 迁移注意\n\n- 替换占位符为当前 slot 文案，勿复制原视频产品名\n- 保持 durationSec 与 timeline 总时长一致\n",
+  "materialSpec": {
+    "template": "composition",
+    "durationSec": 2,
+    "composition": {
+      "bodyHtml": "<div id=\"root\" class=\"card\"><h1>{{title}}</h1><p>{{subtitle}}</p></div>",
+      "styles": ".card { opacity: 0; }",
+      "timelineScript": "tl.to('#root', { autoAlpha: 1, duration: 0.4 }, 0);"
+    }
+  }
+}

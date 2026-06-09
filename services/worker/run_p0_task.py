@@ -48,6 +48,8 @@ def _default_stage(mode: str) -> str:
         return "parsing_edit_intent"
     if mode == "run_revise":
         return "parsing_edit_intent"
+    if mode == "composition_pattern_promote":
+        return "composition_pattern_promote"
     return "analyzing_assets"
 
 
@@ -83,6 +85,7 @@ def main() -> int:
     project_id = str(payload["projectId"])
     mode = str(payload["mode"])
     resume = bool(payload.get("resume", False))
+    from composition.patterns.deposit import PromoteRejected
 
     emit = None
     result: dict[str, Any] | None = None
@@ -171,9 +174,75 @@ def main() -> int:
                 context=context,
             )
             result = {"ok": True, "selection": parsed}
+        elif mode == "composition_pattern_promote":
+            from app.agents.composition_pattern_author import run_composition_pattern_author
+            from app.pipelines.p0_demo_pipeline import is_fixture_mode
+            from app.runtime.task_context import TaskContext
+            from composition.patterns.promote_prepare import PromotePrepareContext, prepare_promoted_pattern_bundle
+            from composition.patterns.sanitize import load_generation_plan_context
+            from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_runner
+
+            generation_id = str(payload["generationId"])
+            slot_id = str(payload["slotId"])
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=storage_root,
+            )
+            runner = pipeline._build_runner()  # noqa: SLF001
+            loaded = load_generation_plan_context(
+                storage_root,
+                project_id=project_id,
+                generation_id=generation_id,
+                slot_id=slot_id,
+            )
+            cli = HyperFramesCli(
+                command_runner=fixture_command_runner() if is_fixture_mode() else None,
+            )
+
+            def author_fn(**kwargs: Any) -> dict[str, Any]:
+                return run_composition_pattern_author(
+                    runner,
+                    material_spec=kwargs["material_spec"],
+                    instance_spec=kwargs["instance_spec"],
+                    slot=kwargs["slot"],
+                    context=context,
+                    validation_errors=kwargs.get("validation_errors") or None,
+                    generation_id=generation_id,
+                )
+
+            prepared_dir = prepare_promoted_pattern_bundle(
+                PromotePrepareContext(
+                    storage_root=storage_root,
+                    project_id=project_id,
+                    generation_id=generation_id,
+                    slot_id=slot_id,
+                    slot_role=str(loaded.get("slotRole") or slot_id),
+                    storyboard_summary=str(loaded.get("storyboardSummary") or ""),
+                    master_narration=str(loaded.get("masterNarration") or ""),
+                    scene=loaded.get("scene") if isinstance(loaded.get("scene"), dict) else {},
+                ),
+                author_fn=author_fn,
+                hyperframes_cli=cli,
+            )
+            result = {"ok": True, "preparedDir": str(prepared_dir)}
         else:
             print(f"Unknown mode: {mode}", file=sys.stderr)
             return 2
+    except PromoteRejected as exc:
+        code = str(exc)
+        failure = {
+            "ok": False,
+            "error": code,
+            "finalEvent": {
+                "status": "failed",
+                "stage": _default_stage(mode),
+                "progress": 0,
+                "message": code,
+                "error": {"code": code, "message": code, "retryable": True},
+            },
+        }
+        result = failure
     except Exception as exc:
         traceback.print_exc()
         failure = _failure_result(mode, exc)
