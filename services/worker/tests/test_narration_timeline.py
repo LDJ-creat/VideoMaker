@@ -84,74 +84,44 @@ def test_hold_tail_extends_last_scene_and_duration(tmp_path: Path) -> None:
 
 
 def test_ripple_overflow_shifts_following_scenes(tmp_path: Path) -> None:
+    """Ripple helper shifts scenes when per-slot wav exceeds planned window."""
+    from app.pipelines.narration_timeline import _ripple_scene_timing
+
     render_root = tmp_path / "render"
     _write_wav(render_root / "materials" / "slot-1.wav", seconds=5.0)
 
-    plan = {
-        "ttsMode": "per_scene",
-        "generationStrategy": "long_form_composed",
-        "ttsMode": "per_scene",
-        "storyboard": [
-            {
-                "id": "scene-1",
-                "slotId": "slot-1",
-                "startSec": 0.0,
-                "endSec": 3.0,
-                "script": "a",
-                "visual": "v",
-                "source": "generated",
-            },
-            {
-                "id": "scene-2",
-                "slotId": "slot-2",
-                "startSec": 3.0,
-                "endSec": 6.0,
-                "script": "b",
-                "visual": "v2",
-                "source": "generated",
-            },
-        ],
-        "timeline": {
-            "durationSec": 6.0,
-            "tracks": [
-                {
-                    "id": "track-video",
-                    "type": "video",
-                    "clips": [
-                        {"id": "clip-slot-1", "startSec": 0.0, "endSec": 3.0},
-                        {"id": "clip-slot-2", "startSec": 3.0, "endSec": 6.0},
-                    ],
-                },
-                {
-                    "id": "track-voiceover",
-                    "type": "voiceover",
-                    "clips": [
-                        {
-                            "id": "vo-slot-1",
-                            "startSec": 0.0,
-                            "endSec": 3.0,
-                            "sourceRef": "materials/slot-1.wav",
-                        }
-                    ],
-                },
-            ],
+    storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": "slot-1",
+            "startSec": 0.0,
+            "endSec": 3.0,
+            "script": "a",
+            "visual": "v",
+            "source": "generated",
         },
+        {
+            "id": "scene-2",
+            "slotId": "slot-2",
+            "startSec": 3.0,
+            "endSec": 6.0,
+            "script": "b",
+            "visual": "v2",
+            "source": "generated",
+        },
+    ]
+    vo_clips = {
+        "vo-slot-1": {
+            "id": "vo-slot-1",
+            "startSec": 0.0,
+            "endSec": 3.0,
+            "sourceRef": "materials/slot-1.wav",
+        }
     }
-
-    updated = sync_timeline_to_narration(
-        plan,
-        render_root=render_root,
-        mode="ripple_overflow",
-    )
-    assert updated["storyboard"][0]["endSec"] == 5.0
-    assert updated["storyboard"][1]["startSec"] == 5.0
-    assert updated["storyboard"][1]["endSec"] == 8.0
-    vo_clip = next(
-        c
-        for c in next(t for t in updated["timeline"]["tracks"] if t["type"] == "voiceover")["clips"]
-        if c["id"] == "vo-slot-1"
-    )
-    assert vo_clip["endSec"] == 5.0
+    rippled = _ripple_scene_timing(storyboard, render_root=render_root, vo_clips=vo_clips)
+    assert rippled[0]["endSec"] == 5.0
+    assert rippled[1]["startSec"] == 5.0
+    assert rippled[1]["endSec"] == 8.0
 
 
 def test_narration_end_sec_global_master(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ from app.agents.runner import AgentRunner
 from app.config.variants import load_agent_overrides
 from app.pipelines.master_narration import apply_master_narration_to_storyboard
 from app.pipelines.narration_script import is_creative_direction_text
+from app.pipelines.tts_voice_options import normalize_vo_directive, report_vo_directive_warnings
 from app.pipelines.visual_style_bible import (
     knowledge_entry_id_from_context,
     normalize_visual_style_bible,
@@ -76,6 +77,7 @@ def _normalize_storyboard_scenes(
     storyboard: list[Any],
     *,
     structure: dict[str, Any],
+    vo_warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     slots_by_id = _slot_lookup(structure)
     normalized: list[dict[str, Any]] = []
@@ -125,17 +127,21 @@ def _normalize_storyboard_scenes(
             source = "generated"
         item["source"] = source
 
-        normalized.append(
-            {
-                "id": item["id"],
-                "slotId": item["slotId"],
-                "startSec": item["startSec"],
-                "endSec": item["endSec"],
-                "visual": item["visual"],
-                "script": item["script"],
-                "source": item["source"],
-            }
-        )
+        scene_payload: dict[str, Any] = {
+            "id": item["id"],
+            "slotId": item["slotId"],
+            "startSec": item["startSec"],
+            "endSec": item["endSec"],
+            "visual": item["visual"],
+            "script": item["script"],
+            "source": item["source"],
+        }
+        vo_directive, directive_warnings = normalize_vo_directive(item.get("voDirective"))
+        if vo_warnings is not None:
+            vo_warnings.extend(directive_warnings)
+        if vo_directive:
+            scene_payload["voDirective"] = vo_directive
+        normalized.append(scene_payload)
     return normalized
 
 
@@ -144,11 +150,25 @@ def _optional_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return {"summary": summary} if summary else {}
 
 
+def _optional_narration_vo_profile(
+    payload: dict[str, Any],
+    *,
+    vo_warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    normalized, warnings = normalize_vo_directive(payload.get("narrationVoProfile"))
+    if vo_warnings is not None:
+        vo_warnings.extend(warnings)
+    if normalized:
+        return {"narrationVoProfile": normalized}
+    return {}
+
+
 def _assert_master_only(
     payload: dict[str, Any],
     *,
     structure: dict[str, Any],
     knowledge_context: dict[str, Any] | None = None,
+    vo_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     master = str(payload.get("masterNarration") or "").strip()
     if not master:
@@ -162,6 +182,7 @@ def _assert_master_only(
     result: dict[str, Any] = {
         "masterNarration": master,
         "visualStyleBible": bible,
+        **_optional_narration_vo_profile(payload, vo_warnings=vo_warnings),
         **_optional_summary(payload),
     }
     return result
@@ -172,11 +193,16 @@ def _assert_storyboard_from_master(
     *,
     structure: dict[str, Any],
     master_narration: str,
+    vo_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     storyboard = payload.get("storyboard")
     if not isinstance(storyboard, list):
         raise ValueError("storyboard_writer storyboard_from_master output must include storyboard array")
-    normalized = _normalize_storyboard_scenes(storyboard, structure=structure)
+    normalized = _normalize_storyboard_scenes(
+        storyboard,
+        structure=structure,
+        vo_warnings=vo_warnings,
+    )
     master = str(master_narration or payload.get("masterNarration") or "").strip()
     if not master:
         raise ValueError("approved masterNarration is required for storyboard_from_master")
@@ -265,11 +291,13 @@ def run_storyboard_writer(
     if knowledge_context:
         inputs["knowledgeContext"] = knowledge_context
 
+    vo_warnings: list[str] = []
     if normalized_phase in {"master_only", "revise_master"}:
         post_validate = lambda payload: _assert_master_only(
             payload,
             structure=structure,
             knowledge_context=knowledge_context,
+            vo_warnings=vo_warnings,
         )
     else:
         approved_master = str(master_narration or "").strip()
@@ -283,6 +311,7 @@ def run_storyboard_writer(
             payload,
             structure=structure,
             master_narration=approved_master,
+            vo_warnings=vo_warnings,
         )
 
     output = runner.run(
@@ -295,4 +324,5 @@ def run_storyboard_writer(
         generation_id=generation_id,
         post_validate=post_validate,
     )
+    report_vo_directive_warnings(vo_warnings, emit_event=context.emit_event)
     return output

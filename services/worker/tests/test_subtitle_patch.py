@@ -36,7 +36,7 @@ def test_apply_subtitle_patch_reduces_density() -> None:
             ],
         },
         "packagingPlan": {"subtitle": {"density": "medium", "preset": "clean"}},
-        "ttsMode": "per_scene",
+        "ttsMode": "global",
     }
     intents = [
         {

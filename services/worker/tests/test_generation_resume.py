@@ -165,7 +165,7 @@ def test_run_generation_resume_normalizes_legacy_short_form_plan(
         "gapReportId": gap_report["id"],
         "variant": "default",
         "generationStrategy": "short_form_direct",
-        "masterNarration": "legacy narration",
+        "masterNarration": "hello",
         "storyboard": [
             {
                 "id": "scene-1",
@@ -186,17 +186,17 @@ def test_run_generation_resume_normalizes_legacy_short_form_plan(
         },
         "completionActions": [
             {
-                "id": "action-slot-a-tts",
-                "slotId": "slot-a",
+                "id": "action-master-tts",
+                "slotId": "__master__",
                 "provider": "tts",
                 "strategy": "tts",
-                "outputRef": "completion://slot-a/tts",
+                "outputRef": "completion://__master__/tts",
             }
         ],
     }
     generated_root = generation_root / "generated"
     generated_root.mkdir(parents=True, exist_ok=True)
-    (generated_root / "slot-a.wav").write_bytes(b"RIFF----WAVE")
+    (generated_root / "master.wav").write_bytes(b"RIFF----WAVE")
     (generation_root / "asset-inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
     (generation_root / "slot-matches.json").write_text(
         json.dumps({"slotMatches": []}),
@@ -271,5 +271,9 @@ def test_run_generation_resume_normalizes_legacy_short_form_plan(
     assert result["ok"] is True
     persisted = json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
     assert persisted["generationStrategy"] == "long_form_composed"
-    assert persisted["ttsMode"] == "per_scene"
-    assert persisted["completionActions"][0]["slotId"] == "slot-a"
+    assert persisted["ttsMode"] == "global"
+    tts_actions = [
+        action for action in persisted["completionActions"] if action.get("provider") == "tts"
+    ]
+    assert tts_actions
+    assert tts_actions[0]["slotId"] == "__master__"

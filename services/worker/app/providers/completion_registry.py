@@ -512,6 +512,8 @@ def _apply_generated_sources_to_timeline(
         }
 
     for slot_id, result in tts_by_slot.items():
+        if slot_id != MASTER_TTS_SLOT_ID:
+            continue
         artifact = result.get("artifactRef") or {}
         uri = str(artifact.get("uri", "")).strip()
         if not uri:
@@ -527,25 +529,15 @@ def _apply_generated_sources_to_timeline(
             if uri_path.is_file():
                 wav_path = uri_path
 
-        if slot_id == MASTER_TTS_SLOT_ID:
-            start_sec = 0.0
-            storyboard_end_sec = 0.0
-            end_sec = _voiceover_end_sec(
-                start_sec=start_sec,
-                storyboard_end_sec=storyboard_end_sec,
-                wav_path=wav_path,
-                clamp_to_storyboard=False,
-            )
-            vo_id = VO_MASTER_CLIP_ID
-        else:
-            start_sec, storyboard_end_sec = scene_timing.get(slot_id, (0.0, 0.0))
-            end_sec = _voiceover_end_sec(
-                start_sec=start_sec,
-                storyboard_end_sec=storyboard_end_sec,
-                wav_path=wav_path,
-                clamp_to_storyboard=True,
-            )
-            vo_id = f"vo-{slot_id}"
+        start_sec = 0.0
+        storyboard_end_sec = 0.0
+        end_sec = _voiceover_end_sec(
+            start_sec=start_sec,
+            storyboard_end_sec=storyboard_end_sec,
+            wav_path=wav_path,
+            clamp_to_storyboard=False,
+        )
+        vo_id = VO_MASTER_CLIP_ID
 
         vo_clip = vo_by_id.get(vo_id) or {
             "id": vo_id,

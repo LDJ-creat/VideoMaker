@@ -403,14 +403,16 @@ def test_run_generating_material_seeds_quota_from_gap_report(tmp_path: Path) -> 
 
 
 def test_apply_material_results_adds_voiceover_clip(tmp_path: Path) -> None:
+    from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID, VO_MASTER_CLIP_ID
     from app.providers.completion_registry import apply_material_results_to_plan
 
-    wav_uri = str((tmp_path / "generated" / "slot-hook.wav").resolve())
+    wav_uri = str((tmp_path / "generated" / "master.wav").resolve())
     (tmp_path / "generated").mkdir(parents=True, exist_ok=True)
     Path(wav_uri).write_bytes(b"RIFF----WAVE")
 
     render_root = tmp_path / "renders" / "gen-1"
     plan = {
+        "ttsMode": "global",
         "storyboard": [
             {
                 "id": "scene-1",
@@ -423,7 +425,7 @@ def test_apply_material_results_adds_voiceover_clip(tmp_path: Path) -> None:
             }
         ],
         "completionActions": [
-            _action("action-hook-tts", "slot-hook", "tts"),
+            _action("action-master-tts", MASTER_TTS_SLOT_ID, "tts"),
         ],
         "timeline": {
             "durationSec": 5.0,
@@ -437,8 +439,8 @@ def test_apply_material_results_adds_voiceover_clip(tmp_path: Path) -> None:
     results = [
         {
             "ok": True,
-            "actionId": "action-hook-tts",
-            "slotId": "slot-hook",
+            "actionId": "action-master-tts",
+            "slotId": MASTER_TTS_SLOT_ID,
             "provider": "tts",
             "artifactRef": {"id": "a1", "type": "audio", "uri": wav_uri},
         }
@@ -446,18 +448,20 @@ def test_apply_material_results_adds_voiceover_clip(tmp_path: Path) -> None:
     updated = apply_material_results_to_plan(plan, results=results, render_root=render_root)
     vo_track = next(t for t in updated["timeline"]["tracks"] if t["type"] == "voiceover")
     assert len(vo_track["clips"]) == 1
-    assert vo_track["clips"][0]["sourceRef"] == "materials/slot-hook.wav"
+    assert vo_track["clips"][0]["id"] == VO_MASTER_CLIP_ID
+    assert vo_track["clips"][0]["sourceRef"] == "materials/master.wav"
     assert vo_track["clips"][0]["startSec"] == 0.0
-    assert (render_root / "materials" / "slot-hook.wav").is_file()
+    assert (render_root / "materials" / "master.wav").is_file()
     assert updated["storyboard"][0]["source"] == "text_completion"
 
 
 def test_apply_material_clamps_voiceover_end_to_wav_duration(tmp_path: Path) -> None:
+    from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID, VO_MASTER_CLIP_ID
     from app.providers.completion_registry import apply_material_results_to_plan
     import struct
     import wave
 
-    wav_path = tmp_path / "generated" / "slot-hook.wav"
+    wav_path = tmp_path / "generated" / "master.wav"
     wav_path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(wav_path), "wb") as handle:
         handle.setnchannels(1)
@@ -467,6 +471,7 @@ def test_apply_material_clamps_voiceover_end_to_wav_duration(tmp_path: Path) -> 
 
     render_root = tmp_path / "renders" / "gen-1"
     plan = {
+        "ttsMode": "global",
         "storyboard": [
             {
                 "id": "scene-1",
@@ -485,25 +490,31 @@ def test_apply_material_clamps_voiceover_end_to_wav_duration(tmp_path: Path) -> 
     results = [
         {
             "ok": True,
-            "actionId": "action-hook-tts",
-            "slotId": "slot-hook",
+            "actionId": "action-master-tts",
+            "slotId": MASTER_TTS_SLOT_ID,
             "provider": "tts",
             "artifactRef": {"id": "a1", "type": "audio", "uri": str(wav_path.resolve())},
         }
     ]
     updated = apply_material_results_to_plan(plan, results=results, render_root=render_root)
     vo_clip = updated["timeline"]["tracks"][0]["clips"][0]
+    assert vo_clip["id"] == VO_MASTER_CLIP_ID
     assert vo_clip["startSec"] == 0.0
     assert vo_clip["endSec"] == 1.0
 
 
 def test_execute_tts_action(tmp_path: Path) -> None:
+    from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID
+
     wav = b"RIFF----WAVEfmt "
     gateway = MagicMock()
+    gateway.config = MagicMock()
+    gateway.config.tts_preferences = {}
     gateway.synthesize_speech.return_value = wav
     ctx = _make_ctx(
         tmp_path,
         gateway=gateway,
+        master_narration="你好，这是口播",
         storyboard=[
             {
                 "id": "scene-1",
@@ -519,7 +530,7 @@ def test_execute_tts_action(tmp_path: Path) -> None:
     register_default_providers(ctx)
 
     results = execute_completion_plan(
-        [_action("action-hook-tts", "slot-hook", "tts")],
+        [_action("action-master-tts", MASTER_TTS_SLOT_ID, "tts")],
         ctx,
     )
 
@@ -527,6 +538,7 @@ def test_execute_tts_action(tmp_path: Path) -> None:
     assert results[0]["ok"] is True
     assert results[0]["artifactRef"]["type"] == "audio"
     assert Path(results[0]["artifactRef"]["uri"]).exists()
+    assert (tmp_path / "generated" / "master.wav").is_file()
 
 
 def test_apply_material_global_voiceover_single_clip(tmp_path: Path) -> None:

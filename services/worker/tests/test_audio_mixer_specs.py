@@ -41,7 +41,8 @@ def test_collect_voiceover_specs_global_master(tmp_path: Path) -> None:
     assert specs[0][2] == 30.0
 
 
-def test_collect_voiceover_specs_per_scene(tmp_path: Path) -> None:
+def test_collect_voiceover_specs_from_timeline_clips(tmp_path: Path) -> None:
+    """Legacy multi-clip timelines may still expose per-slot voiceover windows."""
     render_root = tmp_path / "render"
     materials = render_root / "materials"
     materials.mkdir(parents=True)
@@ -76,7 +77,7 @@ def test_collect_voiceover_specs_per_scene(tmp_path: Path) -> None:
         timeline,
         render_root=render_root,
         target_duration_sec=10,
-        tts_mode="per_scene",
+        tts_mode="global",
     )
     assert len(specs) == 2
     assert specs[0][1] == 0.0

@@ -209,13 +209,16 @@ def test_assemble_generation_plan_uses_asset_real_type_for_track_selection() -> 
     assert any(clip.get("sourceRef") == "asset-image" for clip in image_track["clips"])
 
 
-def test_build_narration_actions_for_scenes_with_script() -> None:
+def test_build_narration_actions_requires_master_narration() -> None:
     storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
-    actions = build_narration_actions(storyboard)
-    scripted_scenes = [scene for scene in storyboard if str(scene.get("script", "")).strip()]
-    assert len(actions) == len(scripted_scenes)
-    assert all(action["provider"] == "tts" for action in actions)
-    assert actions[0]["id"] == f"action-{scripted_scenes[0]['slotId']}-tts"
+    assert build_narration_actions(storyboard) == []
+    actions = build_narration_actions(
+        storyboard,
+        master_narration="全片口播全文。",
+    )
+    assert len(actions) == 1
+    assert actions[0]["provider"] == "tts"
+    assert actions[0]["id"] == "action-master-tts"
 
 
 def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:
@@ -248,10 +251,7 @@ def test_assemble_generation_plan_includes_tts_and_subtitle_clips() -> None:
     assert subtitle_clips == []
 
 
-def test_assemble_generation_plan_per_scene_env_includes_subtitle_clips(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("VIDEOMAKER_TTS_MODE", "per_scene")
+def test_assemble_generation_plan_global_always_skips_placeholder_subtitles() -> None:
     structure, inventory = _build_inputs()
     gap_report = _load_agent_fixture("gap_planner")
     slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
@@ -266,14 +266,35 @@ def test_assemble_generation_plan_per_scene_env_includes_subtitle_clips(
         storyboard=storyboard,
         packaging_plan=packaging_plan,
         variant="default",
-        master_narration="",
+        master_narration="全片口播示例。",
     )
 
     text_track = next(track for track in plan["timeline"]["tracks"] if track["type"] == "text")
-    scenes_with_script = [s for s in storyboard if str(s.get("script", "")).strip()]
     subtitle_clips = [c for c in text_track["clips"] if str(c.get("id", "")).startswith("subtitle-")]
-    assert len(subtitle_clips) >= len(scenes_with_script)
-    assert subtitle_clips[0]["styleRef"] == "style://subtitle/clean"
+    assert subtitle_clips == []
+    assert plan.get("ttsMode") == "global"
+
+
+def test_assemble_generation_plan_persists_narration_vo_profile() -> None:
+    structure, inventory = _build_inputs()
+    gap_report = _load_agent_fixture("gap_planner")
+    slot_matches = _load_agent_fixture("slot_mapper")["slotMatches"]
+    storyboard = _load_agent_fixture("storyboard_writer")["storyboard"]
+    packaging_plan = _load_agent_fixture("packaging_designer")["packagingPlan"]
+
+    plan = assemble_generation_plan(
+        structure=structure,
+        inventory=inventory,
+        gap_report=gap_report,
+        slot_matches=slot_matches,
+        storyboard=storyboard,
+        packaging_plan=packaging_plan,
+        variant="default",
+        master_narration="全片口播。",
+        narration_vo_profile={"pace": "fast", "contextHint": "促单"},
+    )
+
+    assert plan.get("narrationVoProfile") == {"pace": "fast", "contextHint": "促单"}
 
 
 def test_merge_script_subtitles_respects_packaging_preset() -> None:

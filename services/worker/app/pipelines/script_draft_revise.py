@@ -285,6 +285,16 @@ def revise_script_draft(
             merged["masterNarration"] = str(writer_output.get("masterNarration") or "")
             if isinstance(writer_output.get("visualStyleBible"), dict):
                 merged["visualStyleBible"] = writer_output["visualStyleBible"]
+            from app.pipelines.tts_voice_options import normalize_vo_directive, report_vo_directive_warnings
+
+            narration_profile, narration_warnings = normalize_vo_directive(
+                writer_output.get("narrationVoProfile")
+            )
+            report_vo_directive_warnings(narration_warnings, emit_event=context.emit_event)
+            if narration_profile:
+                merged["narrationVoProfile"] = narration_profile
+            else:
+                merged.pop("narrationVoProfile", None)
             merged["masterNarrationStatus"] = "draft"
         else:
             merged["storyboard"] = list(writer_output.get("storyboard") or [])

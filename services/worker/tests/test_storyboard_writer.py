@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 from app.agents.storyboard_writer import (
+    _assert_master_only,
     _assert_storyboard,
+    _assert_storyboard_from_master,
     run_storyboard_writer,
     slim_structure_for_script,
 )
@@ -54,6 +56,53 @@ def test_run_storyboard_writer_rejects_deprecated_full_phase() -> None:
             context=context,
             phase="full",
         )
+
+
+def test_assert_master_only_preserves_narration_vo_profile() -> None:
+    structure = {"slots": []}
+    payload = _assert_master_only(
+        {
+            "masterNarration": "夏天出门怕晒黑？",
+            "narrationVoProfile": {"pace": "fast", "energy": "high"},
+        },
+        structure=structure,
+    )
+    assert payload["narrationVoProfile"] == {"pace": "fast", "energy": "high"}
+
+
+def test_assert_storyboard_from_master_preserves_vo_directive() -> None:
+    structure = {
+        "slots": [
+            {
+                "id": "slot-hook",
+                "startSec": 0.0,
+                "endSec": 3.0,
+                "visualIntent": "hook visual",
+                "scriptIntent": "hook script",
+            }
+        ]
+    }
+    payload = _assert_storyboard_from_master(
+        {
+            "storyboard": [
+                {
+                    "slotId": "slot-hook",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "visual": "hook visual",
+                    "script": "夏天出门怕晒黑？",
+                    "source": "generated",
+                    "voDirective": {"pace": "fast", "contextHint": "疑问句上扬"},
+                }
+            ],
+        },
+        structure=structure,
+        master_narration="夏天出门怕晒黑？",
+    )
+    assert payload["storyboard"][0]["voDirective"] == {
+        "pace": "fast",
+        "contextHint": "疑问句上扬",
+    }
 
 
 def test_assert_storyboard_fills_missing_scene_id() -> None:

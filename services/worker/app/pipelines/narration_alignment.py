@@ -235,7 +235,7 @@ def align_subtitles_to_voiceover(
             if isinstance(clip, dict):
                 vo_by_id[str(clip.get("id", ""))] = clip
 
-    mode = tts_mode or "per_scene"
+    mode = tts_mode or "global"
     if is_global_tts_mode(mode) and str(master_narration).strip():
         vo_clip = vo_by_id.get(VO_MASTER_CLIP_ID)
         if vo_clip is None:

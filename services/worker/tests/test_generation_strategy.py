@@ -29,7 +29,7 @@ def test_normalize_generation_strategy_falls_back_for_unknown_values() -> None:
     assert normalize_generation_strategy("legacy_mode") == "long_form_composed"
 
 
-def test_normalize_generation_plan_preserves_legacy_per_scene_tts_actions() -> None:
+def test_normalize_generation_plan_coerces_legacy_plans_to_global() -> None:
     plan = {
         "generationStrategy": "short_form_direct",
         "completionActions": [
@@ -44,14 +44,14 @@ def test_normalize_generation_plan_preserves_legacy_per_scene_tts_actions() -> N
     }
     normalized = normalize_generation_plan(plan)
     assert normalized["generationStrategy"] == "long_form_composed"
-    assert normalized["ttsMode"] == "per_scene"
-    assert infer_tts_mode_from_plan(normalized) == "per_scene"
+    assert normalized["ttsMode"] == "global"
+    assert infer_tts_mode_from_plan(normalized) == "global"
 
 
-def test_normalize_generation_plan_keeps_explicit_tts_mode() -> None:
+def test_normalize_generation_plan_always_global() -> None:
     plan = {
         "generationStrategy": "short_form_direct",
-        "ttsMode": "global",
+        "ttsMode": "per_scene",
         "completionActions": [
             {
                 "id": "action-slot-a-tts",

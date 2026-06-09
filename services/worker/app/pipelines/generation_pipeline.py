@@ -53,47 +53,25 @@ def build_narration_actions(
     master_narration: str = "",
     tts_mode: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Add TTS completion actions for scenes with non-empty script (independent of visual gap)."""
-    if is_global_tts_mode(tts_mode) and str(master_narration).strip():
-        return [
-            {
-                "id": "action-master-tts",
-                "slotId": MASTER_TTS_SLOT_ID,
-                "strategy": "tts",
-                "provider": "tts",
-                "reason": "全片口播合成",
-                "rationale": "全片口播合成",
-                "outputRef": f"completion://{MASTER_TTS_SLOT_ID}/tts",
-            }
-        ]
-
-    skipped = skip_slot_ids or set()
-    actions: list[dict[str, Any]] = []
-    for scene in storyboard:
-        if not isinstance(scene, dict):
-            continue
-        slot_id = str(scene.get("slotId", ""))
-        if not slot_id or slot_id in skipped:
-            continue
-        script = str(scene.get("script", "")).strip()
-        if not script:
-            continue
-        actions.append(
-            {
-                "id": f"action-{slot_id}-tts",
-                "slotId": slot_id,
-                "strategy": "tts",
-                "provider": "tts",
-                "reason": "分镜口播合成",
-                "rationale": "分镜口播合成",
-                "outputRef": f"completion://{slot_id}/tts",
-            }
-        )
-    return actions
+    """Add a single global TTS completion action when master narration is present."""
+    _ = storyboard, skip_slot_ids, tts_mode
+    if not str(master_narration).strip():
+        return []
+    return [
+        {
+            "id": "action-master-tts",
+            "slotId": MASTER_TTS_SLOT_ID,
+            "strategy": "tts",
+            "provider": "tts",
+            "reason": "全片口播合成",
+            "rationale": "全片口播合成",
+            "outputRef": f"completion://{MASTER_TTS_SLOT_ID}/tts",
+        }
+    ]
 
 
 from app.pipelines.narration_alignment import chunk_subtitle_text, subtitle_time_windows
-from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
+from app.pipelines.tts_voice_options import normalize_vo_directive, report_vo_directive_warnings
 from app.providers.finish_brief import build_finish_brief
 from app.pipelines.tts_mode import (
     MASTER_TTS_SLOT_ID,
@@ -435,6 +413,12 @@ def draft_master_script(
         duration_target_sec=float(duration_target.get("targetSec", 0.0)),
     )
     draft["masterNarration"] = str(writer_output.get("masterNarration") or "")
+    narration_profile, narration_warnings = normalize_vo_directive(writer_output.get("narrationVoProfile"))
+    report_vo_directive_warnings(narration_warnings, emit_event=context.emit_event)
+    if narration_profile:
+        draft["narrationVoProfile"] = narration_profile
+    else:
+        draft.pop("narrationVoProfile", None)
     if isinstance(writer_output.get("visualStyleBible"), dict):
         draft["visualStyleBible"] = writer_output["visualStyleBible"]
     draft["masterNarrationStatus"] = "draft"
@@ -528,6 +512,13 @@ def run_automated_script_drafting(
         )
         draft["masterNarration"] = master_narration
         draft["masterNarrationStatus"] = "approved"
+        if isinstance(master_output.get("narrationVoProfile"), dict):
+            narration_profile, narration_warnings = normalize_vo_directive(
+                master_output.get("narrationVoProfile")
+            )
+            report_vo_directive_warnings(narration_warnings, emit_event=context.emit_event)
+            if narration_profile:
+                draft["narrationVoProfile"] = narration_profile
         if visual_style_bible:
             draft["visualStyleBible"] = visual_style_bible
         draft["storyboard"] = storyboard
@@ -622,6 +613,9 @@ def run_planning_from_script_draft(
         draft.get("durationTargetSec")
         or structure.get("metadata", {}).get("durationSec", 30.0)
     )
+    narration_vo_profile = (
+        dict(draft["narrationVoProfile"]) if isinstance(draft.get("narrationVoProfile"), dict) else None
+    )
 
     snapshot = load_revise_snapshot(generation_root)
     packaging_plan: dict[str, Any]
@@ -659,6 +653,7 @@ def run_planning_from_script_draft(
         variant=variant,
         master_narration=master_narration,
         visual_style_bible=visual_style_bible,
+        narration_vo_profile=narration_vo_profile,
         generation_strategy=strategy,
         duration_target_sec=target_sec,
     )
@@ -684,11 +679,15 @@ def run_planning_completion(
     storyboard: list[dict[str, Any]]
     master_narration = ""
     visual_style_bible: dict[str, Any] | None = None
+    narration_vo_profile: dict[str, Any] | None = None
     if revise_context is not None and not revise_context.rerun_storyboard and snapshot:
         storyboard = list(snapshot.get("storyboard") or [])
         master_narration = str(snapshot.get("masterNarration") or "")
         if isinstance(snapshot.get("visualStyleBible"), dict):
             visual_style_bible = dict(snapshot["visualStyleBible"])
+        if isinstance(snapshot.get("narrationVoProfile"), dict):
+            narration_vo_profile, narration_warnings = normalize_vo_directive(snapshot["narrationVoProfile"])
+            report_vo_directive_warnings(narration_warnings, emit_event=context.emit_event)
         if storyboard and not master_narration.strip():
             master_narration, storyboard = apply_master_narration_to_storyboard(
                 master_narration="",
@@ -708,6 +707,11 @@ def run_planning_completion(
             knowledge_context=knowledge_context,
             generation_root=generation_root,
         )
+        if generation_root is not None:
+            draft = load_script_draft(generation_root)
+            if isinstance(draft, dict) and isinstance(draft.get("narrationVoProfile"), dict):
+                narration_vo_profile, narration_warnings = normalize_vo_directive(draft["narrationVoProfile"])
+                report_vo_directive_warnings(narration_warnings, emit_event=context.emit_event)
 
     packaging_plan: dict[str, Any]
     if revise_context is not None and not revise_context.rerun_packaging and snapshot:
@@ -744,6 +748,7 @@ def run_planning_completion(
         variant=variant,
         master_narration=master_narration,
         visual_style_bible=visual_style_bible,
+        narration_vo_profile=narration_vo_profile,
     )
     return inventory, slot_matches, gap_report, plan
 
@@ -759,6 +764,7 @@ def assemble_generation_plan(
     variant: str = "default",
     master_narration: str | None = None,
     visual_style_bible: dict[str, Any] | None = None,
+    narration_vo_profile: dict[str, Any] | None = None,
     generation_strategy: str | None = None,
     duration_target_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -881,6 +887,8 @@ def assemble_generation_plan(
     }
     if isinstance(visual_style_bible, dict) and visual_style_bible.get("summary"):
         plan["visualStyleBible"] = visual_style_bible
+    if isinstance(narration_vo_profile, dict) and narration_vo_profile:
+        plan["narrationVoProfile"] = narration_vo_profile
     brief = inventory.get("userBrief") if isinstance(inventory.get("userBrief"), dict) else {}
     resolved_target = float(
         duration_target_sec
@@ -906,6 +914,16 @@ class FixtureMaterialGateway:
     """Deterministic media responses for fixture/demo runs without live APIs."""
 
     is_fixture = True
+
+    def __init__(self) -> None:
+        self.config = type(
+            "FixtureGatewayConfig",
+            (),
+            {
+                "tts_preferences": {},
+                "tts_driver": "openai_compatible",
+            },
+        )()
 
     def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
         _ = prompt, options
@@ -1000,6 +1018,9 @@ def run_generating_material(
         brand_colors=dict(brand_colors or {}),
         aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
         master_narration=str(plan.get("masterNarration") or ""),
+        narration_vo_profile=(
+            dict(plan["narrationVoProfile"]) if isinstance(plan.get("narrationVoProfile"), dict) else None
+        ),
         visual_style_bible=(
             dict(plan["visualStyleBible"]) if isinstance(plan.get("visualStyleBible"), dict) else None
         ),
