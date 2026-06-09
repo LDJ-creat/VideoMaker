@@ -58,7 +58,6 @@ import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel"
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
-import { TimelinePreview } from "@/features/timeline-preview/TimelinePreview";
 import { AgentRunsDrawer } from "@/features/observability/AgentRunsDrawer";
 import {
   fixtureGapReport,
@@ -251,7 +250,6 @@ export type { WorkbenchPanel } from "@/features/workbench/workbenchTypes";
 
 const OUTPUT_RESULT_PANELS: WorkbenchPanel[] = [
   "gap",
-  "timeline",
   "narration",
   "result",
 ];
@@ -1692,16 +1690,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               />
             ) : (
               <EmptyPanel message="暂无缺口报告，请先运行生成计划。" />
-            )}
-          </div>
-        )}
-
-        {panel === "timeline" && (
-          <div className="lg:col-span-2">
-            {generationPlan ? (
-              <TimelinePreview timeline={generationPlan.timeline} />
-            ) : (
-              <EmptyPanel message="暂无时间线数据。" />
             )}
           </div>
         )}

@@ -118,7 +118,7 @@ describe("ProjectWorkbench", () => {
     cleanup();
   });
 
-  it("switches between input, progress, structure, gap, timeline, and result panels", async () => {
+  it("switches between input, progress, structure, gap, narration, and result panels", async () => {
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
 
@@ -136,9 +136,6 @@ describe("ProjectWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "缺口" }));
     expect(screen.getByText(/缺口报告/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "时间线" }));
-    expect(screen.getByText(/时间线预览/i)).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "全片口播" }));
     expect(
       screen.getByRole("heading", { name: "全片口播" }),
@@ -149,6 +146,7 @@ describe("ProjectWorkbench", () => {
     expect(
       screen.getByRole("heading", { name: "生成结果" }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/时间线预览/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "录入" }));
     expect(screen.getByText(/创作 Brief/i)).toBeInTheDocument();
