@@ -9,6 +9,8 @@ import {
   fixtureProject,
   fixtureGenerationPlanRevised,
   fixtureReviseGenerationResponse,
+  fixtureRevisePlan,
+  fixtureReviseSession,
   fixtureReviseTaskEvent,
   fixtureMaterialTaskEvent,
   fixtureTaskEvent,
@@ -514,7 +516,56 @@ export function resolveFixture(
   if (
     method === "POST" &&
     segments[0] === "generations" &&
-    segments[2] === "revise"
+    segments[2] === "revise" &&
+    segments[3] === "plan"
+  ) {
+    return {
+      status: 200,
+      body: {
+        plan: { ...fixtureRevisePlan, sourceGenerationId: segments[1] },
+        sessionId: fixtureReviseSession.sessionId,
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "generations" &&
+    segments[2] === "revise" &&
+    segments[3] === "execute"
+  ) {
+    return {
+      status: 202,
+      body: {
+        sourceGenerationId: segments[1],
+        generationId: segments[1],
+        taskId: "task-fixture-revise-patch",
+        executionMode: "in_place",
+        plan: { ...fixtureRevisePlan, status: "executed" },
+      },
+    };
+  }
+
+  if (
+    method === "GET" &&
+    segments[0] === "generations" &&
+    segments[2] === "revise" &&
+    segments[3] === "session"
+  ) {
+    return {
+      status: 200,
+      body: {
+        session: { ...fixtureReviseSession, sourceGenerationId: segments[1] },
+        plans: [{ ...fixtureRevisePlan, sourceGenerationId: segments[1] }],
+      },
+    };
+  }
+
+  if (
+    method === "POST" &&
+    segments[0] === "generations" &&
+    segments[2] === "revise" &&
+    segments.length === 3
   ) {
     return {
       status: 202,
@@ -522,6 +573,8 @@ export function resolveFixture(
         ...fixtureReviseGenerationResponse,
         sourceGenerationId: segments[1],
         intents: fixtureEditIntent.intents,
+        plan: { ...fixtureRevisePlan, sourceGenerationId: segments[1] },
+        executionMode: "fork",
       },
     };
   }

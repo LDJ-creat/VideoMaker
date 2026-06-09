@@ -1,4 +1,4 @@
-import type { EditIntent, GenerationPlan, TaskEvent } from "@videomaker/contracts";
+import type { EditIntent, GenerationPlan, RevisePlan, ReviseSession, TaskEvent } from "@videomaker/contracts";
 
 import { fixtureGenerationPlan } from "./generation-plan.fixture";
 
@@ -17,6 +17,46 @@ export const fixtureEditIntent: EditIntent = {
       rationale: "用户希望减少字幕",
     },
   ],
+};
+
+export const fixtureRevisePlan: RevisePlan = {
+  planId: "plan-fixture-001",
+  sessionId: "session-fixture-001",
+  turnId: "turn-fixture-001",
+  sourceGenerationId: fixtureGenerationPlan.id,
+  instruction: "开头更抓人，减少字幕",
+  summary: "强化开头 hook 并减少全片字幕密度",
+  costTier: "low",
+  requiresFullRender: true,
+  executionMode: "in_place",
+  intents: fixtureEditIntent.intents,
+  executionSteps: [
+    {
+      tool: "subtitle_patch",
+      description: "降低字幕密度并重建字幕轨",
+    },
+  ],
+  status: "draft",
+  createdAt: "2026-06-09T12:00:00.000Z",
+};
+
+export const fixtureReviseSession: ReviseSession = {
+  sessionId: "session-fixture-001",
+  sourceGenerationId: fixtureGenerationPlan.id,
+  status: "active",
+  conversationSummary: "用户希望减少字幕",
+  turns: [
+    {
+      turnId: "turn-fixture-001",
+      instruction: "开头更抓人，减少字幕",
+      planId: fixtureRevisePlan.planId,
+      planSummary: fixtureRevisePlan.summary,
+      costTier: "low",
+      status: "planned",
+      createdAt: fixtureRevisePlan.createdAt,
+    },
+  ],
+  updatedAt: "2026-06-09T12:00:00.000Z",
 };
 
 export const fixtureReviseGenerationResponse = {

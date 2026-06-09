@@ -2,6 +2,8 @@
 
 import type {
   EditIntentItem,
+  RevisePlan,
+  ReviseSession,
   GapReport,
   GenerationPlan,
   TaskEvent,
@@ -36,6 +38,8 @@ import { MasterNarrationPanel } from "@/features/master-narration/MasterNarratio
 import type { MigrationProgressContext } from "@/features/structure-migration/useGenerationMigrationArtifacts";
 import { EditIntentList } from "@/features/nl-revise/EditIntentList";
 import { ReviseInputBar } from "@/features/nl-revise/ReviseInputBar";
+import { RevisePlanCard } from "@/features/nl-revise/RevisePlanCard";
+import { ReviseSessionPanel } from "@/features/nl-revise/ReviseSessionPanel";
 import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
 import { ScriptReviewPanel } from "@/features/script-review/ScriptReviewPanel";
 import { GenerationRunHistoryPanel } from "@/features/generation-runs/GenerationRunHistoryPanel";
@@ -92,8 +96,11 @@ import {
   getVariantLabel,
   listProjectAssets,
   listProjectSamples,
+  cancelRevisePlan,
+  executeRevisePlan,
+  getReviseSession,
+  planReviseGeneration,
   retryTask,
-  reviseGeneration,
   saveBrief,
   startSampleAnalysis,
   updateKnowledgeSelection,
@@ -370,6 +377,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [preRevisePlan, setPreRevisePlan] = useState<GenerationPlan | null>(
     null,
   );
+  const [pendingRevisePlan, setPendingRevisePlan] = useState<RevisePlan | null>(
+    null,
+  );
+  const [reviseSession, setReviseSession] = useState<ReviseSession | null>(null);
+  const [reviseForceNewSession, setReviseForceNewSession] = useState(false);
 
   const loadAnalysisResults = useCallback(
     async (
@@ -568,6 +580,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       activeGenerations,
       activeVariantGenerationId,
       reviseIntents,
+      reviseSessionId: reviseSession?.sessionId ?? null,
       preReviseGenerationId: preRevisePlan?.id ?? null,
       analysisBatch,
     });
@@ -581,6 +594,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     activeGenerations,
     activeVariantGenerationId,
     reviseIntents,
+    reviseSession,
     preRevisePlan,
     analysisBatch,
   ]);
@@ -677,6 +691,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
     if (saved?.reviseIntents?.length) {
       setReviseIntents(saved.reviseIntents);
+    }
+    if (saved?.generationId) {
+      void getReviseSession(saved.generationId)
+        .then(({ data }) => {
+          if (data.session) setReviseSession(data.session);
+          if (data.pendingPlan?.status === "draft") {
+            setPendingRevisePlan(data.pendingPlan);
+            setReviseIntents(data.pendingPlan.intents);
+          }
+        })
+        .catch(() => {
+          /* no revise session yet */
+        });
     }
     if (saved?.preReviseGenerationId) {
       void getGeneration(saved.preReviseGenerationId)
@@ -1249,52 +1276,165 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
       setBusy(true);
       setDataError(null);
-      setLastAction("revise");
-      setPreRevisePlan(sourcePlan);
       try {
-        const { data } = await reviseGeneration(targetGenerationId, instruction);
-        setReviseIntents(data.intents);
-        setGenerationId(data.generationId);
-        setTaskId(data.taskId);
+        const { data } = await planReviseGeneration(
+          targetGenerationId,
+          instruction,
+          { newSession: reviseForceNewSession },
+        );
+        setReviseForceNewSession(false);
+        setPendingRevisePlan(data.plan);
+        setReviseIntents(data.plan.intents);
+        const sessionResult = await getReviseSession(targetGenerationId);
+        setReviseSession(sessionResult.data.session);
+        if (sessionResult.data.pendingPlan?.status === "draft") {
+          setPendingRevisePlan(sessionResult.data.pendingPlan);
+          setReviseIntents(sessionResult.data.pendingPlan.intents);
+        }
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+        setPendingRevisePlan(null);
+        setReviseIntents(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [activeResultGenerationId, activeResultPlan, reviseForceNewSession],
+  );
+
+  const handleConfirmRevisePlan = useCallback(async () => {
+    const targetGenerationId = activeResultGenerationId;
+    const sourcePlan = activeResultPlan;
+    const plan = pendingRevisePlan;
+    if (!targetGenerationId || !sourcePlan || !plan) {
+      return;
+    }
+
+    setBusy(true);
+    setDataError(null);
+    setLastAction("revise");
+    setPreRevisePlan(sourcePlan);
+    try {
+      const { data } = await executeRevisePlan(targetGenerationId, plan.planId);
+      setPendingRevisePlan(null);
+      setReviseIntents(data.plan.intents);
+      const resultGenerationId = data.generationId;
+      setGenerationId(resultGenerationId);
+      setTaskId(data.taskId);
+      if (data.executionMode === "fork") {
         setActiveGenerations((prev) =>
           prev.length > 0
             ? prev.map((entry) =>
                 entry.generationId === targetGenerationId
                   ? {
                       ...entry,
-                      generationId: data.generationId,
+                      generationId: resultGenerationId,
                       taskId: data.taskId,
                     }
                   : entry,
               )
             : [
                 {
-                  generationId: data.generationId,
+                  generationId: resultGenerationId,
                   variant: sourcePlan.variant,
                   taskId: data.taskId,
                   label: getVariantLabel(sourcePlan.variant),
                 },
               ],
         );
-        setActiveVariantGenerationId(data.generationId);
         setVariantPlans((prev) => {
           const next = { ...prev };
           delete next[targetGenerationId];
           return next;
         });
-        setProgressWatchKey((key) => key + 1);
-        setPanel("progress");
-      } catch (err) {
-        setDataError(getErrorMessage(err));
-        setLastAction(null);
-        setPreRevisePlan(null);
-        setReviseIntents(null);
-      } finally {
-        setBusy(false);
+      } else {
+        setActiveGenerations((prev) =>
+          prev.map((entry) =>
+            entry.generationId === targetGenerationId
+              ? { ...entry, taskId: data.taskId }
+              : entry,
+          ),
+        );
       }
-    },
-    [activeResultGenerationId, activeResultPlan],
-  );
+      setActiveVariantGenerationId(resultGenerationId);
+      const sessionResult = await getReviseSession(targetGenerationId);
+      setReviseSession(sessionResult.data.session);
+      setProgressWatchKey((key) => key + 1);
+      setPanel("progress");
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+      setLastAction(null);
+      setPreRevisePlan(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    activeResultGenerationId,
+    activeResultPlan,
+    pendingRevisePlan,
+  ]);
+
+  const handleModifyReviseInstruction = useCallback(async () => {
+    const targetGenerationId = activeResultGenerationId;
+    const plan = pendingRevisePlan;
+    if (!targetGenerationId || !plan) {
+      setPendingRevisePlan(null);
+      setReviseIntents(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      await cancelRevisePlan(targetGenerationId, plan.planId);
+      setPendingRevisePlan(null);
+      setReviseIntents(null);
+      const sessionResult = await getReviseSession(targetGenerationId);
+      setReviseSession(sessionResult.data.session);
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [activeResultGenerationId, pendingRevisePlan]);
+
+  const handleNewReviseSession = useCallback(async () => {
+    const targetGenerationId = activeResultGenerationId;
+    if (!targetGenerationId) return;
+    setBusy(true);
+    setDataError(null);
+    try {
+      if (pendingRevisePlan) {
+        await cancelRevisePlan(targetGenerationId, pendingRevisePlan.planId);
+      }
+      setPendingRevisePlan(null);
+      setReviseIntents(null);
+      setReviseForceNewSession(true);
+      setReviseSession(null);
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [activeResultGenerationId, pendingRevisePlan]);
+
+  const handleCancelRevisePlan = useCallback(async () => {
+    const targetGenerationId = activeResultGenerationId;
+    const plan = pendingRevisePlan;
+    if (!targetGenerationId || !plan) {
+      setPendingRevisePlan(null);
+      setReviseIntents(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      await cancelRevisePlan(targetGenerationId, plan.planId);
+      setPendingRevisePlan(null);
+      setReviseIntents(null);
+    } catch (err) {
+      setDataError(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [activeResultGenerationId, pendingRevisePlan]);
 
   const loadDemoFixtures = useCallback(() => {
     const demoSampleId = fixtureVideoStructure.sourceVideoId ?? "sample-demo-001";
@@ -1882,7 +2022,32 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               />
             ) : null}
 
-            {(generationPlan || activeGenerations.length > 0) && (
+            {reviseSession && (
+              <div className="space-y-2">
+                <ReviseSessionPanel session={reviseSession} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || !activeResultGenerationId}
+                  onClick={() => void handleNewReviseSession()}
+                >
+                  重新开始改片对话
+                </Button>
+              </div>
+            )}
+
+            {pendingRevisePlan && (
+              <RevisePlanCard
+                plan={pendingRevisePlan}
+                busy={busy}
+                onConfirm={handleConfirmRevisePlan}
+                onCancel={handleCancelRevisePlan}
+                onReviseInstruction={() => void handleModifyReviseInstruction()}
+              />
+            )}
+
+            {(generationPlan || activeGenerations.length > 0) && !pendingRevisePlan && (
               <ReviseInputBar
                 onSubmit={handleRevise}
                 busy={busy}

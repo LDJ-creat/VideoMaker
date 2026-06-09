@@ -3,6 +3,8 @@ import type {
   EditIntentItem,
   GapReport,
   GenerationPlan,
+  RevisePlan,
+  ReviseSession,
   KnowledgeEntry,
   KnowledgeRecommendation,
   KnowledgeCategorySummary,
@@ -206,6 +208,27 @@ export type ReviseGenerationResponse = {
   generationId: string;
   taskId: string;
   intents: EditIntentItem[];
+  plan?: RevisePlan;
+  executionMode?: "in_place" | "fork";
+};
+
+export type RevisePlanResponse = {
+  plan: RevisePlan;
+  sessionId: string;
+};
+
+export type ReviseExecuteResponse = {
+  sourceGenerationId: string;
+  generationId: string;
+  taskId: string;
+  executionMode: "in_place" | "fork";
+  plan: RevisePlan;
+};
+
+export type ReviseSessionResponse = {
+  session: ReviseSession | null;
+  plans: RevisePlan[];
+  pendingPlan?: RevisePlan | null;
 };
 
 export function loadVariantRegistry(): VariantDefinition[] {
@@ -656,6 +679,49 @@ export async function getGenerationAgentRuns(
   generationId: string,
 ): Promise<ApiResult<{ runs: AgentRunLog[] }>> {
   return apiFetch(`/api/generations/${generationId}/agent-runs`);
+}
+
+export async function planReviseGeneration(
+  generationId: string,
+  instruction: string,
+  options?: { newSession?: boolean },
+): Promise<ApiResult<RevisePlanResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instruction,
+      newSession: options?.newSession ?? false,
+    }),
+  });
+}
+
+export async function executeRevisePlan(
+  generationId: string,
+  planId: string,
+): Promise<ApiResult<ReviseExecuteResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId }),
+  });
+}
+
+export async function cancelRevisePlan(
+  generationId: string,
+  planId?: string,
+): Promise<ApiResult<{ cancelled: boolean; planIds: string[] }>> {
+  return apiFetch(`/api/generations/${generationId}/revise/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId }),
+  });
+}
+
+export async function getReviseSession(
+  generationId: string,
+): Promise<ApiResult<ReviseSessionResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise/session`);
 }
 
 export async function reviseGeneration(

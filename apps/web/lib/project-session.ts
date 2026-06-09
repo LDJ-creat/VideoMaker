@@ -13,6 +13,7 @@ export type ProjectSessionState = {
   activeGenerations?: GenerationPlanEntry[];
   activeVariantGenerationId?: string | null;
   reviseIntents?: EditIntentItem[] | null;
+  reviseSessionId?: string | null;
   preReviseGenerationId?: string | null;
   analysisBatch?: {
     tasks: Array<{ sampleId: string; taskId: string }>;

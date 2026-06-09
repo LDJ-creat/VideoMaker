@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectWorkbench } from "@/features/workbench/ProjectWorkbench";
 import {
   fixtureEditIntent,
+  fixtureRevisePlan,
+  fixtureReviseSession,
   fixtureAgentRuns,
   fixtureGenerationPlan,
   fixtureGenerationPlanHighClick,
@@ -262,12 +264,24 @@ describe("ProjectWorkbench", () => {
   });
 
   it("shows revise intents during revise task and diff after completion", async () => {
-    const reviseGenerationSpy = vi.spyOn(apiClient, "reviseGeneration").mockResolvedValue({
+    const planReviseSpy = vi.spyOn(apiClient, "planReviseGeneration").mockResolvedValue({
+      data: {
+        plan: fixtureRevisePlan,
+        sessionId: fixtureRevisePlan.sessionId,
+      },
+      meta: { dataSource: "fixture" },
+    });
+    vi.spyOn(apiClient, "getReviseSession").mockResolvedValue({
+      data: { session: fixtureReviseSession, plans: [fixtureRevisePlan] },
+      meta: { dataSource: "fixture" },
+    });
+    const executeReviseSpy = vi.spyOn(apiClient, "executeRevisePlan").mockResolvedValue({
       data: {
         sourceGenerationId: fixtureGenerationPlan.id,
         generationId: fixtureGenerationPlanRevised.id,
         taskId: "task-fixture-revise",
-        intents: fixtureEditIntent.intents,
+        executionMode: "fork",
+        plan: { ...fixtureRevisePlan, status: "executed" },
       },
       meta: { dataSource: "fixture" },
     });
@@ -285,12 +299,17 @@ describe("ProjectWorkbench", () => {
     await user.type(screen.getByLabelText("改片指令"), "开头更抓人，减少字幕");
     await user.click(screen.getByRole("button", { name: "提交改片" }));
 
-    expect(reviseGenerationSpy).toHaveBeenCalledWith(
+    expect(planReviseSpy).toHaveBeenCalledWith(
       fixtureGenerationPlan.id,
       "开头更抓人，减少字幕",
     );
-    expect(screen.getByTestId("edit-intent-list")).toBeInTheDocument();
-    expect(screen.getByText("强化开头 hook")).toBeInTheDocument();
+    expect(screen.getByTestId("revise-plan-card")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "确认执行" }));
+    expect(executeReviseSpy).toHaveBeenCalledWith(
+      fixtureGenerationPlan.id,
+      fixtureRevisePlan.planId,
+    );
 
     await waitFor(() => expect(capturedOnTerminal).toBeDefined());
 
@@ -446,12 +465,25 @@ describe("ProjectWorkbench", () => {
   });
 
   it("revises the active variant tab in multi-variant demo", async () => {
-    const reviseGenerationSpy = vi.spyOn(apiClient, "reviseGeneration").mockResolvedValue({
+    const highClickPlan = {
+      ...fixtureRevisePlan,
+      sourceGenerationId: fixtureGenerationPlanHighClick.id,
+    };
+    vi.spyOn(apiClient, "planReviseGeneration").mockResolvedValue({
+      data: { plan: highClickPlan, sessionId: highClickPlan.sessionId },
+      meta: { dataSource: "fixture" },
+    });
+    vi.spyOn(apiClient, "getReviseSession").mockResolvedValue({
+      data: { session: fixtureReviseSession, plans: [highClickPlan] },
+      meta: { dataSource: "fixture" },
+    });
+    vi.spyOn(apiClient, "executeRevisePlan").mockResolvedValue({
       data: {
         sourceGenerationId: fixtureGenerationPlanHighClick.id,
         generationId: "gen-demo-high-click-revised",
         taskId: "task-fixture-revise-high-click",
-        intents: fixtureEditIntent.intents,
+        executionMode: "fork",
+        plan: { ...highClickPlan, status: "executed" },
       },
       meta: { dataSource: "fixture" },
     });
@@ -477,11 +509,7 @@ describe("ProjectWorkbench", () => {
     await user.type(screen.getByLabelText("改片指令"), "开头更抓人");
     await user.click(screen.getByRole("button", { name: "提交改片" }));
 
-    expect(reviseGenerationSpy).toHaveBeenCalledWith(
-      fixtureGenerationPlanHighClick.id,
-      "开头更抓人",
-    );
-    expect(screen.getByTestId("edit-intent-list")).toBeInTheDocument();
+    expect(screen.getByTestId("revise-plan-card")).toBeInTheDocument();
   });
 
   it("loads agent runs from result panel", async () => {

@@ -36,6 +36,7 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
   rendering_material: "渲染包装片段",
   parsing_edit_intent: "理解改片指令",
   applying_edit_intent: "应用改片",
+  applying_revise_patch: "应用就地改片",
 };
 
 const MATERIAL_STAGES = new Set<TaskStage>([

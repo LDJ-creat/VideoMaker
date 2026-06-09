@@ -12,6 +12,8 @@ export {
   fixtureEditIntent,
   fixtureGenerationPlanRevised,
   fixtureReviseGenerationResponse,
+  fixtureRevisePlan,
+  fixtureReviseSession,
   fixtureReviseTaskEvent,
 } from "./edit-intent.fixture";
 export { fixtureModelGatewayStatus } from "./model-gateway-status.fixture";
