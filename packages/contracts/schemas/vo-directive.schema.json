@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/vo-directive.schema.json",
+  "title": "VoDirective",
+  "type": "object",
+  "properties": {
+    "pace": { "type": "string", "enum": ["slow", "medium", "fast"] },
+    "energy": { "type": "string", "enum": ["low", "medium", "high"] },
+    "persona": { "type": "string", "maxLength": 80 },
+    "contextHint": { "type": "string", "maxLength": 200 },
+    "emotion": { "type": "string", "maxLength": 32 },
+    "speechRate": { "type": "integer", "minimum": -50, "maximum": 100 },
+    "loudnessRate": { "type": "integer", "minimum": -50, "maximum": 100 },
+    "emotionScale": { "type": "integer", "minimum": 1, "maximum": 5 }
+  },
+  "additionalProperties": false
+}

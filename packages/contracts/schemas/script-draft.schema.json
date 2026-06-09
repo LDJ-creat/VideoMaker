@@ -21,6 +21,7 @@
     },
     "masterNarration": { "type": "string" },
     "masterNarrationStatus": { "type": "string", "enum": ["draft", "approved"] },
+    "narrationVoProfile": { "$ref": "vo-directive.schema.json" },
     "visualStyleBible": { "$ref": "visual-style-bible.schema.json" },
     "storyboard": {
       "type": "array",
@@ -43,7 +44,8 @@
               "asset_reuse",
               "generated"
             ]
-          }
+          },
+          "voDirective": { "$ref": "vo-directive.schema.json" }
         },
         "additionalProperties": false
       }

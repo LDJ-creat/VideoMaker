@@ -22,10 +22,11 @@
     },
     "ttsMode": {
       "type": "string",
-      "enum": ["global", "per_scene"]
+      "enum": ["global"]
     },
     "narrationDurationSec": { "type": "number", "minimum": 0 },
     "masterNarration": { "type": "string" },
+    "narrationVoProfile": { "$ref": "vo-directive.schema.json" },
     "visualStyleBible": { "$ref": "visual-style-bible.schema.json" },
     "storyboard": {
       "type": "array",
@@ -39,7 +40,8 @@
           "endSec": { "type": "number", "minimum": 0 },
           "visual": { "type": "string" },
           "script": { "type": "string" },
-          "source": { "type": "string", "enum": ["user_asset", "text_completion", "packaging_completion", "asset_reuse", "generated"] }
+          "source": { "type": "string", "enum": ["user_asset", "text_completion", "packaging_completion", "asset_reuse", "generated"] },
+          "voDirective": { "$ref": "vo-directive.schema.json" }
         },
         "additionalProperties": false
       }

@@ -738,6 +738,20 @@ export type GenerationVariant =
   | "fast_paced"
   | "premium";
 
+export type VoDirectivePace = "slow" | "medium" | "fast";
+export type VoDirectiveEnergy = "low" | "medium" | "high";
+
+export type VoDirective = {
+  pace?: VoDirectivePace;
+  energy?: VoDirectiveEnergy;
+  persona?: string;
+  contextHint?: string;
+  emotion?: string;
+  speechRate?: number;
+  loudnessRate?: number;
+  emotionScale?: number;
+};
+
 export type StoryboardScene = {
   id: string;
   slotId: string;
@@ -751,6 +765,7 @@ export type StoryboardScene = {
     | "packaging_completion"
     | "asset_reuse"
     | "generated";
+  voDirective?: VoDirective;
 };
 
 export type PackagingPlan = {
@@ -800,9 +815,10 @@ export type GenerationPlan = {
   generationStrategy?: GenerationStrategy;
   durationTargetSec?: number;
   aspectRatio?: AspectRatio;
-  ttsMode?: "global" | "per_scene";
+  ttsMode?: "global";
   narrationDurationSec?: number;
   masterNarration: string;
+  narrationVoProfile?: VoDirective;
   visualStyleBible?: VisualStyleBible;
   storyboard: StoryboardScene[];
   timeline: RenderTimeline;
@@ -816,6 +832,7 @@ export type ScriptDraft = {
   variant: GenerationVariant;
   masterNarration: string;
   masterNarrationStatus: ScriptReviewStatus;
+  narrationVoProfile?: VoDirective;
   visualStyleBible?: VisualStyleBible;
   storyboard: StoryboardScene[];
   storyboardStatus: ScriptReviewStatus;
