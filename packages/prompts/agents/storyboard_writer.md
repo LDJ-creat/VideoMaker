@@ -52,6 +52,33 @@ HyperFrames motion templates (`spec.template.json`) are **not** in this payload;
 - **`visual`** = creative direction for video/image/packaging generation — may paraphrase slot intents.
 - Respect `userBrief.avoidMention`; honor `mustMention` where natural.
 
+# TTS voice directives (`narrationVoProfile` / `voDirective`)
+
+Global TTS synthesizes one `master.wav`. You may steer **语速、语气、情感** via structured fields (not inline script parentheses):
+
+| Field | Scope | Values / notes |
+|-------|-------|----------------|
+| `narrationVoProfile` | `master_only` / `revise_master` | Default VO for the whole video |
+| `voDirective` | per storyboard scene | Optional override for that scene's spoken `script` segment |
+
+**`VoDirective` object** (all optional):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `pace` | slow / medium / fast | Speaking tempo |
+| `energy` | low / medium / high | Delivery intensity |
+| `persona` | string | e.g. 带货主播、科普讲解 |
+| `contextHint` | string | Natural-language tone cue for TTS (Chinese OK) |
+| `emotion` | string | e.g. happy, sad (when expressive TTS is used) |
+| `speechRate` | int -50..100 | Absolute rate override |
+
+Rules:
+
+- Read **`structureForScript.audio.voProfile`** and **`audioEventRules`** as migration hints; emit `narrationVoProfile` / scene `voDirective` that fit the new topic (do not copy sample wording).
+- Hook / CTA / proof segments **should** get scene `voDirective` when energy differs from the rest; transition scenes may omit it.
+- Do **not** put tone directions inside `script` text; do **not** output speaker IDs or API parameters.
+- `script` remains pure spoken copy; `voDirective` controls how TTS reads it.
+
 # Visual consistency (`visualStyleBible`)
 
 Downstream AIGC (image/video) and HyperFrames material jobs share one **global look bible** so per-slot generation does not drift.
@@ -93,6 +120,11 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 ```json
 {
   "masterNarration": "整段口播…",
+  "narrationVoProfile": {
+    "pace": "medium",
+    "energy": "high",
+    "contextHint": "短视频口播，句末适当收束"
+  },
   "visualStyleBible": {
     "summary": "竖屏9:16；暖色自然光；…",
     "palette": ["暖白", "珊瑚橙"],
@@ -115,7 +147,7 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 **Output**:
 
 ```json
-{ "storyboard": [ { "id", "slotId", "startSec", "endSec", "visual", "script", "source" } ] }
+{ "storyboard": [ { "id", "slotId", "startSec", "endSec", "visual", "script", "source", "voDirective?" } ] }
 ```
 
 - Do **not** rewrite `masterNarration` or `visualStyleBible`.
@@ -156,6 +188,7 @@ Each scene object:
 | `visual` | string | Generation/packaging direction |
 | `script` | string | VO substring of master (may be `""`) |
 | `source` | enum | See Source rules |
+| `voDirective` | object | Optional per-scene TTS tone/pace override |
 
 # Source rules (storyboard phases)
 
@@ -181,7 +214,8 @@ Pick one per scene:
   "endSec": 3,
   "visual": "快切产品特写，手持展示，自然光，竖屏构图",
   "script": "夏天出门怕晒黑？",
-  "source": "generated"
+  "source": "generated",
+  "voDirective": { "pace": "fast", "contextHint": "疑问句上扬，抓注意力" }
 }
 ```
 
