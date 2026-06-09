@@ -726,6 +726,63 @@ export type KnowledgeRecommendation = {
   computedAt: string;
 };
 
+export type KnowledgeCategorySummary = {
+  category: string;
+  categorySlug: string;
+  entryCount: number;
+  summary: string;
+  coverUrl?: string | null;
+  slotPatterns: string[];
+  updatedAt: string;
+};
+
+export type KnowledgeCategoryEntryCard = {
+  entryId: string;
+  title: string;
+  summary: string;
+  style: string;
+  slotPattern: string;
+  hookType?: string;
+  tempo?: "slow" | "medium" | "fast" | "mixed";
+  durationBucket?: string;
+  sourceProjectId?: string;
+  sourceSampleId?: string;
+  posterUrl?: string | null;
+  previewUrl?: string | null;
+  importable: boolean;
+  importBlockReason?: string;
+};
+
+export type KnowledgeCategoryDetail = {
+  category: string;
+  categorySlug: string;
+  entries: KnowledgeCategoryEntryCard[];
+};
+
+export type CreateProjectFromKnowledgeTemplateRequest = {
+  name: string;
+  categorySlug: string;
+  primaryEntryId: string;
+  referenceEntryIds?: string[];
+};
+
+export type KnowledgeTemplateImportedSample = {
+  sampleId: string;
+  entryId: string;
+  title?: string;
+};
+
+export type CreateProjectFromKnowledgeTemplateResponse = {
+  project: {
+    id: string;
+    name: string;
+    createdAt: string;
+  };
+  importedSamples: KnowledgeTemplateImportedSample[];
+  sampleSelection: ProjectSampleSelection;
+  knowledgeSelection: ProjectKnowledgeSelection;
+};
+
 export type ProjectKnowledgeSelectionMode = "auto" | "user_override" | "none";
 
 export type ProjectKnowledgeSelection = {

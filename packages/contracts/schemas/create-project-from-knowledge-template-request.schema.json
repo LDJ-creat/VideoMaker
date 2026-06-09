@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/create-project-from-knowledge-template-request.schema.json",
+  "title": "CreateProjectFromKnowledgeTemplateRequest",
+  "type": "object",
+  "required": ["name", "categorySlug", "primaryEntryId"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "categorySlug": { "type": "string", "minLength": 1 },
+    "primaryEntryId": { "type": "string", "minLength": 1 },
+    "referenceEntryIds": {
+      "type": "array",
+      "maxItems": 2,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

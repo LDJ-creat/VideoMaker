@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/create-project-from-knowledge-template-response.schema.json",
+  "title": "CreateProjectFromKnowledgeTemplateResponse",
+  "type": "object",
+  "required": ["project", "importedSamples", "sampleSelection", "knowledgeSelection"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["id", "name", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "importedSamples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sampleId", "entryId"],
+        "properties": {
+          "sampleId": { "type": "string", "minLength": 1 },
+          "entryId": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sampleSelection": { "$ref": "project-sample-selection.schema.json" },
+    "knowledgeSelection": { "$ref": "project-knowledge-selection.schema.json" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/knowledge-category-entry-card.schema.json",
+  "title": "KnowledgeCategoryEntryCard",
+  "type": "object",
+  "required": [
+    "entryId",
+    "title",
+    "summary",
+    "style",
+    "slotPattern",
+    "importable"
+  ],
+  "properties": {
+    "entryId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "style": { "type": "string", "minLength": 1 },
+    "slotPattern": { "type": "string", "minLength": 1 },
+    "hookType": { "type": "string" },
+    "tempo": {
+      "type": "string",
+      "enum": ["slow", "medium", "fast", "mixed"]
+    },
+    "durationBucket": { "type": "string" },
+    "sourceProjectId": { "type": "string" },
+    "sourceSampleId": { "type": "string" },
+    "posterUrl": { "type": ["string", "null"] },
+    "previewUrl": { "type": ["string", "null"] },
+    "importable": { "type": "boolean" },
+    "importBlockReason": { "type": "string" }
+  },
+  "additionalProperties": false
+}

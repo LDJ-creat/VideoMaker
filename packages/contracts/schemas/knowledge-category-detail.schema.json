@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/knowledge-category-detail.schema.json",
+  "title": "KnowledgeCategoryDetail",
+  "type": "object",
+  "required": ["category", "categorySlug", "entries"],
+  "properties": {
+    "category": { "type": "string", "minLength": 1 },
+    "categorySlug": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "knowledge-category-entry-card.schema.json" }
+    }
+  },
+  "additionalProperties": false
+}
