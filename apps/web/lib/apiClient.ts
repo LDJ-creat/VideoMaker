@@ -998,7 +998,6 @@ export type DurationRecommendationResponse = {
   sampleId?: string | null;
   structureDurationSec: number;
   defaultTargetSec: number;
-  shortFormMaxSec: number;
   maxTargetSec: number;
 };
 

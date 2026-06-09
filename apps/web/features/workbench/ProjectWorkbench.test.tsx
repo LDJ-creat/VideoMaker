@@ -108,7 +108,6 @@ describe("ProjectWorkbench", () => {
       data: {
         recommendedSec: 60,
         defaultTargetSec: 60,
-        shortFormMaxSec: 60,
         maxTargetSec: 600,
         structureDurationSec: 60,
       },

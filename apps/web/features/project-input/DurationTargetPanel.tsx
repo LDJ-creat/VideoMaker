@@ -72,13 +72,12 @@ export const DurationTargetPanel = forwardRef<
   }, [projectId, initialTarget?.maxSec, initialTarget?.minSec, initialTarget?.targetSec]);
 
   const parsedTarget = Number.parseFloat(targetSec);
-  const shortFormMax = recommendation?.shortFormMaxSec ?? 60;
   const maxTarget = recommendation?.maxTargetSec ?? 600;
 
   const strategyHint = useMemo(() => {
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return null;
-    return generationStrategyHint(parsedTarget, shortFormMax);
-  }, [parsedTarget, shortFormMax]);
+    return generationStrategyHint(parsedTarget);
+  }, [parsedTarget]);
 
   const buildDurationTarget = (): DurationTarget | undefined => {
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return undefined;
@@ -117,7 +116,7 @@ export const DurationTargetPanel = forwardRef<
         <CardTitle>目标时长</CardTitle>
         <CardDescription>
           {recommendation
-            ? `样例推荐 ${formatDurationSec(recommendation.recommendedSec)}，可在此调整生成时长与策略分界（${shortFormMax}s）`
+            ? `样例推荐 ${formatDurationSec(recommendation.recommendedSec)}，可在此调整目标生成时长`
             : "加载样例时长推荐…"}
         </CardDescription>
       </CardHeader>

@@ -18,7 +18,6 @@ import {
   ASPECT_RATIO_OPTIONS,
   aspectRatioDefaultHint,
   aspectRatioLabel,
-  defaultAspectRatioForDuration,
 } from "@/lib/aspectRatioLabels";
 import {
   formatDurationSec,
@@ -68,8 +67,9 @@ export const GenerationConfigPanel = forwardRef<
   const [targetSec, setTargetSec] = useState<string>("");
   const [minSec, setMinSec] = useState<string>("");
   const [maxSec, setMaxSec] = useState<string>("");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
-  const [aspectRatioTouched, setAspectRatioTouched] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(
+    initialAspectRatio ?? "9:16",
+  );
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,12 +88,6 @@ export const GenerationConfigPanel = forwardRef<
         }
         if (initialAspectRatio) {
           setAspectRatio(initialAspectRatio);
-          setAspectRatioTouched(true);
-        } else {
-          setAspectRatio(
-            defaultAspectRatioForDuration(initial, data.shortFormMaxSec),
-          );
-          setAspectRatioTouched(false);
         }
       })
       .catch((err) => {
@@ -111,25 +105,14 @@ export const GenerationConfigPanel = forwardRef<
   ]);
 
   const parsedTarget = Number.parseFloat(targetSec);
-  const shortFormMax = recommendation?.shortFormMaxSec ?? 60;
   const maxTarget = recommendation?.maxTargetSec ?? 600;
-
-  useEffect(() => {
-    if (aspectRatioTouched || !Number.isFinite(parsedTarget) || parsedTarget <= 0) {
-      return;
-    }
-    setAspectRatio(defaultAspectRatioForDuration(parsedTarget, shortFormMax));
-  }, [aspectRatioTouched, parsedTarget, shortFormMax]);
 
   const strategyHint = useMemo(() => {
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return null;
-    return generationStrategyHint(parsedTarget, shortFormMax);
-  }, [parsedTarget, shortFormMax]);
+    return generationStrategyHint(parsedTarget);
+  }, [parsedTarget]);
 
-  const aspectHint = useMemo(() => {
-    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return null;
-    return aspectRatioDefaultHint(parsedTarget, shortFormMax);
-  }, [parsedTarget, shortFormMax]);
+  const aspectHint = useMemo(() => aspectRatioDefaultHint(), []);
 
   const buildDurationTarget = (): DurationTarget | undefined => {
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return undefined;
@@ -216,18 +199,13 @@ export const GenerationConfigPanel = forwardRef<
               type="button"
               size="sm"
               variant={aspectRatio === option ? "default" : "outline"}
-              onClick={() => {
-                setAspectRatio(option);
-                setAspectRatioTouched(true);
-              }}
+              onClick={() => setAspectRatio(option)}
             >
               {aspectRatioLabel(option)}
             </Button>
           ))}
         </div>
-        {aspectHint ? (
-          <p className="text-xs text-muted-foreground">{aspectHint}</p>
-        ) : null}
+        <p className="text-xs text-muted-foreground">{aspectHint}</p>
         <p className="text-xs text-muted-foreground">
           画幅将同步影响渲染分辨率、素材库检索方向与字幕安全区。
         </p>

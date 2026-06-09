@@ -8,20 +8,12 @@ export function formatDurationSec(sec: number): string {
   return remainder > 0 ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`;
 }
 
-export function generationStrategyLabel(strategy: GenerationStrategy | undefined): string {
-  if (strategy === "short_form_direct") return "短视频直生成（≤60s）";
-  if (strategy === "long_form_composed") return "长视频分镜合成（>60s）";
-  return "待确认策略";
+export function generationStrategyLabel(_strategy: GenerationStrategy | undefined): string {
+  return "分镜合成模式";
 }
 
-export function generationStrategyHint(
-  targetSec: number,
-  shortFormMaxSec: number,
-): string {
-  if (targetSec <= shortFormMaxSec) {
-    return `目标 ${formatDurationSec(targetSec)}：确认脚本后将优先单次视频生成与精简分镜。`;
-  }
-  return `目标 ${formatDurationSec(targetSec)}：确认分镜后将按槽位补素材并合成完整时间线。`;
+export function generationStrategyHint(_targetSec: number): string {
+  return "确认分镜后按槽位补素材并合成完整时间线。";
 }
 
 export function scriptReviewGateLabel(stage: string | null | undefined): string {

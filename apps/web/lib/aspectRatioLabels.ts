@@ -8,17 +8,6 @@ export function aspectRatioLabel(ratio: AspectRatio): string {
   return "方形 1:1";
 }
 
-export function defaultAspectRatioForDuration(
-  targetSec: number,
-  shortFormMaxSec = 60,
-): AspectRatio {
-  return targetSec <= shortFormMaxSec ? "9:16" : "16:9";
-}
-
-export function aspectRatioDefaultHint(
-  targetSec: number,
-  shortFormMaxSec: number,
-): string {
-  const ratio = defaultAspectRatioForDuration(targetSec, shortFormMaxSec);
-  return `根据目标时长默认 ${aspectRatioLabel(ratio)}`;
+export function aspectRatioDefaultHint(): string {
+  return "请在下方选择画幅比例";
 }
