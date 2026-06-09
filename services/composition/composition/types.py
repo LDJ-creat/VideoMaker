@@ -13,6 +13,7 @@ class AuthorRequest:
     variant_overrides: dict[str, Any] = field(default_factory=dict)
     asset_refs: list[dict[str, Any]] | None = None
     aspect_ratio: str = "9:16"
+    visual_style_bible: dict[str, Any] | None = None
     pattern_l0: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
     task_id: str | None = None
