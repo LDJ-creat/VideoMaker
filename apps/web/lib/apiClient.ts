@@ -754,6 +754,45 @@ export async function createProjectFromKnowledgeTemplate(
   });
 }
 
+export type CompositionPatternCandidate = {
+  slotId: string;
+  slotRole: string;
+  storyboardSummary: string;
+  actionId?: string | null;
+  draftReady: boolean;
+  publishedEntry?: {
+    id: string;
+    title?: string;
+    updatedAt?: string;
+  } | null;
+};
+
+export type CompositionPatternsResponse = {
+  generationId: string;
+  patterns: CompositionPatternCandidate[];
+};
+
+export async function getCompositionPatterns(
+  generationId: string,
+): Promise<ApiResult<CompositionPatternsResponse>> {
+  return apiFetch(`/api/generations/${generationId}/composition-patterns`);
+}
+
+export async function promoteCompositionPattern(
+  projectId: string,
+  body: {
+    generationId: string;
+    slotId: string;
+    confirm: true;
+  },
+): Promise<ApiResult<{ entry: KnowledgeEntry }>> {
+  return apiFetch(`/api/projects/${projectId}/knowledge/composition/promote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function listKnowledgeEntries(params?: {
   category?: string;
   style?: string;

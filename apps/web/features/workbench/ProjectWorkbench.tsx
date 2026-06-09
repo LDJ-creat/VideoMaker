@@ -25,6 +25,7 @@ import {
   KnowledgeLibraryView,
   KnowledgeSelectionPanel,
 } from "@/features/knowledge/KnowledgeSelectionPanel";
+import { CompositionPatternPromotePanel } from "@/features/knowledge/CompositionPatternPromotePanel";
 import {
   getDefaultSelectedVariantIds,
 } from "@/features/generation-variants/VariantPicker";
@@ -1808,6 +1809,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             ) : (
               <EmptyPanel message="暂无生成结果。" />
             )}
+
+            {activeResultPlan && activeResultGenerationId ? (
+              <CompositionPatternPromotePanel
+                projectId={projectId}
+                generationId={activeResultGenerationId}
+                videoReady={Boolean(
+                  resolveRenderVideoUrl(
+                    activeResultPlan,
+                    renderVideoByGenerationId,
+                  ),
+                )}
+              />
+            ) : null}
 
             {(generationPlan || activeGenerations.length > 0) && (
               <ReviseInputBar
