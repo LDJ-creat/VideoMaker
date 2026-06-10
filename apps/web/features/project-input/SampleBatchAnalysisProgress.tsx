@@ -25,6 +25,9 @@ type SampleBatchAnalysisProgressProps = {
   tasks: Array<{ sampleId: string; taskId: string; label?: string }>;
   maxConcurrent?: number;
   onAllComplete?: () => void;
+  onRetry?: (taskId: string) => void;
+  retryBusy?: boolean;
+  retryLabel?: string;
 };
 
 export function SampleBatchAnalysisProgress({
@@ -33,6 +36,9 @@ export function SampleBatchAnalysisProgress({
   tasks,
   maxConcurrent,
   onAllComplete,
+  onRetry,
+  retryBusy = false,
+  retryLabel = "重试样例分析",
 }: SampleBatchAnalysisProgressProps) {
   const sampleById = useMemo(
     () => new Map(samples.map((sample) => [sample.id, sample])),
@@ -92,6 +98,9 @@ export function SampleBatchAnalysisProgress({
         }))}
         sseFailureCounts={progress.sseFailureCounts}
         error={progress.error}
+        retryBusy={retryBusy}
+        retryLabel={retryLabel}
+        onRetry={onRetry}
       />
     </div>
   );

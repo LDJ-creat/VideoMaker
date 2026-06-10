@@ -934,6 +934,15 @@ export async function getKnowledgeDraft(
   return apiFetch(`/api/projects/${projectId}/samples/${sampleId}/knowledge-draft`);
 }
 
+export async function renderKnowledgeDraft(
+  projectId: string,
+  sampleId: string,
+): Promise<ApiResult<{ taskId: string }>> {
+  return apiFetch(`/api/projects/${projectId}/samples/${sampleId}/knowledge/render-draft`, {
+    method: "POST",
+  });
+}
+
 export async function promoteKnowledgeDraft(
   projectId: string,
   sampleId: string,

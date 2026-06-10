@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGenerationStatusByTaskId,
   canRetryGenerationTask,
   hasRetryableFailedGeneration,
   isGenerationRenderIncomplete,
@@ -27,6 +28,14 @@ describe("generationTaskHydration", () => {
     expect(hasRetryableFailedGeneration([{ status: "failed", taskId: "task-2" }])).toBe(
       true,
     );
+  });
+
+  it("prefers live status map over static generation entry status", () => {
+    const statuses = buildGenerationStatusByTaskId(
+      [{ taskId: "task-1", status: "queued" }],
+      { "task-1": "running" },
+    );
+    expect(statuses["task-1"]).toBe("running");
   });
 
   it("does not retry succeeded generations with render video", () => {

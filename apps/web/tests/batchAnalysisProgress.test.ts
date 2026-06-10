@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   batchProgressHeadline,
   buildRecentSampleAnalysisTasks,
+  buildRetryableSampleAnalysisTasks,
   countBatchProgress,
   summarizeBatchProgress,
 } from "@/lib/batchAnalysisProgress";
@@ -14,6 +15,15 @@ describe("batchAnalysisProgress", () => {
       { id: "a", taskId: "task-a", status: "analyzing", sourceKind: "local" },
       { id: "b", taskId: "task-b", status: "analyzed", sourceKind: "local" },
       { id: "c", taskId: null, status: "uploaded", sourceKind: "local" },
+    ]);
+    expect(tasks).toEqual([{ sampleId: "a", taskId: "task-a" }]);
+  });
+
+  it("builds retryable analysis tasks from failed samples with task ids", () => {
+    const tasks = buildRetryableSampleAnalysisTasks([
+      { id: "a", taskId: "task-a", status: "failed", sourceKind: "local" },
+      { id: "b", taskId: "task-b", status: "analyzing", sourceKind: "local" },
+      { id: "c", taskId: null, status: "failed", sourceKind: "local" },
     ]);
     expect(tasks).toEqual([{ sampleId: "a", taskId: "task-a" }]);
   });

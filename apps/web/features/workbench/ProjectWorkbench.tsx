@@ -69,19 +69,15 @@ import {
 } from "@/features/workbench/workbenchTypes";
 import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
-import { buildRecentSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
+import { buildRecentSampleAnalysisTasks, buildRetryableSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
 import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import { useMultiTaskProgress } from "@/features/tasks/useMultiTaskProgress";
 import { useTaskProgress } from "@/features/tasks/useTaskProgress";
-import { AgentRunsDrawer } from "@/features/observability/AgentRunsDrawer";
 import {
   fixtureGapReport,
-  fixtureGenerationPlan,
-  fixtureGenerationPlanHighClick,
   fixtureMultiVariantGenerations,
-  fixtureVideoStructure,
 } from "@/fixtures";
 import type { DataSource } from "@/lib/api-types";
 import type {
@@ -127,8 +123,7 @@ import {
   shouldWatchGenerationTasks,
 } from "@/lib/generationTaskHydration";
 import { getErrorMessage } from "@/lib/errors";
-import { mergeTaskEvents } from "@/lib/taskEventMerge";
-import { isTaskWatchActive } from "@/lib/taskStatusLabels";
+import { mergeTaskEvents, mergeTaskEventsIfChanged } from "@/lib/taskEventMerge";
 import {
   loadProjectSession,
   saveProjectSession,
@@ -284,6 +279,9 @@ const OUTPUT_RESULT_PANELS: WorkbenchPanel[] = [
   "result",
 ];
 
+/** 暂时隐藏「包装动效入库」；改回 true 即可恢复展示。 */
+const SHOW_COMPOSITION_PATTERN_PROMOTE = false;
+
 function buildGenerationSettlementKey(
   events: Record<string, TaskEvent>,
 ): string {
@@ -315,6 +313,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     panelRef.current = next;
     setPanelState(next);
   }, []);
+  const sessionPersistReadyRef = useRef(false);
   const lastActionRef = useRef<LastPipelineAction>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [sampleId, setSampleId] = useState<string | null>(null);
@@ -328,7 +327,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     lastActionRef.current = next;
     setLastActionState(next);
   }, []);
-  const [generationStatusByTaskId, setGenerationStatusByTaskId] = useState<
+  /** Optimistic statuses before live task events arrive (e.g. queued on start). */
+  const [generationStatusOverrides, setGenerationStatusOverrides] = useState<
     Record<string, TaskStatus>
   >({});
   const [settledGenerationEvents, setSettledGenerationEvents] = useState<
@@ -591,8 +591,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setActiveGenerations,
         setRenderVideoByGenerationId,
       });
-      setGenerationStatusByTaskId(buildGenerationStatusByTaskId(data.generations));
-
       const hasAwaitingReview = data.generations.some(
         (entry) => entry.status === "awaiting_review",
       );
@@ -627,6 +625,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   }, [projectId]);
 
   useEffect(() => {
+    if (!sessionPersistReadyRef.current) return;
     saveProjectSession(projectId, {
       taskId,
       sampleId,
@@ -707,10 +706,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           setActiveGenerations,
           setRenderVideoByGenerationId,
         });
-        setGenerationStatusByTaskId((previous) => ({
-          ...previous,
-          ...buildGenerationStatusByTaskId(data.generations),
-        }));
         if (
           hasRetryableFailedGeneration(data.generations) ||
           data.generations.some(isGenerationRenderIncomplete) ||
@@ -772,12 +767,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     if (saved?.taskId) {
       setTaskId(saved.taskId);
     }
+    if (saved?.sampleId) {
+      setSampleId(saved.sampleId);
+    }
     if (saved?.analysisBatch?.tasks?.length) {
       setAnalysisBatch(saved.analysisBatch);
     }
     if (saved?.taskId || saved?.analysisBatch?.tasks?.length) {
       setPanel("progress");
     }
+    sessionPersistReadyRef.current = true;
     void loadProjectInput();
     void (async () => {
       await loadProjectResults();
@@ -803,6 +802,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     loadGenerationRunView,
     loadGenerationRunProvenance,
   ]);
+
+  useEffect(() => {
+    if (lastActionRef.current === "generation") return;
+    const retryable = buildRetryableSampleAnalysisTasks(projectSamples);
+    if (retryable.length === 0) return;
+    if (!lastActionRef.current) {
+      setLastAction("analysis");
+    }
+    if (!taskId && retryable.length === 1) {
+      setTaskId(retryable[0]!.taskId);
+      setSampleId((current) => current ?? retryable[0]!.sampleId);
+    }
+  }, [projectSamples, setLastAction, taskId]);
 
   const reloadActiveGenerationResults = useCallback(
     async (entries: ActiveGenerationEntry[]) => {
@@ -906,10 +918,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   const handleGenerationTaskTerminal = useCallback(
     (event: TaskEvent) => {
-      setSettledGenerationEvents((previous) => ({
-        ...previous,
-        [event.taskId]: event,
-      }));
+      setSettledGenerationEvents((previous) => {
+        const next = mergeTaskEventsIfChanged(previous, { [event.taskId]: event });
+        return next ?? previous;
+      });
       const match = activeGenerations.find((entry) => entry.taskId === event.taskId);
       if (
         match &&
@@ -1095,6 +1107,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     if (recent.length >= 2) {
       return { tasks: recent, maxConcurrent: 2 };
     }
+    const retryable = buildRetryableSampleAnalysisTasks(projectSamples);
+    if (retryable.length >= 2) {
+      return { tasks: retryable, maxConcurrent: 2 };
+    }
     return null;
   }, [analysisBatch, lastAction, projectSamples]);
 
@@ -1106,7 +1122,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       return taskId;
     }
     const recent = buildRecentSampleAnalysisTasks(projectSamples);
-    return recent.length === 1 ? recent[0]!.taskId : null;
+    if (recent.length === 1) {
+      return recent[0]!.taskId;
+    }
+    const retryable = buildRetryableSampleAnalysisTasks(projectSamples);
+    return retryable.length === 1 ? retryable[0]!.taskId : null;
   }, [lastAction, progressAnalysisBatch, projectSamples, taskId]);
 
   const isBatchAnalysisProgress =
@@ -1125,15 +1145,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         })),
     [activeGenerations],
   );
-
-  const watchGenerationTasks = useMemo(() => {
-    if (!showMultiVariantGenerationProgress) return false;
-    return shouldWatchGenerationTasks(activeGenerations, generationStatusByTaskId);
-  }, [
-    activeGenerations,
-    generationStatusByTaskId,
-    showMultiVariantGenerationProgress,
-  ]);
 
   const { event, mode, sseFailureCount, error } = useTaskProgress({
     taskId:
@@ -1163,15 +1174,74 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     onAllTerminal: handleAllGenerationTerminal,
   });
 
-  useEffect(() => {
-    if (!showMultiVariantGenerationProgress) return;
-    const updates: Record<string, TaskStatus> = {};
-    for (const [taskId, taskEvent] of Object.entries(generationEvents)) {
-      updates[taskId] = taskEvent.status;
+  const displayGenerationEvents = useMemo(
+    () => mergeTaskEvents(settledGenerationEvents, generationEvents),
+    [generationEvents, settledGenerationEvents],
+  );
+
+  const liveGenerationStatusByTaskId = useMemo(() => {
+    const fromEvents: Record<string, TaskStatus> = {};
+    for (const [taskId, taskEvent] of Object.entries(displayGenerationEvents)) {
+      fromEvents[taskId] = taskEvent.status;
     }
-    if (Object.keys(updates).length === 0) return;
-    setGenerationStatusByTaskId((previous) => ({ ...previous, ...updates }));
-  }, [generationEvents, showMultiVariantGenerationProgress]);
+    return { ...generationStatusOverrides, ...fromEvents };
+  }, [displayGenerationEvents, generationStatusOverrides]);
+
+  const generationStatusByTaskId = useMemo(
+    () =>
+      buildGenerationStatusByTaskId(activeGenerations, liveGenerationStatusByTaskId),
+    [activeGenerations, liveGenerationStatusByTaskId],
+  );
+
+  const watchGenerationTasks = useMemo(() => {
+    if (!showMultiVariantGenerationProgress) return false;
+    return shouldWatchGenerationTasks(activeGenerations, generationStatusByTaskId);
+  }, [
+    activeGenerations,
+    generationStatusByTaskId,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  const generationTaskIdsKey = useMemo(
+    () =>
+      activeGenerations
+        .map((entry) => entry.taskId)
+        .filter((taskId) => taskId.length > 0)
+        .sort()
+        .join("|"),
+    [activeGenerations],
+  );
+
+  useEffect(() => {
+    if (watchGenerationTasks || !showMultiVariantGenerationProgress) return;
+    const taskIds = generationTaskIdsKey.split("|").filter(Boolean);
+    if (taskIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const results: Record<string, TaskEvent> = {};
+      for (const taskId of taskIds) {
+        try {
+          const { data } = await getTask(taskId);
+          results[taskId] = data;
+        } catch {
+          /* task may have been purged */
+        }
+      }
+      if (!cancelled) {
+        setSettledGenerationEvents((previous) => {
+          const next = mergeTaskEventsIfChanged(previous, results);
+          return next ?? previous;
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationTaskIdsKey,
+    showMultiVariantGenerationProgress,
+    watchGenerationTasks,
+  ]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
@@ -1187,157 +1257,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     showMultiVariantGenerationProgress,
     watchGenerationTasks,
   ]);
-
-  useEffect(() => {
-    if (watchGenerationTasks || !showMultiVariantGenerationProgress) return;
-    const taskIds = activeGenerations
-      .map((entry) => entry.taskId)
-      .filter((taskId) => taskId.length > 0);
-    if (taskIds.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      const results: Record<string, TaskEvent> = {};
-      for (const taskId of taskIds) {
-        try {
-          const { data } = await getTask(taskId);
-          results[taskId] = data;
-        } catch {
-          /* task may have been purged */
-        }
-      }
-      if (!cancelled) {
-        setSettledGenerationEvents(results);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeGenerations,
-    showMultiVariantGenerationProgress,
-    watchGenerationTasks,
-  ]);
-
-  const generationTaskIdsKey = useMemo(
-    () =>
-      activeGenerations
-        .map((entry) => entry.taskId)
-        .filter((taskId) => taskId.length > 0)
-        .sort()
-        .join("|"),
-    [activeGenerations],
-  );
-
-  useEffect(() => {
-    if (panel !== "progress" || !showMultiVariantGenerationProgress) return;
-    const taskIds = generationTaskIdsKey.split("|").filter(Boolean);
-    if (taskIds.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      const updates: Record<string, TaskEvent> = {};
-      for (const taskId of taskIds) {
-        try {
-          const { data } = await getTask(taskId);
-          const cached =
-            generationEvents[taskId] ?? settledGenerationEvents[taskId] ?? null;
-          if (
-            !cached ||
-            cached.status !== data.status ||
-            cached.updatedAt !== data.updatedAt
-          ) {
-            updates[taskId] = data;
-          }
-        } catch {
-          /* task may have been purged */
-        }
-      }
-      if (!cancelled && Object.keys(updates).length > 0) {
-        setSettledGenerationEvents((previous) => ({ ...previous, ...updates }));
-        setGenerationStatusByTaskId((previous) => {
-          const next = { ...previous };
-          for (const [taskId, event] of Object.entries(updates)) {
-            next[taskId] = event.status;
-          }
-          return next;
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    generationEvents,
-    generationTaskIdsKey,
-    panel,
-    settledGenerationEvents,
-    showMultiVariantGenerationProgress,
-  ]);
-
-  useEffect(() => {
-    if (panel !== "progress" || !showMultiVariantGenerationProgress) return;
-    const taskIds = activeGenerations
-      .map((entry) => entry.taskId)
-      .filter((taskId) => taskId.length > 0);
-    if (taskIds.length === 0) return;
-    const hasActiveTask = taskIds.some((taskId) =>
-      isTaskWatchActive(generationStatusByTaskId[taskId]),
-    );
-    if (!hasActiveTask) return;
-
-    let cancelled = false;
-    const pollActiveTasks = async () => {
-      const updates: Record<string, TaskEvent> = {};
-      for (const taskId of taskIds) {
-        if (!isTaskWatchActive(generationStatusByTaskId[taskId])) continue;
-        try {
-          const { data } = await getTask(taskId);
-          const cached =
-            generationEvents[taskId] ?? settledGenerationEvents[taskId] ?? null;
-          if (
-            !cached ||
-            cached.status !== data.status ||
-            cached.updatedAt !== data.updatedAt ||
-            cached.progress !== data.progress
-          ) {
-            updates[taskId] = data;
-          }
-        } catch {
-          /* task may have been purged */
-        }
-      }
-      if (!cancelled && Object.keys(updates).length > 0) {
-        setSettledGenerationEvents((previous) => ({ ...previous, ...updates }));
-        setGenerationStatusByTaskId((previous) => {
-          const next = { ...previous };
-          for (const [taskId, event] of Object.entries(updates)) {
-            next[taskId] = event.status;
-          }
-          return next;
-        });
-      }
-    };
-
-    void pollActiveTasks();
-    const timer = window.setInterval(() => {
-      void pollActiveTasks();
-    }, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [
-    activeGenerations,
-    generationEvents,
-    generationStatusByTaskId,
-    panel,
-    settledGenerationEvents,
-    showMultiVariantGenerationProgress,
-  ]);
-
-  const displayGenerationEvents = useMemo(
-    () => mergeTaskEvents(settledGenerationEvents, generationEvents),
-    [generationEvents, settledGenerationEvents],
-  );
 
   useEffect(() => {
     if (!generationAutoNavRef.current) return;
@@ -1522,11 +1441,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       activeRunGenerationsRef.current = entries;
       setActiveGenerations(entries);
       setSettledGenerationEvents({});
-      const initialStatuses: Record<string, TaskStatus> = {};
+      const queuedOverrides: Record<string, TaskStatus> = {};
       for (const entry of entries) {
-        initialStatuses[entry.taskId] = "queued";
+        queuedOverrides[entry.taskId] = "queued";
       }
-      setGenerationStatusByTaskId(initialStatuses);
+      setGenerationStatusOverrides(queuedOverrides);
       setGenerationId(entries[0]?.generationId ?? null);
       setTaskId(null);
       bumpTaskWatchKeys(entries.map((entry) => entry.taskId));
@@ -1717,51 +1636,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     }
   }, [activeResultGenerationId, pendingRevisePlan]);
 
-  const loadDemoFixtures = useCallback(() => {
-    const demoSampleId = fixtureVideoStructure.sourceVideoId ?? "sample-demo-001";
-    setStructure(fixtureVideoStructure);
-    setSampleId(demoSampleId);
-    setAnalysisSampleId(demoSampleId);
-    setProjectSamples((current) => {
-      if (current.some((sample) => sample.id === demoSampleId)) {
-        return current.map((sample) =>
-          sample.id === demoSampleId
-            ? { ...sample, hasStructure: true, status: "analyzed" as const }
-            : sample,
-        );
-      }
-      return [
-        ...current,
-        {
-          id: demoSampleId,
-          sourceKind: "local" as const,
-          status: "analyzed" as const,
-          hasStructure: true,
-          fileName: "demo.mp4",
-        },
-      ];
-    });
-    setGapReport(fixtureGapReport);
-    setGenerationPlan(fixtureGenerationPlan);
-    setActiveGenerations(
-      fixtureMultiVariantGenerations.map((entry) => ({
-        generationId: entry.generationId,
-        variant: entry.variant,
-        taskId: entry.taskId,
-        label: entry.label,
-      })),
-    );
-    setVariantPlans({
-      [fixtureGenerationPlan.id]: fixtureGenerationPlan,
-      [fixtureGenerationPlanHighClick.id]: fixtureGenerationPlanHighClick,
-    });
-    setActiveVariantGenerationId(fixtureGenerationPlan.id);
-    setGenerationId(fixtureGenerationPlan.id);
-    setDataSource("fixture");
-    setGapApiPending(true);
-    setDataError(null);
-  }, [projectId]);
-
   const handleRetryFailedTask = useCallback(
     async (retryTaskId?: string) => {
       const activeTaskId =
@@ -1800,11 +1674,13 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         const { data: afterRetry } = await getTask(activeTaskId);
         if (isGenerationRetry) {
           setLastAction("generation");
-          setSettledGenerationEvents((previous) => ({
-            ...previous,
-            [activeTaskId]: afterRetry,
-          }));
-          setGenerationStatusByTaskId((previous) => ({
+          setSettledGenerationEvents((previous) => {
+            const next = mergeTaskEventsIfChanged(previous, {
+              [activeTaskId]: afterRetry,
+            });
+            return next ?? previous;
+          });
+          setGenerationStatusOverrides((previous) => ({
             ...previous,
             [activeTaskId]: afterRetry.status,
           }));
@@ -1993,21 +1869,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             onNameChange={setProjectName}
             onError={setDataError}
           />
-          <p className="mt-1 text-sm text-muted-foreground">
-            可解释结构迁移
-            <span className="mx-2 text-border">·</span>
-            <span className="font-mono text-xs">{projectId}</span>
-          </p>
-          {sampleId && (
-            <p className="font-mono text-xs text-muted-foreground">
-              当前样例：{sampleId}
-            </p>
-          )}
+          <div className="mt-1 space-y-1 text-sm text-muted-foreground">
+            <div>
+              可解释结构迁移
+              <span className="mx-2 text-border">·</span>
+              <span className="font-mono text-xs">{projectId}</span>
+            </div>
+            {sampleId ? (
+              <div className="font-mono text-xs">当前样例：{sampleId}</div>
+            ) : null}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={loadDemoFixtures}>
-            加载演示数据
-          </Button>
           {taskInProgress ? (
             <Button type="button" onClick={() => setPanel("progress")}>
               查看进度
@@ -2124,6 +1997,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 samples={projectSamples}
                 tasks={progressAnalysisBatch.tasks}
                 maxConcurrent={progressAnalysisBatch.maxConcurrent}
+                retryBusy={busy}
+                retryLabel="重试样例分析"
+                onRetry={(retryTaskId) => void handleRetryFailedTask(retryTaskId)}
                 onAllComplete={() => {
                   void loadProjectInput();
                   const targetSampleId =
@@ -2284,7 +2160,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 gapReport={resolveGapReportForGeneration(generationPlan.id) ?? null}
               />
             ) : (
-              <EmptyPanel message="暂无生成计划，请先运行生成或加载演示数据。" />
+              <EmptyPanel message="暂无生成计划，请先运行生成。" />
             )}
           </div>
         )}
@@ -2373,7 +2249,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               <EmptyPanel message="暂无生成结果。" />
             )}
 
-            {activeResultPlan && activeResultGenerationId ? (
+            {SHOW_COMPOSITION_PATTERN_PROMOTE &&
+            activeResultPlan &&
+            activeResultGenerationId ? (
               <CompositionPatternPromotePanel
                 projectId={projectId}
                 generationId={activeResultGenerationId}
@@ -2419,9 +2297,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               />
             )}
 
-            {activeResultGenerationId && (
-              <AgentRunsDrawer generationId={activeResultGenerationId} />
-            )}
           </div>
         )}
 

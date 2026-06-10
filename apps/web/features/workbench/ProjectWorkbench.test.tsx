@@ -8,7 +8,6 @@ import {
   fixtureEditIntent,
   fixtureRevisePlan,
   fixtureReviseSession,
-  fixtureAgentRuns,
   fixtureGenerationPlan,
   fixtureGenerationPlanHighClick,
   fixtureGenerationPlanRevised,
@@ -77,6 +76,70 @@ vi.mock("@/features/tasks/useMultiTaskProgress", () => ({
   },
 }));
 
+function mockDemoWorkbenchHydration() {
+  const demoSampleId = fixtureVideoStructure.sourceVideoId ?? "sample-demo-001";
+  vi.spyOn(apiClient, "listProjectSamples").mockResolvedValue({
+    data: {
+      samples: [
+        {
+          id: demoSampleId,
+          sourceKind: "local",
+          status: "analyzed",
+          hasStructure: true,
+          fileName: "demo.mp4",
+        },
+      ],
+    },
+    meta: { dataSource: "fixture" },
+  });
+  vi.spyOn(apiClient, "getActiveSample").mockResolvedValue({
+    data: {
+      id: demoSampleId,
+      sourceKind: "local",
+      status: "analyzed",
+      hasStructure: true,
+    },
+    meta: { dataSource: "fixture" },
+  });
+  vi.spyOn(apiClient, "getSampleStructure").mockResolvedValue({
+    data: fixtureVideoStructure,
+    meta: { dataSource: "fixture" },
+  });
+  vi.spyOn(apiClient, "getSampleAnalysis").mockResolvedValue({
+    data: {
+      metadata: { durationSec: 60 },
+      transcript: {},
+      shots: [],
+      keyframes: [],
+      structureAnalysisRoute: "map_reduce",
+    },
+    meta: { dataSource: "fixture" },
+  });
+  vi.spyOn(apiClient, "getLatestGenerations").mockResolvedValue({
+    data: {
+      generations: [
+        {
+          generationId: fixtureGenerationPlan.id,
+          variant: fixtureGenerationPlan.variant,
+          taskId: fixtureMultiVariantGenerations[1]!.taskId,
+          status: "succeeded",
+          plan: fixtureGenerationPlan,
+          renderVideoUrl: "/api/demo/output.mp4",
+        },
+        {
+          generationId: fixtureGenerationPlanHighClick.id,
+          variant: fixtureGenerationPlanHighClick.variant,
+          taskId: fixtureMultiVariantGenerations[0]!.taskId,
+          status: "succeeded",
+          plan: fixtureGenerationPlanHighClick,
+          renderVideoUrl: "/api/demo/output-high-click.mp4",
+        },
+      ],
+    },
+    meta: { dataSource: "fixture" },
+  });
+}
+
 describe("ProjectWorkbench", () => {
   beforeEach(() => {
     capturedOnTerminal = undefined;
@@ -133,18 +196,22 @@ describe("ProjectWorkbench", () => {
 
   it("switches between input, progress, structure, narration, and result panels", async () => {
     const user = userEvent.setup();
+    mockDemoWorkbenchHydration();
     render(<ProjectWorkbench projectId="proj-test" />);
 
     expect(screen.getByTestId("input-wizard-step-1")).toBeInTheDocument();
 
+    await waitFor(() =>
+      expect(screen.getByText("当前样例：sample-demo-001")).toBeInTheDocument(),
+    );
+
     await user.click(screen.getByRole("button", { name: "进度" }));
     expect(screen.getByText(/任务进度/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "加载演示数据" }));
     await user.click(screen.getByRole("button", { name: "样例分析" }));
-    expect(
-      screen.getByText("已分析样例"),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("已分析样例")).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByRole("button", { name: "全片拆解" }));
     expect(
@@ -317,9 +384,12 @@ describe("ProjectWorkbench", () => {
     });
 
     const user = userEvent.setup();
+    mockDemoWorkbenchHydration();
     render(<ProjectWorkbench projectId="proj-test" />);
 
-    await user.click(screen.getByRole("button", { name: "加载演示数据" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "结果" })).toBeInTheDocument(),
+    );
     await user.click(screen.getByRole("button", { name: "结果" }));
 
     await user.type(screen.getByLabelText("改片指令"), "开头更抓人，减少字幕");
@@ -532,9 +602,12 @@ describe("ProjectWorkbench", () => {
     });
 
     const user = userEvent.setup();
+    mockDemoWorkbenchHydration();
     render(<ProjectWorkbench projectId="proj-test" />);
 
-    await user.click(screen.getByRole("button", { name: "加载演示数据" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "结果" })).toBeInTheDocument(),
+    );
     await user.click(screen.getByRole("button", { name: "结果" }));
     await user.click(screen.getByRole("tab", { name: "高点击版" }));
 
@@ -603,25 +676,5 @@ describe("ProjectWorkbench", () => {
     const planBody = createPlanSpy.mock.calls[0]?.[1];
     expect(planBody).toBeDefined();
     expect(planBody).not.toHaveProperty("sampleSelection");
-  });
-
-  it("loads agent runs from result panel", async () => {
-    const getAgentRunsSpy = vi.spyOn(apiClient, "getGenerationAgentRuns").mockResolvedValue({
-      data: { runs: fixtureAgentRuns },
-      meta: { dataSource: "fixture" },
-    });
-
-    const user = userEvent.setup();
-    render(<ProjectWorkbench projectId="proj-test" />);
-
-    await user.click(screen.getByRole("button", { name: "加载演示数据" }));
-    await user.click(screen.getByRole("button", { name: "结果" }));
-    await user.click(screen.getByTestId("agent-runs-trigger"));
-
-    await waitFor(() =>
-      expect(getAgentRunsSpy).toHaveBeenCalledWith(fixtureGenerationPlan.id),
-    );
-    expect(screen.getByTestId("agent-runs-drawer")).toBeInTheDocument();
-    expect(screen.getByText("structure_analyst")).toBeInTheDocument();
   });
 });

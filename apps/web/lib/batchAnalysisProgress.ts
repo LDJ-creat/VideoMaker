@@ -101,3 +101,20 @@ export function buildRecentSampleAnalysisTasks(
       taskId: sample.taskId!,
     }));
 }
+
+/** Failed samples with a persisted task id — used to restore progress/retry after refresh. */
+export function buildRetryableSampleAnalysisTasks(
+  samples: Array<{ id: string; taskId?: string | null; status: string; sourceKind: string }>,
+): Array<{ sampleId: string; taskId: string }> {
+  return samples
+    .filter(
+      (sample) =>
+        sample.taskId &&
+        sample.sourceKind !== "knowledge" &&
+        sample.status === "failed",
+    )
+    .map((sample) => ({
+      sampleId: sample.id,
+      taskId: sample.taskId!,
+    }));
+}

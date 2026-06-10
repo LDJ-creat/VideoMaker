@@ -36,11 +36,18 @@ export function hasRetryableFailedGeneration(
 }
 
 export function buildGenerationStatusByTaskId(
-  generations: GenerationTaskSnapshot[],
+  generations: Array<{ taskId?: string | null; status?: string }>,
+  liveStatusByTaskId?: Record<string, TaskStatus>,
 ): Record<string, TaskStatus> {
   const statusByTaskId: Record<string, TaskStatus> = {};
   for (const entry of generations) {
-    if (entry.taskId && entry.status) {
+    if (!entry.taskId) continue;
+    const live = liveStatusByTaskId?.[entry.taskId];
+    if (live) {
+      statusByTaskId[entry.taskId] = live;
+      continue;
+    }
+    if (entry.status) {
       statusByTaskId[entry.taskId] = entry.status as TaskStatus;
     }
   }
