@@ -4,13 +4,17 @@
       "target": "generation_plan.storyboard",
       "operation": "adjust_hook",
       "params": { "strength": "high" },
-      "rationale": "用户希望开头更抓人"
+      "rationale": "用户希望开头更抓人",
+      "scope": "global",
+      "executionTool": "storyboard_agent"
     },
     {
       "target": "generation_plan.packaging",
       "operation": "reduce_subtitles",
       "params": {},
-      "rationale": "用户希望减少字幕"
+      "rationale": "用户希望减少字幕",
+      "scope": "track_subtitle",
+      "executionTool": "subtitle_patch"
     }
   ]
 }

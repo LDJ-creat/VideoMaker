@@ -95,13 +95,10 @@ def _infer_execution_from_intents(intents: list[dict[str, Any]]) -> tuple[str, s
     return "medium", "fork", True, steps
 
 
-def build_planner_output_from_rules(
+def build_planner_output_from_intents(
+    intents: list[dict[str, Any]],
     instruction: str,
-    source_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    source_summary = build_source_summary(source_plan)
-    payload = parse_edit_intent_for_api(instruction, source_summary)
-    intents = list(payload.get("intents") or [])
     cost_tier, execution_mode, requires_render, steps = _infer_execution_from_intents(intents)
     summaries: list[str] = [str(i.get("rationale") or "") for i in intents if i.get("rationale")]
     summary = "；".join(summaries) if summaries else instruction
@@ -114,6 +111,16 @@ def build_planner_output_from_rules(
         "executionSteps": steps,
         "conversationSummary": summary,
     }
+
+
+def build_planner_output_from_rules(
+    instruction: str,
+    source_plan: dict[str, Any],
+) -> dict[str, Any]:
+    source_summary = build_source_summary(source_plan)
+    payload = parse_edit_intent_for_api(instruction, source_summary)
+    intents = list(payload.get("intents") or [])
+    return build_planner_output_from_intents(intents, instruction)
 
 
 def enrich_revise_plan(

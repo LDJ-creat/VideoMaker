@@ -104,7 +104,10 @@ def main() -> int:
             storage_root,
             database_path=database_path,
         )
-        emit = _emit_factory(api_base_url, task_id)
+        # Sync helper modes do not register SQLite tasks; skip HTTP task events.
+        emit = None if mode in {"plan_revise", "parse_edit_intent"} else _emit_factory(
+            api_base_url, task_id
+        )
 
         if mode == "analyze_sample":
             result = pipeline.analyze_sample(
@@ -292,16 +295,6 @@ def main() -> int:
         final_event = failure["finalEvent"]
         if emit is not None:
             emit(
-                status="failed",
-                stage=str(final_event["stage"]),
-                progress=0,
-                message=str(final_event["message"]),
-                error=final_event["error"],
-            )
-        else:
-            _post_task_event(
-                api_base_url,
-                task_id,
                 status="failed",
                 stage=str(final_event["stage"]),
                 progress=0,

@@ -121,6 +121,7 @@ class ModelGateway:
         *,
         json_only: bool,
         profile: str = "text",
+        schema_name: str | None = None,
     ) -> list[dict[str, Any]]:
         system_parts: list[str] = []
         if isinstance(inputs.get("systemPrompt"), str) and inputs["systemPrompt"].strip():
@@ -128,6 +129,8 @@ class ModelGateway:
         system_parts.append(task)
         if json_only:
             system_parts.append("Respond with valid JSON only.")
+            if schema_name:
+                system_parts.append(self._schema_prompt_appendix(schema_name))
 
         user_inputs = inputs.get("inputs", inputs)
         if profile == "vision":
@@ -183,6 +186,17 @@ class ModelGateway:
             },
         )
         return {"role": "user", "content": content_parts}
+
+    @staticmethod
+    def _schema_prompt_appendix(schema_name: str) -> str:
+        from app.validation.prompt_schema import format_schema_prompt_appendix
+        from app.validation.schema_loader import _LOADER
+
+        try:
+            schema = _LOADER.get_schema(schema_name)
+        except KeyError:
+            return f"Validate output against contract `{schema_name}`."
+        return format_schema_prompt_appendix(schema_name, schema)
 
     @staticmethod
     def build_structure_messages(
@@ -338,9 +352,14 @@ class ModelGateway:
         *,
         profile: str = "text",
     ) -> dict[str, Any]:
-        _ = schema_name
         provider = self._chat_provider(profile)
-        messages = self._build_messages(task, inputs, json_only=True, profile=profile)
+        messages = self._build_messages(
+            task,
+            inputs,
+            json_only=True,
+            profile=profile,
+            schema_name=schema_name,
+        )
         response_format = (
             {"type": "json_object"} if provider.config.supports_json_response_format() else None
         )
