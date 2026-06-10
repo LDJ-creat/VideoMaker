@@ -1,13 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 
 import { KnowledgeMarkdownPreview, KnowledgeReasonTags } from "@/features/knowledge/KnowledgeMarkdownPreview";
+import { KnowledgeRefreshStatus } from "@/features/knowledge/KnowledgeRefreshStatus";
 import {
   isKnowledgeStructureApplyBlockedMessage,
+  KNOWLEDGE_RECOMMENDATION_GUIDANCE_BODY,
+  KNOWLEDGE_RECOMMENDATION_GUIDANCE_TITLE,
+  KNOWLEDGE_RECOMMENDATION_LOADING_LABEL,
+  KNOWLEDGE_RECOMMENDATION_UPDATING_LABEL,
   KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_HINT,
   MAX_KNOWLEDGE_REFERENCE_ENTRIES,
 } from "@/features/knowledge/knowledgeMessages";
+import {
+  hasAnalyzedRealSample,
+  hasMeaningfulBrief,
+  isKnowledgeRecommendationReady,
+} from "@/features/knowledge/knowledgeReadiness";
 import {
   formatKnowledgeMatchScore,
   SelectionCandidateZone,
@@ -19,6 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { KnowledgeEntry, KnowledgeRecommendation, ProjectKnowledgeSelection } from "@videomaker/contracts";
 import {
   applyKnowledgeToProject,
+  getBrief,
   getKnowledgeEntry,
   getKnowledgeSelection,
   getKnowledgeSkill,
@@ -30,51 +41,74 @@ import {
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
 
+export type KnowledgeSelectionPanelHandle = {
+  refresh: () => Promise<void>;
+};
+
 type KnowledgeSelectionPanelProps = {
   projectId: string;
   onApplied?: () => void;
+  /** Bump after Brief save to re-fetch selection and recommendations. */
+  refreshKey?: number;
 };
 
-function hasAnalyzedRealSampleStructure(
-  samples: Array<{ hasStructure: boolean; sourceKind: string }>,
-): boolean {
-  return samples.some(
-    (sample) => sample.hasStructure && sample.sourceKind !== "knowledge",
-  );
-}
-
-export function KnowledgeSelectionPanel({
-  projectId,
-  onApplied,
-}: KnowledgeSelectionPanelProps) {
+export const KnowledgeSelectionPanel = forwardRef<
+  KnowledgeSelectionPanelHandle,
+  KnowledgeSelectionPanelProps
+>(function KnowledgeSelectionPanel(
+  { projectId, onApplied, refreshKey = 0 },
+  ref,
+) {
   const [selection, setSelection] = useState<ProjectKnowledgeSelection | null>(null);
   const [recommendation, setRecommendation] = useState<KnowledgeRecommendation | null>(null);
   const [primaryEntry, setPrimaryEntry] = useState<KnowledgeEntry | null>(null);
   const [referenceEntries, setReferenceEntries] = useState<KnowledgeEntry[]>([]);
   const [structureApplyBlocked, setStructureApplyBlocked] = useState(false);
+  const [recommendationReady, setRecommendationReady] = useState(false);
+  const [briefReady, setBriefReady] = useState(false);
+  const [sampleReady, setSampleReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setStatus(null);
     try {
-      const [selectionResult, recommendResult, samplesResult] = await Promise.all([
+      const [selectionResult, samplesResult, briefResult] = await Promise.all([
         getKnowledgeSelection(projectId),
-        recommendKnowledge(projectId),
         listProjectSamples(projectId),
+        getBrief(projectId),
       ]);
       const currentSelection = selectionResult.data.selection;
-      setSelection(currentSelection);
-      setRecommendation(recommendResult.data.recommendation);
-      setStructureApplyBlocked(hasAnalyzedRealSampleStructure(samplesResult.data.samples));
+      const analyzedRealSample = hasAnalyzedRealSample(samplesResult.data.samples);
+      const meaningfulBrief = hasMeaningfulBrief(briefResult.data.brief);
+      const ready = isKnowledgeRecommendationReady({
+        hasMeaningfulBrief: meaningfulBrief,
+        hasPersistedSelection: Boolean(currentSelection?.primaryEntryId),
+      });
 
-      const primaryId =
-        currentSelection?.primaryEntryId ??
-        recommendResult.data.selection?.primaryEntryId ??
-        recommendResult.data.recommendation?.suggestedPrimaryId ??
-        null;
+      setSelection(currentSelection);
+      setStructureApplyBlocked(analyzedRealSample);
+      setBriefReady(meaningfulBrief);
+      setSampleReady(analyzedRealSample);
+      setRecommendationReady(ready);
+
+      let recommendationResult: KnowledgeRecommendation | null = null;
+      if (ready) {
+        const recommendResponse = await recommendKnowledge(projectId);
+        recommendationResult = recommendResponse.data.recommendation;
+      } else {
+        setExpanded(false);
+      }
+      setRecommendation(recommendationResult);
+
+      const primaryId = ready
+        ? (currentSelection?.primaryEntryId ??
+          recommendationResult?.suggestedPrimaryId ??
+          null)
+        : (currentSelection?.primaryEntryId ?? null);
 
       const referenceIds = currentSelection?.referenceEntryIds ?? [];
 
@@ -99,13 +133,16 @@ export function KnowledgeSelectionPanel({
     } catch (error) {
       setStatus(getErrorMessage(error));
     } finally {
+      setHasLoadedOnce(true);
       setLoading(false);
     }
   }, [projectId]);
 
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, refreshKey]);
 
   const persistSelection = async (body: {
     primaryEntryId: string;
@@ -218,13 +255,39 @@ export function KnowledgeSelectionPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {loading && <p className="text-sm text-muted-foreground">加载推荐知识…</p>}
+        {loading && (
+          <KnowledgeRefreshStatus
+            label={
+              hasLoadedOnce
+                ? KNOWLEDGE_RECOMMENDATION_UPDATING_LABEL
+                : KNOWLEDGE_RECOMMENDATION_LOADING_LABEL
+            }
+          />
+        )}
 
         {structureApplyBlocked && (
           <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             {KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_HINT}
           </p>
         )}
+
+        {!loading && !recommendationReady && !primaryEntry ? (
+          <div className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-4 py-4 text-sm">
+            <p className="font-medium">{KNOWLEDGE_RECOMMENDATION_GUIDANCE_TITLE}</p>
+            <p className="mt-2 text-muted-foreground">{KNOWLEDGE_RECOMMENDATION_GUIDANCE_BODY}</p>
+            <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-muted-foreground">
+              <li className={briefReady ? "text-foreground" : undefined}>
+                {briefReady ? "✓ " : ""}
+                填写创作 Brief 并点击「保存 Brief」（Step 2）
+              </li>
+              <li className={sampleReady ? "text-foreground" : undefined}>
+                {sampleReady ? "✓ " : "（可选）"}
+                上传样例视频并完成结构分析（Step 1）— 可进一步提升匹配度
+              </li>
+              <li>保存 Brief 后，系统会在此展示匹配的知识推荐；无样例分析时也可凭 Brief + 知识库结构生成视频</li>
+            </ol>
+          </div>
+        ) : null}
 
         {primaryEntry ? (
           <>
@@ -297,11 +360,11 @@ export function KnowledgeSelectionPanel({
               )}
             </div>
           </>
-        ) : (
+        ) : recommendationReady ? (
           <p className="text-sm text-muted-foreground">
             暂无已发布知识库条目。完成样例分析并 promote 后即可自动推荐。
           </p>
-        )}
+        ) : null}
 
         {expanded && recommendation && (
           <SelectionCandidateZone
@@ -374,7 +437,7 @@ export function KnowledgeSelectionPanel({
       </CardContent>
     </Card>
   );
-}
+});
 
 type KnowledgeLibraryViewProps = {
   onSelect?: (entryId: string) => void;
