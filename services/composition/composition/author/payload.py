@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from composition.aspect_ratio import render_dimensions
 from composition.types import AuthorRequest
 
 VIDEO_LINT_CHECKLIST: tuple[str, ...] = (
@@ -36,4 +37,12 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
         payload["visualStyleBible"] = request.visual_style_bible
     if has_video_asset_refs(request.asset_refs):
         payload["videoLintChecklist"] = list(VIDEO_LINT_CHECKLIST)
+    width, height = render_dimensions(request.aspect_ratio)
+    payload["renderTarget"] = {
+        "aspectRatio": request.aspect_ratio,
+        "width": width,
+        "height": height,
+    }
+    if isinstance(request.slot_timing, dict) and request.slot_timing:
+        payload["slotTiming"] = request.slot_timing
     return payload
