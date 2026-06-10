@@ -606,9 +606,24 @@ export type CompletionMode =
 export type FinishBrief = {
   completionMode?: CompletionMode;
   finishIntent?: string;
+  creativeBrief?: {
+    visualDirection?: string;
+    narrativeGoal?: string;
+    polishTasks?: string[];
+  };
+  voiceoverContext?: {
+    line?: string;
+    doNotRender: boolean;
+  };
+  renderPolicy?: {
+    forbidVoiceoverText?: boolean;
+    forbidBriefVerbatim?: boolean;
+    allowedDisplayCopy?: string[];
+  };
   baseMedia?: ArtifactRef;
   sourceProvider?: string;
   durationSec?: number;
+  /** @deprecated Prefer creativeBrief + voiceoverContext */
   storyboardScene?: {
     script?: string;
     visual?: string;

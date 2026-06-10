@@ -9,6 +9,39 @@
       "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
     },
     "finishIntent": { "type": "string" },
+    "creativeBrief": {
+      "type": "object",
+      "properties": {
+        "visualDirection": { "type": "string" },
+        "narrativeGoal": { "type": "string" },
+        "polishTasks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "voiceoverContext": {
+      "type": "object",
+      "required": ["doNotRender"],
+      "properties": {
+        "line": { "type": "string" },
+        "doNotRender": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "renderPolicy": {
+      "type": "object",
+      "properties": {
+        "forbidVoiceoverText": { "type": "boolean" },
+        "forbidBriefVerbatim": { "type": "boolean" },
+        "allowedDisplayCopy": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
     "baseMedia": { "$ref": "artifact-ref.schema.json" },
     "sourceProvider": { "type": "string" },
     "durationSec": { "type": "number", "minimum": 0 },
