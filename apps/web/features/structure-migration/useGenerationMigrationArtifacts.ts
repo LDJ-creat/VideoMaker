@@ -7,9 +7,9 @@ import type { TaskEvent } from "@videomaker/contracts";
 import { artifactsSnapshotKey } from "@/features/structure-migration/artifactsSnapshotKey";
 import type { GenerationMigrationArtifacts } from "@/features/structure-migration/fetchGenerationMigrationArtifacts";
 import {
-  isGenerationMigrationStage,
-  migrationStageGroup,
-} from "@/features/structure-migration/generationMigrationStages";
+  resolveEffectiveMigrationGroup,
+  shouldPollMigrationArtifacts,
+} from "@/features/structure-migration/resolveEffectiveMigrationGroup";
 import {
   fetchMigrationSnapshotCached,
   invalidateMigrationSnapshotCache,
@@ -32,10 +32,7 @@ export function useGenerationMigrationArtifacts({
   enabled = true,
 }: UseGenerationMigrationArtifactsOptions): {
   artifacts: GenerationMigrationArtifacts | null;
-  progressGroup: ReturnType<typeof migrationStageGroup>;
-  syncing: boolean;
-  /** @deprecated Prefer syncing (non-layout indicator). */
-  loading: boolean;
+  progressGroup: ReturnType<typeof resolveEffectiveMigrationGroup>;
 } {
   const cached =
     generationId && projectId
@@ -44,20 +41,21 @@ export function useGenerationMigrationArtifacts({
   const [artifacts, setArtifacts] = useState<GenerationMigrationArtifacts | null>(
     cached,
   );
-  const [syncing, setSyncing] = useState(false);
   const snapshotKeyRef = useRef<string | null>(
     cached ? artifactsSnapshotKey(cached) : null,
   );
-  const hadInitialCacheRef = useRef(Boolean(cached));
 
-  const progressGroup = migrationStageGroup(event?.stage);
-  const shouldPoll =
-    enabled &&
-    Boolean(generationId) &&
-    Boolean(event) &&
-    event?.status !== "failed" &&
-    event?.status !== "cancelled" &&
-    isGenerationMigrationStage(event?.stage);
+  const progressGroup = resolveEffectiveMigrationGroup(
+    event?.stage,
+    event?.message,
+    artifacts,
+  );
+  const shouldPoll = shouldPollMigrationArtifacts({
+    enabled,
+    generationId,
+    event,
+    artifacts,
+  });
 
   useEffect(() => {
     if (event?.status === "failed" || event?.status === "cancelled") {
@@ -75,26 +73,15 @@ export function useGenerationMigrationArtifacts({
     let cancelled = false;
 
     const refresh = async (options?: { force?: boolean }) => {
-      const showSync = !hadInitialCacheRef.current;
-      if (showSync) {
-        setSyncing(true);
-      }
-      try {
-        const next = await fetchMigrationSnapshotCached(projectId, generationId, {
-          ttlMs: MIGRATION_ARTIFACT_POLL_INTERVAL_MS,
-          force: options?.force,
-        });
-        if (cancelled) return;
-        hadInitialCacheRef.current = true;
-        const nextKey = artifactsSnapshotKey(next);
-        if (nextKey !== snapshotKeyRef.current) {
-          snapshotKeyRef.current = nextKey;
-          setArtifacts(next);
-        }
-      } finally {
-        if (!cancelled && showSync) {
-          setSyncing(false);
-        }
+      const next = await fetchMigrationSnapshotCached(projectId, generationId, {
+        ttlMs: MIGRATION_ARTIFACT_POLL_INTERVAL_MS,
+        force: options?.force,
+      });
+      if (cancelled) return;
+      const nextKey = artifactsSnapshotKey(next);
+      if (nextKey !== snapshotKeyRef.current) {
+        snapshotKeyRef.current = nextKey;
+        setArtifacts(next);
       }
     };
 
@@ -112,8 +99,6 @@ export function useGenerationMigrationArtifacts({
   return {
     artifacts,
     progressGroup,
-    syncing,
-    loading: syncing && artifacts === null,
   };
 }
 

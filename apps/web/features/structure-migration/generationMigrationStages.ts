@@ -25,9 +25,16 @@ export function isGenerationMigrationStage(stage: TaskStage | undefined): boolea
   return GENERATION_MIGRATION_STAGES.has(stage);
 }
 
+export type MigrationStageGroup =
+  | "pending"
+  | "mapping"
+  | "planning"
+  | "completing"
+  | "done";
+
 export function migrationStageGroup(
   stage: TaskStage | undefined,
-): "pending" | "mapping" | "planning" | "completing" | "done" {
+): MigrationStageGroup {
   if (!stage) return "pending";
   if (stage === "mapping_slots" || stage === "analyzing_assets") return "mapping";
   if (

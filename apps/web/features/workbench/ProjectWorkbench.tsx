@@ -101,7 +101,6 @@ import {
   getLatestGenerations,
   listGenerationRuns,
   getProject,
-  getSampleKeyframes,
   getSampleAnalysis,
   getSampleSelection,
   getSampleStructure,
@@ -119,7 +118,6 @@ import {
   startSampleAnalysis,
   updateKnowledgeSelection,
   type SampleAnalysisFacts,
-  type SampleKeyframeRecord,
 } from "@/lib/apiClient";
 import {
   buildGenerationStatusByTaskId,
@@ -303,6 +301,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const activeRunGenerationsRef = useRef<ActiveGeneration[]>([]);
   /** When false, generation terminal handlers hydrate data but do not auto-switch panels. */
   const generationAutoNavRef = useRef(false);
+  /** When false, analysis terminal handlers hydrate data but do not auto-switch panels. */
+  const analysisAutoNavRef = useRef(false);
   const panelRef = useRef<WorkbenchPanel>("input");
   const [panel, setPanelState] = useState<WorkbenchPanel>("input");
   const setPanel = useCallback((next: WorkbenchPanel, reason?: string) => {
@@ -349,9 +349,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const [structure, setStructure] = useState<VideoStructure | null>(null);
-  const [sampleKeyframes, setSampleKeyframes] = useState<SampleKeyframeRecord[]>(
-    [],
-  );
   const [sampleAnalysisFacts, setSampleAnalysisFacts] =
     useState<SampleAnalysisFacts | null>(null);
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
@@ -422,14 +419,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       try {
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           try {
-            const [structureResult, keyframesResult, sampleFactsResult] =
-              await Promise.all([
-                getSampleStructure(currentSampleId),
-                getSampleKeyframes(currentSampleId),
-                getSampleAnalysis(currentSampleId),
-              ]);
+            const [structureResult, sampleFactsResult] = await Promise.all([
+              getSampleStructure(currentSampleId),
+              getSampleAnalysis(currentSampleId),
+            ]);
             setStructure(structureResult.data);
-            setSampleKeyframes(keyframesResult.data.keyframes ?? []);
             setSampleAnalysisFacts(sampleFactsResult.data);
             setAnalysisSampleId(currentSampleId);
             setDataSource(structureResult.meta.dataSource);
@@ -884,20 +878,30 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [loadGenerationIntoVariants],
   );
 
-  const handleAnalysisTerminal = useCallback(
-    (event: TaskEvent) => {
-      if (event.status === "failed" || event.status === "cancelled") {
-        setPanel("progress");
-        return;
-      }
-      if (event.status !== "succeeded") return;
-      if (lastAction === "analysis" && sampleId) {
-        setAnalysisSampleId(sampleId);
-        void loadAnalysisResults(sampleId);
-        setPanel("analysis");
+  const navigateToAnalysisResults = useCallback(
+    (targetSampleId: string, reason: string) => {
+      if (!analysisAutoNavRef.current) return;
+      analysisAutoNavRef.current = false;
+      setAnalysisSampleId(targetSampleId);
+      void loadAnalysisResults(targetSampleId);
+      if (panelRef.current === "progress") {
+        setPanel("analysis", reason);
       }
     },
-    [lastAction, loadAnalysisResults, sampleId],
+    [loadAnalysisResults, setPanel],
+  );
+
+  const handleAnalysisTerminal = useCallback(
+    (event: TaskEvent) => {
+      if (!analysisAutoNavRef.current) return;
+      if (event.status === "failed" || event.status === "cancelled") {
+        analysisAutoNavRef.current = false;
+        return;
+      }
+      if (event.status !== "succeeded" || !sampleId) return;
+      navigateToAnalysisResults(sampleId, "analysis-terminal:succeeded");
+    },
+    [navigateToAnalysisResults, sampleId],
   );
 
   const handleGenerationTaskTerminal = useCallback(
@@ -1356,6 +1360,36 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   }, [activeGenerations, displayGenerationEvents]);
 
   useEffect(() => {
+    if (!analysisAutoNavRef.current) return;
+    if (panel !== "progress" || lastAction !== "analysis") return;
+    if (isBatchAnalysisProgress) return;
+    if (event?.status !== "succeeded" || !sampleId) return;
+    navigateToAnalysisResults(sampleId, "auto-nav:analysis-succeeded");
+  }, [
+    event,
+    isBatchAnalysisProgress,
+    lastAction,
+    navigateToAnalysisResults,
+    panel,
+    sampleId,
+  ]);
+
+  useEffect(() => {
+    if (!generationAutoNavRef.current) return;
+    if (panel !== "progress" || lastAction !== "generation") return;
+    if (!showMultiVariantGenerationProgress) return;
+    if (!allGenerationTasksSucceeded) return;
+    handleAllGenerationTerminal(displayGenerationEvents);
+  }, [
+    allGenerationTasksSucceeded,
+    displayGenerationEvents,
+    handleAllGenerationTerminal,
+    lastAction,
+    panel,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  useEffect(() => {
     if (lastAction !== "generation" || !OUTPUT_RESULT_PANELS.includes(panel)) return;
     if (!allGenerationTasksSucceeded) return;
     const runEntries = activeRunGenerationsRef.current;
@@ -1375,6 +1409,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setLastAction("analysis");
       setActiveGenerations([]);
       setAnalysisBatch(null);
+      analysisAutoNavRef.current = true;
       setTaskId(nextTaskId);
       setSampleId(nextSampleId);
       setPanel("progress");
@@ -1387,6 +1422,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
     setLastAction("analysis");
     setActiveGenerations([]);
+    analysisAutoNavRef.current = true;
     try {
       const targetSampleId =
         sampleId ?? (await getActiveSample(projectId)).data.id;
@@ -2056,6 +2092,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               onBatchAnalysisStarted={(tasks, maxConcurrent) => {
                 setAnalysisBatch({ tasks, maxConcurrent });
                 setLastAction("analysis");
+                analysisAutoNavRef.current = true;
                 setPanel("progress");
               }}
               onSampleReady={(id) => {
@@ -2089,8 +2126,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 maxConcurrent={progressAnalysisBatch.maxConcurrent}
                 onAllComplete={() => {
                   void loadProjectInput();
-                  if (sampleId) {
-                    void loadAnalysisResults(sampleId);
+                  const targetSampleId =
+                    sampleId ?? progressAnalysisBatch.tasks[0]?.sampleId ?? null;
+                  if (targetSampleId) {
+                    if (analysisAutoNavRef.current) {
+                      navigateToAnalysisResults(
+                        targetSampleId,
+                        "batch-analysis:all-complete",
+                      );
+                    } else {
+                      setAnalysisSampleId(targetSampleId);
+                      void loadAnalysisResults(targetSampleId);
+                    }
                   }
                 }}
               />
@@ -2191,7 +2238,6 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               onSelectSample={handleSelectAnalysisSample}
               structure={structure}
               sampleAnalysisFacts={sampleAnalysisFacts}
-              sampleKeyframes={sampleKeyframes}
               error={dataError}
               highlightedSlotIds={highlightedSlotIds}
               onHighlightSlot={(slotId) => setHighlightedSlotIds([slotId])}

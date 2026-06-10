@@ -14,7 +14,8 @@ describe("parseTaskMaterialProgress", () => {
       "Authoring HyperFrames material spec for slot-2",
     );
     expect(result.actionLabel).toBe("HyperFrames 包装");
-    expect(result.summary).toContain("HyperFrames");
+    expect(result.slotId).toBe("slot-2");
+    expect(result.summary).toContain("slot-2");
   });
 
   it("returns empty hint for unrelated messages", () => {

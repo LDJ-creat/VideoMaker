@@ -8,5 +8,6 @@ export function artifactsSnapshotKey(
     slotMatches: artifacts.slotMatches,
     gapReport: artifacts.gapReport,
     completionActions: artifacts.completionActions,
+    materialState: artifacts.materialState,
   });
 }

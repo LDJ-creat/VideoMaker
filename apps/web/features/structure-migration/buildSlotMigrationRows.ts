@@ -9,9 +9,11 @@ import type {
 
 import { structureSlotRoleLabel } from "@/lib/structureSlotLabels";
 
-import { migrationStageGroup } from "@/features/structure-migration/generationMigrationStages";
+import type { MigrationStageGroup } from "@/features/structure-migration/generationMigrationStages";
 import { pickVisualCompletionAction } from "@/features/structure-migration/pickVisualCompletionAction";
 import { resolveStoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
+import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
+import { normalizeMigrationSlotId } from "@/lib/migrationSlotId";
 
 /** Mirrors worker slot_mapper thresholds. */
 const MATCHED_THRESHOLD = 0.62;
@@ -22,6 +24,7 @@ export type SlotMigrationStatus =
   | "mapping"
   | "planned"
   | "completing"
+  | "completed"
   | "resolved";
 
 export type SlotMigrationRow = {
@@ -68,7 +71,10 @@ function gapEntryForSlot(
 
 function resolveRowStatus(input: {
   mode: "result" | "progress";
-  progressGroup?: ReturnType<typeof migrationStageGroup>;
+  slotId: string;
+  progressGroup?: MigrationStageGroup;
+  activeSlotId?: string | null;
+  completedSlotIds?: Set<string>;
   hasCompletion: boolean;
   hasGap: boolean;
   hasMatch: boolean;
@@ -77,6 +83,10 @@ function resolveRowStatus(input: {
   if (input.mode === "result" || input.taskSucceeded) {
     return input.hasCompletion || input.hasMatch ? "resolved" : "planned";
   }
+
+  const normalizedSlot = normalizeMigrationSlotId(input.slotId) ?? input.slotId;
+  const normalizedActive = normalizeMigrationSlotId(input.activeSlotId);
+
   switch (input.progressGroup) {
     case "pending":
       return "pending";
@@ -84,8 +94,15 @@ function resolveRowStatus(input: {
       return input.hasMatch || input.hasGap ? "mapping" : "pending";
     case "planning":
       return input.hasGap || input.hasCompletion ? "planned" : "mapping";
-    case "completing":
-      return input.hasCompletion || input.hasGap ? "completing" : "planned";
+    case "completing": {
+      if (input.completedSlotIds?.has(normalizedSlot)) {
+        return "completed";
+      }
+      if (normalizedActive && normalizedSlot === normalizedActive) {
+        return "completing";
+      }
+      return "planned";
+    }
     case "done":
       return "resolved";
     default:
@@ -100,7 +117,9 @@ export function buildSlotMigrationRows(input: {
   completionActions?: CompletionAction[];
   storyboard?: StoryboardScene[];
   mode: "result" | "progress";
-  progressGroup?: ReturnType<typeof migrationStageGroup>;
+  progressGroup?: MigrationStageGroup;
+  activeSlotId?: string | null;
+  completedActionIds?: string[];
   taskSucceeded?: boolean;
 }): SlotMigrationRow[] {
   const matchesBySlot = new Map(
@@ -123,6 +142,10 @@ export function buildSlotMigrationRows(input: {
   }
   const scenesBySlot = new Map(
     (input.storyboard ?? []).map((scene) => [scene.slotId, scene]),
+  );
+  const completedSlotIds = deriveCompletedSlotIds(
+    input.completionActions ?? [],
+    input.completedActionIds,
   );
 
   return input.structure.slots.map((slot) => {
@@ -153,7 +176,10 @@ export function buildSlotMigrationRows(input: {
       scriptIntent: slot.scriptIntent,
       status: resolveRowStatus({
         mode: input.mode,
+        slotId: slot.id,
         progressGroup: input.progressGroup,
+        activeSlotId: input.activeSlotId,
+        completedSlotIds,
         hasCompletion: Boolean(completion),
         hasGap: Boolean(gap),
         hasMatch: matchClass !== "none",

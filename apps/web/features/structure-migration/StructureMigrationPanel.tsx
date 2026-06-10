@@ -15,6 +15,7 @@ import {
 import { GeneratedAssetBadge } from "@/features/aigc-preview/GeneratedAssetBadge";
 import type { SlotMigrationRow } from "@/features/structure-migration/buildSlotMigrationRows";
 import { migrationSummaryFromRows } from "@/features/structure-migration/buildSlotMigrationRows";
+import { normalizeMigrationSlotId } from "@/lib/migrationSlotId";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABELS: Record<SlotMigrationRow["status"], string> = {
@@ -22,6 +23,7 @@ const STATUS_LABELS: Record<SlotMigrationRow["status"], string> = {
   mapping: "匹配中",
   planned: "已规划补全",
   completing: "补全中",
+  completed: "已补全",
   resolved: "已落地",
 };
 
@@ -33,6 +35,7 @@ const STATUS_VARIANT: Record<
   mapping: "secondary",
   planned: "warning",
   completing: "ai",
+  completed: "success",
   resolved: "success",
 };
 
@@ -102,7 +105,10 @@ export function StructureMigrationPanel({
                 key={row.slotId}
                 row={row}
                 index={index}
-                isActive={activeSlotId != null && row.slotId === activeSlotId}
+                isActive={
+                  activeSlotId != null &&
+                  normalizeMigrationSlotId(row.slotId) === activeSlotId
+                }
               />
             ))
           )}

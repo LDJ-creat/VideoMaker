@@ -96,10 +96,6 @@ describe("ProjectWorkbench", () => {
     });
     vi.spyOn(apiClient, "getLatestGenerations").mockRejectedValue(new Error("no generation"));
     vi.spyOn(apiClient, "getActiveSample").mockRejectedValue(new Error("no sample"));
-    vi.spyOn(apiClient, "getSampleKeyframes").mockResolvedValue({
-      data: { sampleId: "sample-upload-1", keyframes: [] },
-      meta: { dataSource: "api" },
-    });
     vi.spyOn(apiClient, "getKnowledgeSelection").mockResolvedValue({
       data: { selection: null },
       meta: { dataSource: "api" },
@@ -234,9 +230,9 @@ describe("ProjectWorkbench", () => {
       expect(getStructure).toHaveBeenCalledWith("sample-upload-1"),
     );
 
-    await user.click(screen.getByRole("button", { name: "样例分析" }));
-
-    expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument(),
+    );
   });
 
   it("calls retryTask with the same task id when retry is clicked", async () => {
@@ -490,7 +486,12 @@ describe("ProjectWorkbench", () => {
       ),
     );
 
-    expect(screen.getByTestId("variant-compare-view")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("variant-compare-view")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("heading", { name: "生成结果" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "高点击版" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "高转化版" })).toBeInTheDocument();
   });

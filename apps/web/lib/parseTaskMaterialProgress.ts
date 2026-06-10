@@ -5,7 +5,8 @@ export type TaskMaterialProgressHint = {
 };
 
 const COMPLETING_SLOT = /Completing slot\s+(\S+)/i;
-const AUTHORING_HF = /Authoring HyperFrames material spec/i;
+const AUTHORING_HF =
+  /Authoring HyperFrames material spec(?:\s+for\s+(\S+))?/i;
 const HF_READY = /HyperFrames material ready for slot\s+(\S+)/i;
 
 export function parseTaskMaterialProgress(
@@ -25,11 +26,15 @@ export function parseTaskMaterialProgress(
     };
   }
 
-  if (AUTHORING_HF.test(message)) {
+  const authoring = message.match(AUTHORING_HF);
+  if (authoring) {
+    const slotId = authoring[1] ?? null;
     return {
-      slotId: null,
+      slotId,
       actionLabel: "HyperFrames 包装",
-      summary: "正在处理：HyperFrames 包装分镜",
+      summary: slotId
+        ? `正在处理：${slotId} · HyperFrames 包装分镜`
+        : "正在处理：HyperFrames 包装分镜",
     };
   }
 

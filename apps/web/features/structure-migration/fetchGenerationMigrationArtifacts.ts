@@ -3,10 +3,15 @@ import type { CompletionAction, GapReport, SlotMatch } from "@videomaker/contrac
 import { getGenerationMigrationSnapshot } from "@/lib/apiClient";
 import { projectFileMediaUrl } from "@/lib/artifactUrl";
 
+export type GenerationMigrationMaterialState = {
+  completedActionIds: string[];
+};
+
 export type GenerationMigrationArtifacts = {
   slotMatches: SlotMatch[];
   gapReport: GapReport | null;
   completionActions: CompletionAction[];
+  materialState: GenerationMigrationMaterialState | null;
 };
 
 async function fetchJsonFile<T>(url: string): Promise<T | null> {
@@ -36,16 +41,25 @@ async function fetchGenerationMigrationArtifactsFromFiles(
     `generations/${generationId}/generation-plan.json`,
   );
 
-  const [slotPayload, gapReport, plan] = await Promise.all([
+  const materialStateUrl = projectFileMediaUrl(
+    projectId,
+    `generations/${generationId}/material-state.json`,
+  );
+
+  const [slotPayload, gapReport, plan, materialState] = await Promise.all([
     fetchJsonFile<{ slotMatches?: SlotMatch[] }>(slotMatchesUrl),
     fetchJsonFile<GapReport>(gapReportUrl),
     fetchJsonFile<{ completionActions?: CompletionAction[] }>(planUrl),
+    fetchJsonFile<{ completedActionIds?: string[] }>(materialStateUrl),
   ]);
 
   return {
     slotMatches: slotPayload?.slotMatches ?? [],
     gapReport,
     completionActions: plan?.completionActions ?? [],
+    materialState: materialState?.completedActionIds
+      ? { completedActionIds: materialState.completedActionIds }
+      : null,
   };
 }
 
@@ -59,6 +73,7 @@ export async function fetchGenerationMigrationArtifacts(
       slotMatches: data.slotMatches ?? [],
       gapReport: data.gapReport ?? null,
       completionActions: data.completionActions ?? [],
+      materialState: data.materialState ?? null,
     };
   } catch {
     return fetchGenerationMigrationArtifactsFromFiles(projectId, generationId);

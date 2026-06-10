@@ -9,10 +9,11 @@ import {
 import { fixtureTaskEvent } from "@/fixtures";
 
 describe("batchAnalysisProgress", () => {
-  it("builds recent analysis tasks from sample summaries", () => {
+  it("builds recent analysis tasks from in-flight sample summaries only", () => {
     const tasks = buildRecentSampleAnalysisTasks([
-      { id: "a", taskId: "task-a", status: "analyzed", sourceKind: "local" },
-      { id: "b", taskId: null, status: "uploaded", sourceKind: "local" },
+      { id: "a", taskId: "task-a", status: "analyzing", sourceKind: "local" },
+      { id: "b", taskId: "task-b", status: "analyzed", sourceKind: "local" },
+      { id: "c", taskId: null, status: "uploaded", sourceKind: "local" },
     ]);
     expect(tasks).toEqual([{ sampleId: "a", taskId: "task-a" }]);
   });

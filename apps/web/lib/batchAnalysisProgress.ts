@@ -78,6 +78,14 @@ export function batchProgressHeadline(counts: BatchProgressCounts): string {
   return "批量样例分析";
 }
 
+const IN_FLIGHT_SAMPLE_STATUSES = new Set([
+  "analyzing",
+  "queued",
+  "importing",
+  "retrying",
+  "running",
+]);
+
 export function buildRecentSampleAnalysisTasks(
   samples: Array<{ id: string; taskId?: string | null; status: string; sourceKind: string }>,
 ): Array<{ sampleId: string; taskId: string }> {
@@ -86,7 +94,7 @@ export function buildRecentSampleAnalysisTasks(
       (sample) =>
         sample.taskId &&
         sample.sourceKind !== "knowledge" &&
-        sample.status !== "uploaded",
+        IN_FLIGHT_SAMPLE_STATUSES.has(sample.status),
     )
     .map((sample) => ({
       sampleId: sample.id,

@@ -747,6 +747,7 @@ export type GenerationMigrationSnapshot = {
   slotMatches: import("@videomaker/contracts").SlotMatch[];
   gapReport: import("@videomaker/contracts").GapReport | null;
   completionActions: import("@videomaker/contracts").CompletionAction[];
+  materialState: { completedActionIds: string[] } | null;
 };
 
 export async function getGenerationMigrationSnapshot(

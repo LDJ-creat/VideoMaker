@@ -12,6 +12,7 @@ import {
   useGenerationMigrationArtifacts,
   type MigrationProgressContext,
 } from "@/features/structure-migration/useGenerationMigrationArtifacts";
+import { normalizeMigrationSlotId } from "@/lib/migrationSlotId";
 import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ export function GenerationMigrationProgressPanel({
   event,
   defaultExpanded = true,
 }: GenerationMigrationProgressPanelProps) {
-  const { artifacts, progressGroup, syncing } = useGenerationMigrationArtifacts({
+  const { artifacts, progressGroup } = useGenerationMigrationArtifacts({
     projectId: context.projectId,
     generationId: context.generationId,
     event,
@@ -49,16 +50,18 @@ export function GenerationMigrationProgressPanel({
     return null;
   }
 
-  const isPreMigration = !isGenerationMigrationStage(event.stage);
   const materialProgress = parseTaskMaterialProgress(event.message);
+  const isPreMigration =
+    progressGroup === "pending" && !materialProgress.actionLabel;
   const activeSlotId =
-    progressGroup === "completing" ? materialProgress.slotId : null;
+    progressGroup === "completing"
+      ? normalizeMigrationSlotId(materialProgress.slotId)
+      : null;
 
   if (!context.structure) {
     return (
       <MigrationProgressShell
         defaultExpanded={defaultExpanded}
-        syncing={syncing}
         variantLabel={context.variantLabel}
       >
         <p className="text-sm text-muted-foreground">
@@ -72,7 +75,6 @@ export function GenerationMigrationProgressPanel({
     return (
       <MigrationProgressShell
         defaultExpanded={defaultExpanded}
-        syncing={syncing}
         variantLabel={context.variantLabel}
       >
         <div className="space-y-3" data-testid="migration-pre-stage-shell">
@@ -101,6 +103,8 @@ export function GenerationMigrationProgressPanel({
     completionActions: artifacts?.completionActions,
     mode: "progress",
     progressGroup,
+    activeSlotId,
+    completedActionIds: artifacts?.materialState?.completedActionIds,
     taskSucceeded: event.status === "succeeded",
   });
 
@@ -116,7 +120,6 @@ export function GenerationMigrationProgressPanel({
   return (
     <MigrationProgressShell
       defaultExpanded={defaultExpanded}
-      syncing={syncing}
       variantLabel={context.variantLabel}
     >
       <p className="text-sm text-muted-foreground">{stageHint}</p>
@@ -144,12 +147,10 @@ export function GenerationMigrationProgressPanel({
 function MigrationProgressShell({
   children,
   defaultExpanded,
-  syncing,
   variantLabel,
 }: {
   children: React.ReactNode;
   defaultExpanded: boolean;
-  syncing?: boolean;
   variantLabel?: string;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -163,14 +164,6 @@ function MigrationProgressShell({
         className="absolute -left-[5px] top-0 h-2 w-2 rounded-full bg-primary"
         aria-hidden
       />
-      {syncing ? (
-        <span
-          className="absolute right-0 top-0 h-2 w-2 animate-pulse rounded-full bg-primary/70"
-          title="同步中"
-          aria-label="同步中"
-          data-testid="migration-sync-indicator"
-        />
-      ) : null}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium">结构迁移进度</p>

@@ -17,6 +17,7 @@ const mockArtifacts = {
   ],
   gapReport: null,
   completionActions: [],
+  materialState: null,
 };
 
 describe("useGenerationMigrationArtifacts", () => {
@@ -57,6 +58,25 @@ describe("useGenerationMigrationArtifacts", () => {
     rerender({ stage: "generating_video" });
 
     expect(cache.fetchMigrationSnapshotCached).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls when stage is running_agent but material message is present", async () => {
+    renderHook(() =>
+      useGenerationMigrationArtifacts({
+        projectId: "project-1",
+        generationId: "gen-1",
+        event: {
+          ...fixtureTaskEvent,
+          stage: "running_agent",
+          status: "running",
+          message: "Authoring HyperFrames material spec for slot-2",
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(cache.fetchMigrationSnapshotCached).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("does not poll when task failed", async () => {
