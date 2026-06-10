@@ -41,13 +41,17 @@ def _slot_by_id(structure: dict[str, Any], slot_id: str) -> dict[str, Any]:
 
 
 def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "role": slot.get("role"),
-        "scriptIntent": slot.get("scriptIntent", ""),
-        "visualIntent": slot.get("visualIntent", ""),
-        "importance": slot.get("importance"),
-        "requiredAssetType": list(slot.get("requiredAssetType") or []),
-    }
+    from composition.author.forbidden_copy_guard import normalize_author_slot
+
+    return normalize_author_slot(
+        {
+            "role": slot.get("role"),
+            "scriptIntent": slot.get("scriptIntent", ""),
+            "visualIntent": slot.get("visualIntent", ""),
+            "importance": slot.get("importance"),
+            "requiredAssetType": list(slot.get("requiredAssetType") or []),
+        }
+    )
 
 
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
@@ -194,9 +198,8 @@ def _author_spec(
 
             react_trace = None
             if ctx.task_context is not None and ctx.project_id:
-                storage_root = ctx.project_root.parent
                 react_trace = FileReactTraceRecorder.create(
-                    storage_root,
+                    ctx.storage_root,
                     project_id=ctx.project_id,
                     task_id=ctx.task_context.task_id,
                     generation_id=ctx.generation_id,
@@ -205,7 +208,7 @@ def _author_spec(
                 trace_dir = str(react_trace.trace_dir)
             engine = create_composition_engine(
                 gateway=ModelGatewayToolAdapter(ctx.gateway),
-                storage_root=ctx.project_root.parent,
+                storage_root=ctx.storage_root,
                 emit_progress=ctx.emit_progress,
             )
             spec = _enforce_spec_duration(
@@ -384,7 +387,6 @@ class HyperFramesMaterialProvider:
         composition_dir = render_result.get("compositionDir")
         resolved_lint_log = render_result.get("lintLogPath") or str(lint_log_path)
 
-        storage_root = ctx.project_root.parent
         if (
             _composition_mode() != "legacy"
             and composition_dir
@@ -392,10 +394,10 @@ class HyperFramesMaterialProvider:
             and not lint_skipped
         ):
             try:
-                engine = create_composition_engine(storage_root=storage_root)
+                engine = create_composition_engine(storage_root=ctx.storage_root)
                 engine.deposit_pattern_candidate(
                     PatternDepositContext(
-                        storage_root=storage_root,
+                        storage_root=ctx.storage_root,
                         project_id=ctx.project_id,
                         generation_id=ctx.generation_id,
                         slot_id=slot_id,

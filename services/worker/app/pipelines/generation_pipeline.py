@@ -1154,6 +1154,17 @@ class FixtureMaterialGateway:
             video_bytes=b"fixture-mp4-bytes",
         )
 
+    def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        task: str = "material_author",
+        profile: str = "text",
+    ) -> dict[str, Any]:
+        _ = messages, tools, task, profile
+        return {"content": "{}", "tool_calls": []}
+
 
 def is_fixture_material_gateway(gateway: Any) -> bool:
     """True when material completion should use deterministic fixture stubs."""
@@ -1234,11 +1245,14 @@ def run_generating_material(
             completed_action_ids=completed_ids,
         )
 
+    from app.providers.material_types import resolve_storage_root
+
     ctx = MaterialContext(
         project_id=str(plan.get("projectId", "")),
         generation_id=str(plan.get("id", "")),
         render_root=render_root,
         generated_root=generated_root,
+        storage_root=resolve_storage_root(generation_root=generation_root),
         gateway=gateway,  # type: ignore[arg-type]
         quota=quota,
         inventory=inventory,

@@ -17,6 +17,17 @@ ArtifactRegistrar = Callable[[str, str | Path], dict[str, Any]]
 MaterialResult = dict[str, Any]
 
 
+def resolve_storage_root(*, render_root: Path | None = None, generation_root: Path | None = None) -> Path:
+    """Return the artifact storage root (parent of ``projects/``)."""
+    if generation_root is not None:
+        # storage/projects/{projectId}/generations/{generationId}
+        return generation_root.parent.parent.parent.parent
+    if render_root is not None:
+        # storage/projects/{projectId}/renders/{generationId}
+        return render_root.parent.parent.parent.parent
+    raise ValueError("resolve_storage_root requires render_root or generation_root")
+
+
 @dataclass
 class MaterialContext:
     project_id: str
@@ -44,6 +55,15 @@ class MaterialContext:
     visual_style_bible: dict[str, Any] | None = None
     packaging_plan: dict[str, Any] | None = None
     material_state_path: Path | None = None
+    storage_root: Path | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.storage_root is None:
+            object.__setattr__(
+                self,
+                "storage_root",
+                resolve_storage_root(render_root=self.render_root),
+            )
 
     @property
     def project_root(self) -> Path:

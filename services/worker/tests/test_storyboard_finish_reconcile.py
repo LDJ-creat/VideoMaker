@@ -36,6 +36,7 @@ def test_storyboard_packaging_keyword_upgrades_finish_mode() -> None:
     item = updated["missingSlots"][0]
     assert item["completionMode"] == "source_then_polish"
     assert item["suggestedFixes"][-1] == "hyperframes_material"
+    assert "分镜视觉" not in str(item.get("finishIntent") or "")
 
 
 def test_packaging_requirements_force_polish() -> None:

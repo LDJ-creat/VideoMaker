@@ -68,10 +68,6 @@ def reconcile_gap_finish_from_storyboard(
                 if fixes and fixes[-1] != "hyperframes_material":
                     fixes.append("hyperframes_material")
                     merged["suggestedFixes"] = fixes
-                intent = str(merged.get("finishIntent") or "").strip()
-                visual = str((scene or {}).get("visual") or "").strip()
-                if visual and visual not in intent:
-                    merged["finishIntent"] = f"{intent}；分镜视觉：{visual}".strip("；")
             updated.append(merged)
         gap_report[bucket] = updated
     return gap_report

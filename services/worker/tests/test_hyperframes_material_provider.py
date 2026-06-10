@@ -39,13 +39,14 @@ def _mock_cli_runner() -> HyperFramesTool:
     return HyperFramesTool(command_runner=runner)
 
 
-def _project_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
-    project_root = tmp_path / "projects" / "project-1"
+def _project_layout(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    storage_root = tmp_path / "storage"
+    project_root = storage_root / "projects" / "project-1"
     generated_root = project_root / "generations" / "gen-1" / "generated"
     render_root = project_root / "renders" / "gen-1"
     generated_root.mkdir(parents=True, exist_ok=True)
     render_root.mkdir(parents=True, exist_ok=True)
-    return project_root, generated_root, render_root
+    return storage_root, project_root, generated_root, render_root
 
 
 def _make_hf_ctx(
@@ -56,7 +57,7 @@ def _make_hf_ctx(
     task_context: TaskContext | None = None,
     material_tool: HyperFramesMaterialTool | None = None,
 ) -> MaterialContext:
-    project_root, generated_root, render_root = _project_layout(tmp_path)
+    storage_root, _project_root, generated_root, render_root = _project_layout(tmp_path)
     progress_events: list[tuple[str, str]] = []
 
     ctx = MaterialContext(
@@ -64,6 +65,7 @@ def _make_hf_ctx(
         generation_id="gen-1",
         render_root=render_root,
         generated_root=generated_root,
+        storage_root=storage_root,
         gateway=MagicMock(),
         quota=MagicMock(),
         inventory={"assets": []},
@@ -91,7 +93,7 @@ def test_hyperframes_provider_with_prefilled_spec(tmp_path: Path) -> None:
     structure = _load_structure_fixture()
     material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
     ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
-    _, generated_root, _ = _project_layout(tmp_path)
+    _, _, generated_root, _ = _project_layout(tmp_path)
     action = {
         "id": "action-benefit-card",
         "slotId": "seg-2-benefit_card-1",
@@ -430,3 +432,142 @@ def test_hyperframes_provider_missing_runner_returns_error(tmp_path: Path) -> No
 
     assert result["ok"] is False
     assert result["error"]["code"] == "material_author_unavailable"
+
+
+def test_finish_brief_from_provider_context_includes_render_policy() -> None:
+    from app.providers.finish_brief import build_finish_brief_for_action
+
+    brief = build_finish_brief_for_action(
+        action={"slotId": "seg-hook-hook_visual-1"},
+        slot={"id": "seg-hook-hook_visual-1", "scriptIntent": "痛点反问"},
+        storyboard=[
+            {
+                "slotId": "seg-hook-hook_visual-1",
+                "script": "还在纠结？",
+                "visual": "B-roll lower third",
+            }
+        ],
+        gap_item={"completionMode": "source_then_polish", "finishIntent": "轻量字幕动效"},
+        base_media={"type": "video", "uri": "clip.mp4"},
+        packaging_plan=None,
+        source_provider="stock_media_search",
+        duration_sec=3.0,
+    )
+    assert brief["renderPolicy"]["forbidVoiceoverText"] is True
+    assert brief["voiceoverContext"]["doNotRender"] is True
+
+
+def test_hyperframes_provider_deposits_composition_draft_under_project_knowledge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
+    storage_root, _project_root, generated_root, render_root = _project_layout(tmp_path)
+    structure = _load_structure_fixture()
+    slot_id = "seg-2-benefit_card-1"
+    action_id = "action-benefit-card"
+    spec = _load_material_spec_fixture()
+    composition_dir = generated_root / action_id / "composition"
+    composition_dir.mkdir(parents=True)
+    (composition_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+    lint_log = generated_root / f"{action_id}-render-log-lint.json"
+    lint_log.write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    def fake_render_material(
+        _self,
+        _spec: dict,
+        *,
+        project_root: Path,
+        output_dir: Path,
+        output_clip: Path,
+        log_path: Path,
+        asset_root: Path | None = None,
+        aspect_ratio: str = "9:16",
+    ) -> dict:
+        output_clip.parent.mkdir(parents=True, exist_ok=True)
+        output_clip.write_bytes(b"mock-mp4")
+        return {
+            "ok": True,
+            "compositionDir": str(composition_dir),
+            "lintPassed": True,
+            "lintSkipped": False,
+            "lintLogPath": str(lint_log),
+            "durationSec": 3.0,
+        }
+
+    monkeypatch.setattr(HyperFramesMaterialTool, "render_material", fake_render_material)
+
+    ctx = MaterialContext(
+        project_id="project-1",
+        generation_id="gen-1",
+        render_root=render_root,
+        generated_root=generated_root,
+        storage_root=storage_root,
+        gateway=MagicMock(),
+        quota=MagicMock(),
+        inventory={"assets": []},
+        slot_matches=[],
+        storyboard=[],
+        structure=structure,
+        emit_progress=lambda *_args, **_kwargs: None,
+        register_artifact=lambda artifact_type, path: {
+            "id": "art-hf-deposit",
+            "type": artifact_type,
+            "uri": str(Path(path).resolve()),
+            "createdAt": "2026-05-29T00:00:00Z",
+        },
+    )
+    register_default_providers(ctx)
+    ctx.providers["hyperframes_material"] = HyperFramesMaterialProvider(HyperFramesMaterialTool())
+
+    action = {
+        "id": action_id,
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "reason": "needs card",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+        "materialSpec": spec,
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    expected_draft = (
+        storage_root
+        / "projects"
+        / "project-1"
+        / "knowledge"
+        / "drafts"
+        / "composition"
+        / "gen-1"
+        / slot_id
+    )
+    assert expected_draft.is_dir()
+    assert (expected_draft / "spec.template.json").is_file()
+    assert not (storage_root / "projects" / "projects").exists()
+
+
+def test_material_context_resolves_storage_root_from_render_root(tmp_path: Path) -> None:
+    from app.providers.material_types import MaterialContext, resolve_storage_root
+
+    storage_root, _project_root, generated_root, render_root = _project_layout(tmp_path)
+    assert resolve_storage_root(render_root=render_root) == storage_root
+    generation_root = generated_root.parent
+    assert resolve_storage_root(generation_root=generation_root) == storage_root
+
+    ctx = MaterialContext(
+        project_id="project-1",
+        generation_id="gen-1",
+        render_root=render_root,
+        generated_root=generated_root,
+        gateway=MagicMock(),
+        quota=MagicMock(),
+        inventory={"assets": []},
+        slot_matches=[],
+        storyboard=[],
+        structure={"slots": []},
+        emit_progress=lambda *_args, **_kwargs: None,
+        register_artifact=lambda artifact_type, path: {"type": artifact_type, "uri": str(path)},
+    )
+    assert ctx.storage_root == storage_root
