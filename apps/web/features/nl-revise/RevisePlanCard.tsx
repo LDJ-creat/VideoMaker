@@ -59,6 +59,17 @@ export function RevisePlanCard({
             受影响分镜：{plan.affectedSceneIds.join("、")}
           </p>
         )}
+        {plan.affectedSlotIds && plan.affectedSlotIds.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            受影响槽位：{plan.affectedSlotIds.join("、")}
+            {plan.executionMode === "fork" && plan.intents.some((i) => i.executionTool === "material_regen")
+              ? "（仅重生成这些槽位素材）"
+              : plan.executionMode === "in_place" &&
+                  plan.intents.some((i) => i.executionTool === "packaging_scene_patch")
+                ? "（就地更新包装 overlay，保留已有素材）"
+                : null}
+          </p>
+        )}
         {plan.executionSteps.length > 0 && (
           <ul className="space-y-1 text-sm text-muted-foreground">
             {plan.executionSteps.map((step, index) => (

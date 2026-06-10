@@ -21,4 +21,5 @@ export const EDIT_INTENT_OPERATION_LABELS: Record<EditIntentOperation, string> =
     adjust_cta: "调整 CTA",
     subtitle_patch: "字幕轨修补",
     timeline_scene_patch: "分镜时长调整",
+    packaging_scene_patch: "单镜包装 overlay",
   };
