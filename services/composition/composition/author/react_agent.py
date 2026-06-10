@@ -6,7 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from composition.author.coercer import fallback_legacy_spec
+from composition.author.coercer import build_author_fallback_spec
+from composition.author.payload import build_material_author_user_payload
 from composition.author.react_trace import NullReactTraceRecorder, ReactTraceRecorder
 from composition.author.tools import CompositionToolExecutor, tool_definitions
 from composition.paths import detect_repo_root
@@ -23,7 +24,7 @@ def _agent_mode() -> str:
 
 
 def _max_turns() -> int:
-    return int(os.getenv("VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS", "5"))
+    return int(os.getenv("VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS", "12"))
 
 
 def _validate_spec(spec: dict[str, Any]) -> list[str]:
@@ -70,31 +71,17 @@ def author_material_spec(
                         repo_root=root,
                         pattern_l0=request.pattern_l0,
                     ),
-                    "inputs": {
-                        "slot": request.slot,
-                        "brandColors": request.brand_colors,
-                        "variantOverrides": request.variant_overrides,
-                        "assetRefs": request.asset_refs,
-                        "validationErrors": request.validation_errors,
-                        **(
-                            {"finishBrief": request.finish_brief}
-                            if isinstance(request.finish_brief, dict)
-                            else {}
-                        ),
-                        **(
-                            {"visualStyleBible": request.visual_style_bible}
-                            if isinstance(request.visual_style_bible, dict)
-                            and request.visual_style_bible.get("summary")
-                            else {}
-                        ),
-                    },
+                    "inputs": build_material_author_user_payload(request),
                 },
                 "material-spec",
             )
             errors = _validate_spec(payload)
             if not errors:
                 return payload
-        return fallback_legacy_spec(request.slot)
+        return build_author_fallback_spec(
+            request.slot,
+            asset_refs=request.asset_refs,
+        )
 
     scratch = lint_scratch_dir or (root / "services" / "composition" / ".pytest-tmp" / "react-scratch")
     scratch.mkdir(parents=True, exist_ok=True)
@@ -123,24 +110,7 @@ def author_material_spec(
         {
             "role": "user",
             "content": json.dumps(
-                {
-                    "slot": request.slot,
-                    "brandColors": request.brand_colors,
-                    "variantOverrides": request.variant_overrides,
-                    "assetRefs": request.asset_refs,
-                    "validationErrors": request.validation_errors,
-                    **(
-                        {"finishBrief": request.finish_brief}
-                        if isinstance(request.finish_brief, dict)
-                        else {}
-                    ),
-                    **(
-                        {"visualStyleBible": request.visual_style_bible}
-                        if isinstance(request.visual_style_bible, dict)
-                        and request.visual_style_bible.get("summary")
-                        else {}
-                    ),
-                },
+                build_material_author_user_payload(request),
                 ensure_ascii=False,
             ),
         },
@@ -194,7 +164,13 @@ def author_material_spec(
                     )
                     trace.on_tool_result(turn, tool_name=name, observation=observation)
                     continue
-                observation = executor.execute(name, args)
+                try:
+                    observation = executor.execute(name, args)
+                except Exception as exc:
+                    observation = json.dumps(
+                        {"ok": False, "error": str(exc)},
+                        ensure_ascii=False,
+                    )
                 _append_assistant_tool_call(messages, call)
                 messages.append(
                     {
@@ -234,7 +210,10 @@ def author_material_spec(
             total_latency_ms=(time.perf_counter() - started) * 1000,
             messages=messages,
         )
-        return fallback_legacy_spec(request.slot)
+        return build_author_fallback_spec(
+            request.slot,
+            asset_refs=request.asset_refs,
+        )
     except Exception as exc:
         trace.record_failure(exc, messages=messages, last_response=last_response)
         trace.finalize(

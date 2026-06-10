@@ -119,6 +119,12 @@ class CompositionEngine:
             code = "material_sandbox_violation" if "escapes project sandbox" in message else "material_scaffold_failed"
             return RenderResult(ok=False, error={"code": code, "message": message})
 
+        from composition.build.tailwind_runtime import ensure_tailwind_runtime_in_index
+
+        index_path = composition_dir / "index.html"
+        if index_path.is_file():
+            ensure_tailwind_runtime_in_index(index_path)
+
         lint_log = paths.lint_log_path or (paths.output_dir / "lint-log.json")
         lint = self.lint_composition(composition_dir, lint_log)
         lint_passed = lint.ok and not lint.skipped

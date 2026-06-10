@@ -86,11 +86,14 @@ class CompositionToolExecutor:
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         if name == "skill_view":
-            content = self._runtime.skill_view(
-                str(arguments["location"]),
-                section=arguments.get("section"),
-            )
-            return content
+            try:
+                content = self._runtime.skill_view(
+                    str(arguments["location"]),
+                    section=arguments.get("section"),
+                )
+                return content
+            except (FileNotFoundError, ValueError) as exc:
+                return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
         if name == "registry_list":
             catalog = load_registry_catalog()
             blocks = catalog.get("blocks", [])
