@@ -97,7 +97,19 @@ Emit **`visualStyleBible`** alongside `masterNarration`:
 | `lighting` | no | e.g. 自然光 / 暖色室内 / 高对比 |
 | `cameraGrammar` | no | handheld vs static, 竖屏9:16, framing habits |
 | `mood` | no | overall emotional tone |
-| `avoid` | no | string[] — styles/colors to avoid across the whole video |
+| `avoid` | **yes** | string[] — hard bans on AI visual fingerprints; **always include defaults below** and add topic-specific items if needed |
+
+**Default `avoid` (always include unless user explicitly overrides).** Runtime `normalize_visual_style_bible` merges `DEFAULT_VISUAL_AVOID` from worker code — keep prompt examples aligned with that list.
+
+```json
+"avoid": [
+  "紫粉或蓝紫对角渐变背景",
+  "圆角卡片配彩色左边框",
+  "emoji 图标",
+  "假数据与假 logo",
+  "全场相同 fade/blur 入场"
+]
+```
 
 Do **not** emit per-scene `visual` in these phases.
 
@@ -131,7 +143,14 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
     "palette": ["暖白", "珊瑚橙"],
     "lighting": "窗边自然光，柔阴影",
     "cameraGrammar": "近景手持轻稳，竖屏构图",
-    "mood": "清爽生活感"
+    "mood": "清爽生活感",
+    "avoid": [
+      "紫粉或蓝紫对角渐变背景",
+      "圆角卡片配彩色左边框",
+      "emoji 图标",
+      "假数据与假 logo",
+      "全场相同 fade/blur 入场"
+    ]
   }
 }
 ```
