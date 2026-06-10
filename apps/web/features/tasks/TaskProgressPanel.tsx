@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { TaskEvent } from "@videomaker/contracts";
 
@@ -25,14 +25,11 @@ import {
 } from "@/lib/assetUnderstandingRouteLabels";
 import { formatTaskError } from "@/lib/formatTaskError";
 import { formatTaskMessage } from "@/lib/taskMessageLabels";
+import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 import {
   getTaskStatusBadgeVariant,
   getTaskStatusLabel,
 } from "@/lib/taskStatusLabels";
-import {
-  shouldSmoothModelCallProgress,
-  useSmoothedModelCallProgress,
-} from "@/lib/useSmoothedModelCallProgress";
 import { cn } from "@/lib/utils";
 
 type TaskProgressPanelProps = {
@@ -71,9 +68,20 @@ export function TaskProgressPanel({
   migrationContext,
 }: TaskProgressPanelProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const displayProgress = useSmoothedModelCallProgress(event);
+  const [lastFailedSummary, setLastFailedSummary] = useState<string | null>(null);
+  const displayProgress = event?.progress ?? 0;
   const formattedError = formatTaskError(event?.error);
   const assetRoute = inferAssetUnderstandingRouteFromEvent(event);
+  const materialProgress = parseTaskMaterialProgress(event?.message);
+
+  useEffect(() => {
+    if (event?.status === "failed" && formattedError?.title) {
+      setLastFailedSummary(formattedError.title);
+    }
+    if (event?.status === "running" || event?.status === "retrying") {
+      setLastFailedSummary(null);
+    }
+  }, [event?.status, event?.progress, formattedError?.title]);
 
   if (!event) {
     return (
@@ -92,7 +100,6 @@ export function TaskProgressPanel({
   const statusLabel = getTaskStatusLabel(event.status);
   const message = formatTaskMessage(event.message);
   const showPollingNotice = sseFailureCount > 0 && mode === "polling";
-  const isModelCallSmoothing = shouldSmoothModelCallProgress(event);
   const progressLabel = Number.isInteger(displayProgress)
     ? `${displayProgress}%`
     : `${displayProgress.toFixed(1)}%`;
@@ -159,15 +166,20 @@ export function TaskProgressPanel({
           <p className={cn("text-sm", compact ? "text-muted-foreground" : "text-foreground")}>
             {message}
           </p>
+          {materialProgress.summary ? (
+            <p
+              className="text-xs font-medium text-foreground/90"
+              data-testid="task-material-progress"
+            >
+              {materialProgress.summary}
+            </p>
+          ) : null}
           {(event.stage === "extracting_structure_direct" ||
             event.stage === "running_agent") &&
           event.status === "running" &&
-          event.progress >= 55 &&
-          event.progress < 88 ? (
+          event.progress >= 55 ? (
             <p className="text-xs text-muted-foreground">
-              {isModelCallSmoothing
-                ? "模型分析中（约 1–3 分钟），进度条会平滑推进至校验阶段。"
-                : "模型分析通常需要 1–3 分钟，进度会在校验与保存阶段继续推进。"}
+              模型分析通常需要 1–3 分钟，进度会在校验与保存阶段继续推进。
             </p>
           ) : null}
           <Progress value={displayProgress} />
@@ -223,8 +235,21 @@ export function TaskProgressPanel({
           </div>
         ) : null}
 
-        {event.status === "failed" && onRetry ? (
-          <div className="space-y-2">
+        {onRetry ? (
+          <div className="min-h-[4.5rem] space-y-2" data-testid="task-retry-region">
+            {event.status === "retrying" && lastFailedSummary && !formattedError ? (
+              <details className="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-muted-foreground">
+                <summary className="cursor-pointer font-medium text-destructive">
+                  上次失败原因
+                </summary>
+                <p className="mt-1">{lastFailedSummary}</p>
+              </details>
+            ) : null}
+            {event.status === "succeeded" ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                生成计划已完成，但演示 MP4 尚未就绪，可重新提交渲染。
+              </p>
+            ) : null}
             <Button
               type="button"
               variant="outline"

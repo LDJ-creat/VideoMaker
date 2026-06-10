@@ -4,6 +4,8 @@ import type { TaskEvent } from "@videomaker/contracts";
 
 import { TaskProgressPanel } from "@/features/tasks/TaskProgressPanel";
 import type { MigrationProgressContext } from "@/features/structure-migration/useGenerationMigrationArtifacts";
+import { getDevProgressMetrics } from "@/lib/devProgressMetrics";
+
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 
 export type MultiTaskProgressEntry = {
@@ -12,6 +14,7 @@ export type MultiTaskProgressEntry = {
   event: TaskEvent | null;
   mode: TaskProgressMode;
   sseFailureCount?: number;
+  retryable?: boolean;
 };
 
 type MultiTaskProgressPanelProps = {
@@ -41,6 +44,9 @@ export function MultiTaskProgressPanel({
   onGoToScriptReview,
   getMigrationContext,
 }: MultiTaskProgressPanelProps) {
+  const devMetrics =
+    process.env.NODE_ENV === "development" ? getDevProgressMetrics() : null;
+
   if (tasks.length === 0) {
     return (
       <TaskProgressPanel
@@ -74,7 +80,10 @@ export function MultiTaskProgressPanel({
         onGoToScriptReview={onGoToScriptReview}
         migrationContext={getMigrationContext?.(single.taskId) ?? undefined}
         onRetry={
-          single.event?.status === "failed" && onRetry
+          (single.retryable ||
+            single.event?.status === "failed" ||
+            single.event?.status === "retrying") &&
+          onRetry
             ? () => onRetry(single.taskId)
             : undefined
         }
@@ -102,12 +111,24 @@ export function MultiTaskProgressPanel({
           onGoToScriptReview={onGoToScriptReview}
           migrationContext={getMigrationContext?.(task.taskId) ?? undefined}
           onRetry={
-            task.event?.status === "failed" && onRetry
+            (task.retryable ||
+              task.event?.status === "failed" ||
+              task.event?.status === "retrying") &&
+            onRetry
               ? () => onRetry(task.taskId)
               : undefined
           }
         />
       ))}
+      {devMetrics ? (
+        <p
+          className="font-mono text-[10px] text-muted-foreground/50"
+          data-testid="dev-progress-metrics"
+        >
+          dev fetch: artifact={devMetrics.artifactFetch} poll={devMetrics.taskPoll}{" "}
+          sse={devMetrics.sseReconnect}
+        </p>
+      ) : null}
     </div>
   );
 }
