@@ -1008,6 +1008,7 @@ class PipelineRunner:
         instruction: str,
         session_id: str,
         turn_id: str | None = None,
+        source_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         module = _load_revise_plan_builder_module()
         return module.enrich_revise_plan(
@@ -1016,6 +1017,7 @@ class PipelineRunner:
             instruction=instruction,
             session_id=session_id,
             turn_id=turn_id,
+            source_plan=source_plan,
         )
 
     @staticmethod

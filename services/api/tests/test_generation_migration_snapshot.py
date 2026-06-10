@@ -81,11 +81,19 @@ def _write_migration_artifacts(
             {
                 "completionActions": [
                     {
+                        "id": "action-slot-2",
                         "slotId": "slot-2",
                         "provider": "hyperframes_material",
                     }
                 ]
             },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (generation_root / "material-state.json").write_text(
+        json.dumps(
+            {"completedActionIds": ["action-slot-2"]},
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -120,6 +128,7 @@ def test_migration_snapshot_happy_path(migration_client) -> None:
     assert payload["slotMatches"][0]["slotId"] == "slot-1"
     assert payload["gapReport"]["missingSlots"][0]["slotId"] == "slot-2"
     assert payload["completionActions"][0]["provider"] == "hyperframes_material"
+    assert payload["materialState"]["completedActionIds"] == ["action-slot-2"]
 
 
 def test_migration_snapshot_generation_not_found(migration_client) -> None:

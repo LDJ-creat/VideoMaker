@@ -142,10 +142,24 @@ def get_migration_snapshot(generation_id: str, request: Request) -> dict[str, An
             if isinstance(raw_actions, list):
                 completion_actions = raw_actions
 
+    material_state: dict[str, Any] | None = None
+    material_state_path = generation_root / "material-state.json"
+    if material_state_path.is_file():
+        material_payload = json.loads(material_state_path.read_text(encoding="utf-8"))
+        if isinstance(material_payload, dict):
+            raw_completed = material_payload.get("completedActionIds")
+            if isinstance(raw_completed, list):
+                material_state = {
+                    "completedActionIds": [
+                        str(item) for item in raw_completed if str(item).strip()
+                    ],
+                }
+
     return {
         "slotMatches": slot_matches,
         "gapReport": gap_report,
         "completionActions": completion_actions,
+        "materialState": material_state,
     }
 
 
@@ -513,6 +527,7 @@ def plan_revise_generation(
         instruction=payload.instruction,
         session_id=str(session["sessionId"]),
         turn_id=turn_id,
+        source_plan=source_plan,
     )
     try:
         runner._validate_revise_plan(plan)  # noqa: SLF001
