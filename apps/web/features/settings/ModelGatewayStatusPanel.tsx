@@ -133,6 +133,13 @@ const DEFAULT_VIDEO_UNDERSTANDING_BASE_URL =
   "https://ark.cn-beijing.volces.com/api/v3";
 const DEFAULT_VOLCENGINE_TTS_BASE_URL =
   "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+const DEFAULT_SEEDDANCE_MODEL = "doubao-seedance-2-0-260128";
+
+const VIDEO_DRIVER_OPTIONS = [
+  { value: "dashscope_wan", label: "阿里云百炼 Wan" },
+  { value: "volcengine_seeddance", label: "火山方舟 SeedDance 2.0" },
+  { value: "generic_job", label: "自定义 Job API（高级）" },
+] as const;
 
 const DEFAULT_TTS_PREFERENCES: TtsPreferences = {
   resourceId: "seed-tts-2.0",
@@ -164,6 +171,33 @@ function defaultBaseUrlForProvider(key: ProviderKey): string {
     return DEFAULT_VOLCENGINE_TTS_BASE_URL;
   }
   return DEFAULT_BASE_URL;
+}
+
+function defaultDriverForProvider(key: ProviderKey): string {
+  if (key === "video") {
+    return "generic_job";
+  }
+  if (key === "tts") {
+    return "volcengine_tts";
+  }
+  return "openai_compatible";
+}
+
+function applyVideoDriverSideEffects(
+  form: ProviderFormState,
+  driver: string,
+): ProviderFormState {
+  const next = { ...form, driver };
+  if (driver === "volcengine_seeddance") {
+    const base = form.baseUrl.trim();
+    if (!base || base === DEFAULT_BASE_URL) {
+      next.baseUrl = DEFAULT_VIDEO_UNDERSTANDING_BASE_URL;
+    }
+    if (!form.model.trim()) {
+      next.model = DEFAULT_SEEDDANCE_MODEL;
+    }
+  }
+  return next;
 }
 
 function ttsPrefsFromStatus(status: ModelGatewayStatusResponse): TtsPreferences {
@@ -199,8 +233,7 @@ function formFromStatus(
     baseUrl: provider.baseUrl ?? defaultBaseUrlForProvider(key),
     model: provider.model ?? "",
     apiKey: "",
-    driver:
-      provider.driver ?? (key === "video" ? "generic_job" : "openai_compatible"),
+    driver: provider.driver ?? defaultDriverForProvider(key),
   };
 }
 
@@ -211,8 +244,7 @@ function isProviderDirty(
 ): boolean {
   const savedBase = provider.baseUrl ?? defaultBaseUrlForProvider(key);
   const savedModel = provider.model ?? "";
-  const savedDriver =
-    provider.driver ?? (key === "video" ? "generic_job" : "openai_compatible");
+  const savedDriver = provider.driver ?? defaultDriverForProvider(key);
   return (
     form.baseUrl.trim() !== savedBase.trim() ||
     form.model.trim() !== savedModel.trim() ||
@@ -403,6 +435,12 @@ function ProviderFormFields({
               Ark Key 不同。
             </p>
           ) : null}
+          {providerKey === "video" ? (
+            <p className="text-xs text-muted-foreground">
+              SeedDance 使用火山方舟端点；API Key 来自方舟控制台，与豆包语音 Key
+              不同。
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <Label htmlFor={`${providerKey}-model`}>Model</Label>
@@ -429,14 +467,20 @@ function ProviderFormFields({
         </div>
         {providerKey === "video" && (
           <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor={`${providerKey}-driver`}>Driver（高级）</Label>
-            <Input
+            <Label htmlFor={`${providerKey}-driver`}>Driver</Label>
+            <NativeSelect
               id={`${providerKey}-driver`}
-              value={form.driver}
+              className="h-9 py-1"
+              value={form.driver || defaultDriverForProvider("video")}
               onChange={(e) => onFieldChange("driver", e.target.value)}
               disabled={busy}
-              placeholder="generic_job 或 dashscope_wan"
-            />
+            >
+              {VIDEO_DRIVER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </NativeSelect>
           </div>
         )}
         {providerKey === "tts" && (
@@ -445,12 +489,12 @@ function ProviderFormFields({
             <NativeSelect
               id={`${providerKey}-driver`}
               className="h-9 py-1"
-              value={form.driver || "openai_compatible"}
+              value={form.driver || defaultDriverForProvider("tts")}
               onChange={(e) => onFieldChange("driver", e.target.value)}
               disabled={busy}
             >
-              <option value="openai_compatible">OpenAI 兼容</option>
               <option value="volcengine_tts">豆包语音 V3</option>
+              <option value="openai_compatible">OpenAI 兼容</option>
             </NativeSelect>
           </div>
         )}
@@ -665,9 +709,13 @@ export function ModelGatewayStatusPanel({
   ) => {
     setForms((prev) => {
       if (!prev) return prev;
+      let nextForm = { ...prev[provider], [field]: value };
+      if (provider === "video" && field === "driver") {
+        nextForm = applyVideoDriverSideEffects(nextForm, value);
+      }
       return {
         ...prev,
-        [provider]: { ...prev[provider], [field]: value },
+        [provider]: nextForm,
       };
     });
     setProbeResults((prev) => {

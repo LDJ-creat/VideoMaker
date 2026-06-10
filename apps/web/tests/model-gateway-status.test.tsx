@@ -140,6 +140,53 @@ describe("ModelGatewayStatusPanel", () => {
     expect(await screen.findByText(/测试通过/)).toBeInTheDocument();
   });
 
+  it("renders video driver select with SeedDance option when expanded", async () => {
+    const user = userEvent.setup();
+    render(<ModelGatewayStatusPanel defaultExpanded />);
+
+    const generationGroup = await screen.findByTestId("provider-group-generation");
+    await user.click(within(generationGroup).getByRole("tab", { name: "生视频" }));
+
+    const videoDriver = within(generationGroup).getByRole("combobox", {
+      name: "Driver",
+    });
+    expect(videoDriver).toBeInTheDocument();
+    expect(
+      within(videoDriver).getByRole("option", {
+        name: "火山方舟 SeedDance 2.0",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("saves SeedDance video driver via PUT when expanded", async () => {
+    const user = userEvent.setup();
+    render(<ModelGatewayStatusPanel defaultExpanded />);
+
+    const generationGroup = await screen.findByTestId("provider-group-generation");
+    await user.click(within(generationGroup).getByRole("tab", { name: "生视频" }));
+
+    const videoDriver = within(generationGroup).getByRole("combobox", {
+      name: "Driver",
+    });
+    await user.selectOptions(videoDriver, "volcengine_seeddance");
+
+    const panel = screen.getByTestId("model-gateway-status-panel");
+    await user.click(
+      within(panel).getByRole("button", { name: "保存全部配置" }),
+    );
+
+    await waitFor(() =>
+      expect(apiClient.updateModelGatewaySettings).toHaveBeenCalled(),
+    );
+
+    const call = vi.mocked(apiClient.updateModelGatewaySettings).mock.calls.at(-1)![0];
+    expect(call.providers?.video?.driver).toBe("volcengine_seeddance");
+    expect(call.providers?.video?.baseUrl).toBe(
+      "https://ark.cn-beijing.volces.com/api/v3",
+    );
+    expect(call.providers?.video?.model).toBe("doubao-seedance-2-0-260128");
+  });
+
   it("saves provider settings via PUT when expanded", async () => {
     const user = userEvent.setup();
     render(<ModelGatewayStatusPanel defaultExpanded />);
