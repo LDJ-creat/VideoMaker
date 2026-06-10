@@ -12,6 +12,22 @@ variants:
         preferProviders: [stock_media_search, hyperframes_material, asset_reuse, image_generation, video_generation]
         stockMediaPriority: high
         videoGenPriority: low
+        completionModeBias:
+          hook_visual: source_only
+          usage_scene: source_only
+          transition: source_only
+          hook_text: source_then_polish
+        finishIntentByRole:
+          hook_visual: 保留 B-roll 动感，仅必要时轻量字幕，勿遮挡画面
+          usage_scene: 原生素材为主，避免厚重包装卡
+      packaging_designer:
+        density: low
+        emphasis: hook_text
+        ctaStyle: subtle
+      material_author:
+        polishStyle: minimal
+        overlayDensity: low
+        motionTempo: fast
   high_conversion:
     label: 高转化版
     enabled: true
@@ -25,6 +41,25 @@ variants:
         preferProviders: [stock_media_search, hyperframes_material, asset_reuse, image_generation, video_generation]
         stockMediaPriority: high
         videoGenPriority: low
+        completionModeBias:
+          hook_visual: source_then_polish
+          benefit_card: hf_native
+          comparison: hf_native
+          cta: source_then_polish
+          hook_text: hf_native
+        finishIntentByRole:
+          benefit_card: 强化卖点字卡与对比条，突出核心利益点
+          comparison: 并列对比呈现，信息密度适中
+          cta: 明确行动号召 lower third，动词清晰
+          hook_visual: 在 B-roll 上叠加 hook 字幕或角标，提升信息密度
+      packaging_designer:
+        density: high
+        emphasis: benefit_card, cta
+        ctaStyle: explicit
+      material_author:
+        polishStyle: rich
+        overlayDensity: high
+        motionTempo: medium
   fast_paced:
     label: 高节奏版
     enabled: false
