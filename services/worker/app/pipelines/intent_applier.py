@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.pipelines.revise_scope import (
+    MaterialScope,
+    infer_material_scope,
+    material_scope_preserves_generated,
+    resolve_affected_scene_ids,
+    resolve_slot_ids_from_intents,
+)
+
 LOGICAL_STAGE_ORDER = ("storyboard", "material", "packaging", "timeline", "render")
 
 LOGICAL_TO_PIPELINE: dict[str, str] = {
@@ -30,15 +38,17 @@ OPERATION_LOGICAL_STAGES: dict[str, tuple[str, ...]] = {
     "increase_subtitles": ("packaging", "timeline", "render"),
     "reorder_selling_points": ("storyboard", "material", "timeline", "render"),
     "change_pace": ("storyboard", "timeline", "render"),
-    "change_packaging_style": ("packaging", "material", "timeline", "render"),
+    "change_packaging_style": ("packaging", "timeline", "render"),
     "adjust_cta": ("storyboard", "packaging", "timeline", "render"),
     "subtitle_patch": ("packaging", "timeline", "render"),
     "timeline_scene_patch": ("timeline", "render"),
+    "packaging_scene_patch": ("packaging", "timeline", "render"),
 }
 
 EXECUTION_TOOL_LOGICAL_STAGES: dict[str, tuple[str, ...]] = {
     "subtitle_patch": ("packaging", "timeline", "render"),
     "timeline_scene_patch": ("timeline", "render"),
+    "packaging_scene_patch": ("packaging", "timeline", "render"),
     "script_revise": ("storyboard", "timeline", "render"),
     "packaging_agent": ("packaging", "timeline", "render"),
     "storyboard_agent": ("storyboard", "material", "timeline", "render"),
@@ -62,6 +72,10 @@ class ReviseContext:
     affected_pipeline_stages: list[str] = field(default_factory=list)
     rerun_storyboard: bool = True
     rerun_packaging: bool = True
+    affected_scene_ids: list[str] = field(default_factory=list)
+    affected_slot_ids: list[str] = field(default_factory=list)
+    material_scope: MaterialScope = "all"
+    preserve_generated: bool = False
 
 
 STORYBOARD_OPERATIONS = frozenset(
@@ -75,16 +89,30 @@ PACKAGING_OPERATIONS = frozenset(
         "change_packaging_style",
         "adjust_cta",
         "subtitle_patch",
+        "packaging_scene_patch",
     }
 )
+
+
+def _intent_requires_material_stage(intent: dict[str, Any]) -> bool:
+    params = intent.get("params") if isinstance(intent.get("params"), dict) else {}
+    if bool(params.get("requiresMaterialRegen")):
+        return True
+    tool = str(intent.get("executionTool") or "")
+    return tool == "material_regen"
 
 
 def _logical_stages_for_intent(intent: dict[str, Any]) -> tuple[str, ...]:
     tool = str(intent.get("executionTool") or "")
     if tool in EXECUTION_TOOL_LOGICAL_STAGES:
-        return EXECUTION_TOOL_LOGICAL_STAGES[tool]
-    operation = str(intent.get("operation", ""))
-    return OPERATION_LOGICAL_STAGES.get(operation, ())
+        stages = EXECUTION_TOOL_LOGICAL_STAGES[tool]
+    else:
+        operation = str(intent.get("operation", ""))
+        stages = OPERATION_LOGICAL_STAGES.get(operation, ())
+    stage_list = list(stages)
+    if _intent_requires_material_stage(intent) and "material" not in stage_list:
+        stage_list.append("material")
+    return tuple(stage_list)
 
 
 def compute_affected_stages(intents: list[dict[str, Any]]) -> list[str]:
@@ -116,9 +144,14 @@ def apply_intents_to_context(
     source_plan: dict[str, Any] | None = None,
     source_timeline: dict[str, Any] | None = None,
 ) -> ReviseContext:
-    _ = source_plan, source_timeline
+    _ = source_timeline
     generation_params: dict[str, Any] = {}
     agent_overrides: dict[str, dict[str, Any]] = {}
+    storyboard = (
+        list(source_plan.get("storyboard") or [])
+        if isinstance(source_plan, dict) and isinstance(source_plan.get("storyboard"), list)
+        else []
+    )
 
     for intent in intents:
         operation = str(intent.get("operation", ""))
@@ -156,16 +189,33 @@ def apply_intents_to_context(
             agent_overrides.setdefault("packaging_designer", {})["subtitleDensity"] = density
         elif operation == "timeline_scene_patch":
             generation_params["timelineScenePatch"] = dict(params)
+        elif operation == "packaging_scene_patch":
+            style = str(params.get("style") or params.get("backgroundPreset") or "bold")
+            generation_params["packagingScenePatch"] = dict(params)
+            agent_overrides.setdefault("packaging_designer", {})["style"] = style
 
     affected = compute_affected_stages(intents)
     rerun_storyboard = any(str(i.get("operation", "")) in STORYBOARD_OPERATIONS for i in intents)
     rerun_packaging = any(str(i.get("operation", "")) in PACKAGING_OPERATIONS for i in intents)
+    material_only_tools = all(str(i.get("executionTool") or "") == "material_regen" for i in intents)
+    if material_only_tools:
+        rerun_storyboard = False
+        rerun_packaging = False
+
+    material_scope = infer_material_scope(intents, storyboard=storyboard)
+    affected_scene_ids = resolve_affected_scene_ids(intents)
+    affected_slot_ids = resolve_slot_ids_from_intents(intents, storyboard=storyboard)
+
     return ReviseContext(
         generation_params=generation_params,
         agent_overrides=agent_overrides,
         affected_pipeline_stages=affected,
         rerun_storyboard=rerun_storyboard,
         rerun_packaging=rerun_packaging,
+        affected_scene_ids=affected_scene_ids,
+        affected_slot_ids=affected_slot_ids,
+        material_scope=material_scope,
+        preserve_generated=material_scope_preserves_generated(material_scope),
     )
 
 
@@ -245,6 +295,7 @@ def parse_edit_intent_for_api(instruction: str, source_summary: dict[str, Any]) 
                 "operation": "change_packaging_style",
                 "params": {},
                 "rationale": "用户希望调整包装风格",
+                "executionTool": "packaging_agent",
             }
         )
     if any(marker in instruction or marker in text for marker in _CTA_MARKERS):

@@ -42,6 +42,7 @@ from app.pipelines.generation_pipeline import (
     run_planning_completion,
     run_narration_preview,
     run_planning_from_script_draft,
+    sync_material_results_to_plan,
 )
 from app.pipelines.duration_target import normalize_duration_target, scale_structure_to_target_duration
 from app.pipelines.generation_strategy import normalize_generation_plan, normalize_generation_strategy
@@ -80,6 +81,8 @@ from app.runtime.checkpoint import (
     generation_artifact_root,
     should_skip_analysis_stage,
     should_skip_generation_stage,
+    should_skip_mapping_slots_resumable,
+    should_skip_planning_completion_resumable,
 )
 from app.runtime.task_context import TaskContext
 from app.gateway.providers.base import GatewayError
@@ -805,7 +808,7 @@ class P0DemoPipeline:
             checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.save(checkpoint_path)
 
-        if should_skip_generation_stage("planning_completion", checkpoint, generation_root, resume=resume):
+        if should_skip_planning_completion_resumable(checkpoint, generation_root, resume=resume):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             plan = normalize_generation_plan(
                 json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
@@ -828,7 +831,7 @@ class P0DemoPipeline:
                 message="(resumed) generation plan ready",
             )
         elif human_review:
-            if should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
+            if should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
                 gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
                 slot_matches_payload = json.loads(
                     (generation_root / "slot-matches.json").read_text(encoding="utf-8")
@@ -1002,7 +1005,7 @@ class P0DemoPipeline:
             )
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.save(checkpoint_path)
-        elif should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
+        elif should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             slot_matches_payload = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
             slot_matches = list(slot_matches_payload.get("slotMatches", []))
@@ -1122,8 +1125,19 @@ class P0DemoPipeline:
         checkpoint.generationStrategy = str(plan.get("generationStrategy") or "")
 
         material_state_path = generation_root / "material-state.json"
-        material_skipped = resume and is_material_stage_done(generation_root, plan)
+        slot_filter = (
+            set(revise_context.affected_slot_ids)
+            if revise_context is not None and revise_context.material_scope == "scoped"
+            else None
+        )
+        material_skipped = (
+            resume
+            and is_material_stage_done(generation_root, plan)
+            and slot_filter is None
+        )
         if material_skipped:
+            if revise_context is not None and revise_context.material_scope == "none":
+                plan = sync_material_results_to_plan(plan, generation_root=generation_root)
             emit(
                 status="running",
                 stage="generating_material",
@@ -1131,6 +1145,12 @@ class P0DemoPipeline:
                 message="(resumed) generated materials ready",
                 artifact_refs=context.artifact_refs,
             )
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("generating_material")
+            checkpoint.save(checkpoint_path)
         else:
             emit(
                 status="running",
@@ -1172,6 +1192,7 @@ class P0DemoPipeline:
                     runner=runner,
                     task_context=context,
                     variant_overrides=load_variant_material_execution_overrides(str(plan.get("variant", variant))),
+                    slot_filter=slot_filter,
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")

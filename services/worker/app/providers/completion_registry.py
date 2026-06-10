@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -395,6 +396,42 @@ def save_material_state(
         "completedActionIds": sorted(completed_action_ids),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def invalidate_material_for_slots(
+    *,
+    actions: list[dict[str, Any]],
+    generated_root: Path,
+    slot_ids: set[str],
+    material_state_path: Path,
+) -> None:
+    """Remove on-disk artifacts for targeted slots so material regen can resume selectively."""
+    if not slot_ids:
+        return
+    quota, completed_ids = load_material_state(material_state_path)
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        slot_id = str(action.get("slotId") or "")
+        if slot_id not in slot_ids:
+            continue
+        action_id = str(action.get("id") or "")
+        output = expected_output_path(action, generated_root)
+        if output.is_file():
+            output.unlink()
+        elif output.is_dir():
+            shutil.rmtree(output, ignore_errors=True)
+        composition_dir = generated_root / action_id if action_id else None
+        if composition_dir is not None and composition_dir.is_dir():
+            shutil.rmtree(composition_dir, ignore_errors=True)
+        if action_id:
+            completed_ids.discard(action_id)
+        action.pop("artifactRef", None)
+    save_material_state(
+        material_state_path,
+        quota=quota,
+        completed_action_ids=completed_ids,
+    )
 
 
 VISUAL_MATERIAL_PROVIDERS = frozenset(

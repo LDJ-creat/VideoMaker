@@ -141,6 +141,103 @@ def test_seed_revise_generation_copies_source_and_writes_edit_intent(tmp_path: P
     ]
 
 
+def test_seed_revise_preserves_gap_report_when_restarting_from_planning_completion(
+    tmp_path: Path,
+) -> None:
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_completed_generation(tmp_path, project_id=project_id, generation_id=source_id)
+
+    intents = [
+        {
+            "target": "generation_plan.packaging",
+            "operation": "change_packaging_style",
+            "params": {"style": "solid dark background"},
+            "rationale": "用户希望调整包装风格",
+            "executionTool": "packaging_agent",
+        }
+    ]
+    context = apply_intents_to_context(intents, source_plan={}, source_timeline={})
+    seed_revise_generation(
+        project_root=tmp_path / "projects" / project_id,
+        source_generation_id=source_id,
+        target_generation_id=target_id,
+        intents=intents,
+        revise_context=context,
+    )
+
+    target_root = tmp_path / "projects" / project_id / "generations" / target_id
+    assert (target_root / "gap-report.json").is_file()
+    assert not (target_root / "generation-plan.json").is_file()
+    checkpoint = json.loads((target_root / "checkpoint.json").read_text(encoding="utf-8"))
+    assert "mapping_slots" in checkpoint["completedStages"]
+    assert "planning_completion" not in checkpoint["completedStages"]
+
+
+def test_seed_revise_preserves_generated_for_packaging_only_fork(tmp_path: Path) -> None:
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_completed_generation(tmp_path, project_id=project_id, generation_id=source_id)
+    source_root = tmp_path / "projects" / project_id / "generations" / source_id
+    generated_root = source_root / "generated"
+    generated_root.mkdir(parents=True, exist_ok=True)
+    marker = generated_root / "slot-1.png"
+    marker.write_bytes(b"png")
+
+    intents = [
+        {
+            "target": "generation_plan.packaging",
+            "operation": "change_packaging_style",
+            "params": {"style": "minimal"},
+            "rationale": "全片包装",
+            "executionTool": "packaging_agent",
+        }
+    ]
+    context = apply_intents_to_context(
+        intents,
+        source_plan=json.loads((source_root / "generation-plan.json").read_text(encoding="utf-8")),
+    )
+    assert context.material_scope == "none"
+    seed_revise_generation(
+        project_root=tmp_path / "projects" / project_id,
+        source_generation_id=source_id,
+        target_generation_id=target_id,
+        intents=intents,
+        revise_context=context,
+    )
+
+    target_generated = tmp_path / "projects" / project_id / "generations" / target_id / "generated"
+    assert marker.name in {path.name for path in target_generated.iterdir()}
+    assert not (tmp_path / "projects" / project_id / "generations" / target_id / "generation-plan.json").is_file()
+
+
+def test_mapping_slots_skip_requires_gap_report_artifact(tmp_path: Path) -> None:
+    from app.runtime.checkpoint import GenerationCheckpoint, should_skip_mapping_slots_resumable
+
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    (generation_root / "slot-matches.json").write_text('{"slotMatches": []}', encoding="utf-8")
+    checkpoint = GenerationCheckpoint(
+        version="p0-v1",
+        generationId="gen-1",
+        completedStages=["mapping_slots"],
+    )
+    assert should_skip_mapping_slots_resumable(
+        checkpoint,
+        generation_root,
+        resume=True,
+    ) is False
+
+    (generation_root / "gap-report.json").write_text('{"id": "gap-1"}', encoding="utf-8")
+    assert should_skip_mapping_slots_resumable(
+        checkpoint,
+        generation_root,
+        resume=True,
+    ) is True
+
+
 def test_run_revise_reexecutes_storyboard_and_packaging_stages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

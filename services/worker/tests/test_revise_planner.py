@@ -69,3 +69,41 @@ def test_session_turns_lower_density_on_follow_up() -> None:
     second = build_planner_output_from_rules("减少字幕", plan_after)
     assert second["costTier"] == "low"
     assert second["executionMode"] == "in_place"
+
+
+def test_build_planner_output_last_scene_overlay_patch() -> None:
+    plan = {
+        "variant": "high_click",
+        "storyboard": [
+            {"id": "scene-1", "slotId": "slot-1", "startSec": 0, "endSec": 3, "script": "a"},
+            {"id": "scene-6", "slotId": "slot-6", "startSec": 15, "endSec": 18, "script": "b"},
+        ],
+        "timeline": {"durationSec": 18.0, "tracks": []},
+        "packagingPlan": {"subtitle": {"density": "medium"}},
+    }
+    output = build_planner_output_from_rules("最后一镜标题卡背景改成深色", plan)
+    assert output["executionMode"] == "in_place"
+    assert output["intents"][0]["executionTool"] == "packaging_scene_patch"
+    enriched = enrich_revise_plan(
+        output,
+        source_generation_id="gen-1",
+        instruction="最后一镜标题卡背景改成深色",
+        session_id="session-1",
+        source_plan=plan,
+    )
+    assert enriched["affectedSlotIds"] == ["slot-6"]
+
+
+def test_build_planner_output_last_scene_visual_material_regen() -> None:
+    plan = {
+        "variant": "high_click",
+        "storyboard": [
+            {"id": "scene-6", "slotId": "slot-6", "startSec": 15, "endSec": 18, "script": "b"},
+        ],
+        "timeline": {"durationSec": 18.0, "tracks": []},
+        "packagingPlan": {"subtitle": {"density": "medium"}},
+    }
+    output = build_planner_output_from_rules("最后一镜画面背景换成深色合成", plan)
+    assert output["executionMode"] == "fork"
+    assert output["intents"][0]["executionTool"] == "material_regen"
+

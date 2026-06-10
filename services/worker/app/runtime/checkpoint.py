@@ -352,3 +352,36 @@ def should_skip_generation_stage(
     if stage not in checkpoint.completedStages:
         return False
     return is_generation_stage_done(stage, generation_root, render_root=render_root)
+
+
+def should_skip_mapping_slots_resumable(
+    checkpoint: GenerationCheckpoint,
+    generation_root: Path,
+    *,
+    resume: bool,
+) -> bool:
+    if not should_skip_generation_stage("mapping_slots", checkpoint, generation_root, resume=resume):
+        return False
+    return (
+        (generation_root / "gap-report.json").is_file()
+        and (generation_root / "slot-matches.json").is_file()
+    )
+
+
+def should_skip_planning_completion_resumable(
+    checkpoint: GenerationCheckpoint,
+    generation_root: Path,
+    *,
+    resume: bool,
+) -> bool:
+    if not should_skip_generation_stage(
+        "planning_completion",
+        checkpoint,
+        generation_root,
+        resume=resume,
+    ):
+        return False
+    return (
+        (generation_root / "gap-report.json").is_file()
+        and (generation_root / "generation-plan.json").is_file()
+    )

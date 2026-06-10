@@ -169,6 +169,77 @@ def merge_script_subtitles_into_timeline(
     return timeline
 
 
+def merge_scene_overlays_into_timeline(
+    timeline: dict[str, Any],
+    storyboard: list[dict[str, Any]],
+    packaging_plan: dict[str, Any],
+) -> dict[str, Any]:
+    overlays = packaging_plan.get("sceneOverlays")
+    if not isinstance(overlays, list) or not overlays:
+        return timeline
+
+    tracks = timeline.get("tracks", [])
+    if not isinstance(tracks, list):
+        return timeline
+
+    text_track: dict[str, Any] | None = None
+    for track in tracks:
+        if isinstance(track, dict) and track.get("type") == "text":
+            text_track = track
+            break
+    if text_track is None:
+        text_track = {"id": "track-text", "type": "text", "clips": []}
+        tracks.append(text_track)
+
+    scene_by_id = {
+        str(scene.get("id", "")): scene
+        for scene in storyboard
+        if isinstance(scene, dict) and scene.get("id")
+    }
+    clips = text_track.setdefault("clips", [])
+    existing_ids = {
+        str(clip.get("id", ""))
+        for clip in clips
+        if isinstance(clip, dict)
+    }
+
+    for overlay in overlays:
+        if not isinstance(overlay, dict):
+            continue
+        scene_id = str(overlay.get("sceneId") or "")
+        slot_id = str(overlay.get("slotId") or "")
+        scene = scene_by_id.get(scene_id)
+        if scene is None and slot_id:
+            scene = next(
+                (item for item in storyboard if isinstance(item, dict) and str(item.get("slotId")) == slot_id),
+                None,
+            )
+        if not isinstance(scene, dict):
+            continue
+        slot_id = str(scene.get("slotId") or slot_id)
+        style_ref = str(overlay.get("styleRef") or "")
+        if not style_ref:
+            preset = str(overlay.get("backgroundPreset") or overlay.get("titleCardPreset") or "scene-overlay")
+            style_ref = f"style://packaging/{preset}"
+        clip_id = f"overlay-{slot_id}"
+        clip = {
+            "id": clip_id,
+            "startSec": round(float(scene.get("startSec", 0.0)), 3),
+            "endSec": round(float(scene.get("endSec", 0.0)), 3),
+            "content": str(overlay.get("titleCardPreset") or overlay.get("backgroundPreset") or ""),
+            "styleRef": style_ref,
+        }
+        clips = [item for item in clips if not (isinstance(item, dict) and str(item.get("id")) == clip_id)]
+        text_track["clips"] = clips
+        clips.append(clip)
+        existing_ids.add(clip_id)
+
+    validation = validate_contract("render-timeline", timeline)
+    if not validation.valid:
+        raise ValueError(f"Invalid RenderTimeline payload: {validation.errors}")
+    return timeline
+
+
 def build_asset_inventory(
     *,
     project_id: str,
@@ -1103,6 +1174,31 @@ def is_material_stage_done(
     return True
 
 
+def sync_material_results_to_plan(
+    plan: dict[str, Any],
+    *,
+    generation_root: Path,
+) -> dict[str, Any]:
+    from app.providers.completion_registry import (
+        apply_material_results_to_plan,
+        filter_aigc_completion_actions,
+        synthesize_material_results_from_disk,
+    )
+
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    generated_root = generation_root / "generated"
+    sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
+    if not sync_results:
+        return plan
+    render_root = generation_root / "renders"
+    return apply_material_results_to_plan(
+        plan,
+        results=sync_results,
+        render_root=render_root,
+        generated_root=generated_root,
+    )
+
+
 def run_generating_material(
     *,
     plan: dict[str, Any],
@@ -1120,6 +1216,7 @@ def run_generating_material(
     task_context: TaskContext | None = None,
     variant_overrides: dict[str, Any] | None = None,
     brand_colors: dict[str, Any] | None = None,
+    slot_filter: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -1175,6 +1272,8 @@ def run_generating_material(
         for action in actions
         if not material_action_done(action, generated_root)
     ]
+    if slot_filter:
+        pending = [action for action in pending if str(action.get("slotId") or "") in slot_filter]
     if not pending:
         sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
         if sync_results:

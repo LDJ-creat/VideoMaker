@@ -7,8 +7,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from app.pipelines.generation_pipeline import merge_script_subtitles_into_timeline
+from app.pipelines.generation_pipeline import (
+    merge_scene_overlays_into_timeline,
+    merge_script_subtitles_into_timeline,
+)
 from app.pipelines.generation_pipeline import _build_timeline  # noqa: PLC2701
+from app.pipelines.revise_scope import resolve_slot_ids_from_intents
 from app.pipelines.tts_mode import global_tts_eligible, resolve_tts_mode
 from app.render.backend import RenderOptions
 from app.render.resolve_render_backend import build_render_backend
@@ -183,6 +187,71 @@ def apply_timeline_scene_patch(plan: dict[str, Any], intents: list[dict[str, Any
     return updated
 
 
+def _resolve_scene_target(
+    storyboard: list[dict[str, Any]],
+    intent: dict[str, Any],
+) -> dict[str, Any] | None:
+    params = intent.get("params") if isinstance(intent.get("params"), dict) else {}
+    scene_id = str(params.get("sceneId") or "")
+    slot_id = str(params.get("slotId") or "")
+    scene_ids = intent.get("sceneIds") if isinstance(intent.get("sceneIds"), list) else []
+    if not scene_id and scene_ids:
+        scene_id = str(scene_ids[0])
+    if scene_id or slot_id:
+        index = _find_scene_index(storyboard, scene_id, slot_id)
+        if index is not None:
+            return storyboard[index]
+    return None
+
+
+def apply_packaging_scene_patch(plan: dict[str, Any], intents: list[dict[str, Any]]) -> dict[str, Any]:
+    updated = dict(plan)
+    packaging = dict(updated.get("packagingPlan") or {})
+    if not packaging:
+        packaging = {
+            "styleSummary": "Scene packaging patch",
+            "subtitle": {},
+            "titleCards": [],
+            "transitions": [],
+        }
+    storyboard = [dict(scene) for scene in updated.get("storyboard") or [] if isinstance(scene, dict)]
+    overlays = list(packaging.get("sceneOverlays") or [])
+    for intent in intents:
+        operation = str(intent.get("operation", ""))
+        tool = str(intent.get("executionTool") or "")
+        if operation != "packaging_scene_patch" and tool != "packaging_scene_patch":
+            continue
+        scene = _resolve_scene_target(storyboard, intent)
+        if scene is None:
+            continue
+        params = intent.get("params") if isinstance(intent.get("params"), dict) else {}
+        scene_id = str(scene.get("id") or "")
+        slot_id = str(scene.get("slotId") or "")
+        overlay: dict[str, Any] = {
+            "sceneId": scene_id,
+            "slotId": slot_id,
+        }
+        for key in ("backgroundPreset", "titleCardPreset", "styleRef", "style"):
+            if params.get(key):
+                overlay[key if key != "style" else "backgroundPreset"] = str(params[key])
+        overlays = [
+            item
+            for item in overlays
+            if not (
+                isinstance(item, dict)
+                and str(item.get("slotId") or "") == slot_id
+            )
+        ]
+        overlays.append(overlay)
+        style = str(params.get("style") or params.get("backgroundPreset") or "")
+        if style:
+            packaging["styleSummary"] = f"Scene overlay: {style}"
+    packaging["sceneOverlays"] = overlays
+    updated["packagingPlan"] = packaging
+    updated["storyboard"] = storyboard
+    return updated
+
+
 def rebuild_timeline_from_storyboard(
     plan: dict[str, Any],
     generation_root: Path,
@@ -217,6 +286,7 @@ def rebuild_timeline_from_storyboard(
         packaging,
         skip_subtitles=global_tts_eligible(plan, mode=tts_mode),
     )
+    timeline = merge_scene_overlays_into_timeline(timeline, storyboard, packaging)
     updated = dict(plan)
     updated["timeline"] = timeline
     return updated
@@ -287,6 +357,11 @@ def run_revise_patch(
         str(i.get("operation", "")) == "timeline_scene_patch" for i in intents
     ):
         plan = apply_timeline_scene_patch(plan, intents)
+        plan = rebuild_timeline_from_storyboard(plan, generation_root)
+    if any(t == "packaging_scene_patch" for t in tools) or any(
+        str(i.get("executionTool", "")) == "packaging_scene_patch" for i in intents
+    ):
+        plan = apply_packaging_scene_patch(plan, intents)
         plan = rebuild_timeline_from_storyboard(plan, generation_root)
 
     plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
