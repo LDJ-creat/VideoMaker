@@ -6,6 +6,9 @@ Prerequisites: API + worker + web running; Model Gateway **tts** provider config
 
 - [ ] Brief includes `durationTarget` and explicit `aspectRatio`
 - [ ] Approve master + storyboard (human review) or `VIDEOMAKER_HUMAN_REVIEW_MODE=false` for CI
+- [ ] After **master approval**, task stages include `synthesizing_narration_preview` → `aligning_narration_timing` before `drafting_storyboard`
+- [ ] `generations/{id}/narration-preview.json` exists with `sceneTiming[]` summing to `durationSec`; `preview/master.wav` playable
+- [ ] Storyboard review UI shows preview duration + audio player; scene `startSec/endSec` match `narration-preview.json`
 - [ ] After planning, open `generations/{id}/script-draft.json` (if human review):
   - [ ] Optional root `narrationVoProfile` (pace/energy/persona/contextHint)
   - [ ] Storyboard scenes may include optional `voDirective` (Hook/CTA encouraged)
@@ -38,11 +41,15 @@ Prerequisites: API + worker + web running; Model Gateway **tts** provider config
 ## Timeline modes
 
 - [ ] Default `VIDEOMAKER_NARRATION_TIMELINE_MODE=hold_tail` extends last scene when narration > planned duration
+- [ ] `global_ripple` or preview/final deviation >3% proportionally rescales all scene windows (global TTS)
+- [ ] Material stage reuses `preview/master.wav` when content hash matches (skip duplicate TTS API call)
 - [ ] Worker logs may show WAV header fallback warning for DashScope — timeline still correct
 
 ## Unit tests
 
 ```powershell
 cd services/worker
-python -m pytest tests/test_narration_alignment.py tests/test_narration_timeline.py tests/test_tts_subtitle_integration.py tests/test_tts_voice_options.py tests/test_tts_synthesis.py -q
+python -m pytest tests/test_narration_alignment.py tests/test_narration_timeline.py tests/test_narration_scene_timing.py tests/test_tts_preview_reuse.py tests/test_tts_subtitle_integration.py tests/test_tts_voice_options.py tests/test_tts_synthesis.py -q
+cd ../composition
+python -m pytest tests/test_author_payload.py -q
 ```

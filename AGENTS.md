@@ -244,7 +244,7 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_STOCK_MATCH_MIN_SCORE` | Minimum relevance score to accept a Pexels candidate | `0.55` |
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
 | `VIDEOMAKER_TTS_MODE` | Deprecated; TTS is always **global** (`master.wav`). Env value ignored. | `global` |
-| `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
+| `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `global_ripple` (scale all scenes for global TTS), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
 | `VIDEOMAKER_RENDER_BACKEND` | Final MP4: `ffmpeg`, `hyperframes`, or unset (auto: ffmpeg with HF fallback on effect/packaging text) | unset (auto) |
 | `VIDEOMAKER_FFMPEG_RENDER_FPS` | FFmpeg render FPS for still→video and re-encode | `30` |
 | `VIDEOMAKER_FFMPEG_VIDEO_CRF` | libx264 CRF for FFmpeg final encode | `23` |
@@ -284,7 +284,7 @@ GET /api/generations/{generation_id}/agent-runs
 
 **NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`, e.g. subtitle patch) update the same `generationId`; high-cost plans fork a new generation. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
 
-Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Fork revise re-runs skip human review gates (`human_review_mode=false`).
+Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. After master approval, worker runs **preview TTS** (`preview/master.wav`) + Whisper alignment → `narration-preview.json` with per-slot `sceneTiming` before `storyboard_from_master`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Material stage reuses preview wav when `contentHash` matches. Fork revise re-runs skip human review gates (`human_review_mode=false`).
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
 
