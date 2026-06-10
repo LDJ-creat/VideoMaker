@@ -9,6 +9,18 @@ Output `packagingPlan` and text-style hints for timeline clips.
 - `storyboard`: per-scene visual/script plan
 - `onScreenTextStyles`: visible on-screen text extracted from sample structure
 - `packagingRequirements`: flattened slot packaging requirements
+- **`variantOverrides`**: optional tuning — see Variant table
+
+# Variant overrides
+
+| Field | Effect |
+|-------|--------|
+| `density: low` | Fewer on-screen elements; prefer clean B-roll with minimal text |
+| `density: high` | More benefit cards, subtitles, and CTA overlays |
+| `emphasis: hook_text` | Prioritize hook typography and opening text treatments |
+| `emphasis: benefit_card, cta` | Prioritize selling-point cards and closing CTA packaging |
+| `ctaStyle: subtle` | Shorter CTA copy treatments, less screen coverage |
+| `ctaStyle: explicit` | Stronger CTA bars, action verbs, higher contrast |
 
 # Constraints
 - Reflect sample on-screen text **style** (density, emphasis) without copying literal sample copy when the brief differs.

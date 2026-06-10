@@ -52,6 +52,21 @@ When base media is **image**, you may apply ken-burns-style motion on the image 
 
 When `completionMode=hf_native` and no base media: full synthetic composition (existing behavior).
 
+# Variant overrides (`variantOverrides`)
+
+When present, align composition density and motion with the generation variant (cost ladder unchanged):
+
+| Field | high_click typical | high_conversion typical |
+|-------|-------------------|-------------------------|
+| `polishStyle: minimal` | Thin overlays, avoid heavy cards | — |
+| `polishStyle: rich` | — | Stronger cards, badges, comparison rows |
+| `overlayDensity: low` | Maximize visible base video | — |
+| `overlayDensity: high` | — | More captions, lower thirds, stickers |
+| `motionTempo: fast` | Snappier GSAP / shorter holds | — |
+| `motionTempo: medium` | — | Slightly longer reads for CTA/benefit |
+
+Honor `finishBrief.finishIntent` first; use variant overrides to choose **how much** packaging to add, not **which** provider tier to use.
+
 # Constraints
 
 - Output JSON only matching `material-spec` schema.
