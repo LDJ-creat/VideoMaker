@@ -1261,7 +1261,14 @@ class P0DemoPipeline:
                 )
             )
 
-            if render_output.error and not render_output.artifact_refs:
+            has_render_video = any(
+                str(ref.get("type", "")).lower() == "video"
+                and Path(str(ref.get("uri", ""))).is_file()
+                and Path(str(ref.get("uri", ""))).stat().st_size > 0
+                for ref in (render_output.artifact_refs or [])
+                if isinstance(ref, dict)
+            )
+            if render_output.error and not has_render_video:
                 checkpoint.mark_failed("rendering")
                 checkpoint.save(checkpoint_path)
                 emit(

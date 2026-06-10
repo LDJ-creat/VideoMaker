@@ -282,6 +282,138 @@ def test_hyperframes_provider_finish_uses_stock_video_base(
     assert (ctx.generated_root / f"action-{slot_id}-finish.mp4").exists()
 
 
+def test_hyperframes_provider_finish_falls_back_to_video_composition_when_author_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
+    structure = _load_structure_fixture()
+    storage_root = tmp_path / "storage"
+    task_context = TaskContext(
+        project_id="project-1",
+        task_id="task-hf-finish-fallback",
+        storage_root=storage_root,
+    )
+    agent_runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True, fixtures={"material_author": {}}),
+        prompt_loader=PromptLoader(),
+        observability_sink=LocalFileSink(AgentRunStore(storage_root)),
+        model_name="fixture",
+    )
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        runner=agent_runner,
+        task_context=task_context,
+        material_tool=material_tool,
+    )
+    slot_id = "seg-hook-hook_visual-1"
+    ctx.storyboard = [
+        {
+            "id": "scene-1",
+            "slotId": slot_id,
+            "startSec": 0.0,
+            "endSec": 7.0,
+            "visual": "B-roll with lower third",
+            "script": "hook",
+            "source": "generated",
+        }
+    ]
+    stock_video = ctx.generated_root / f"{slot_id}-stock.mp4"
+    stock_video.write_bytes(b"fake-mp4")
+    action = {
+        "id": f"action-{slot_id}-finish",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "sourceProvider": "stock_media_search",
+        "reason": "finish after stock",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+        "finishBrief": {
+            "completionMode": "source_then_polish",
+            "finishIntent": "添加字幕条",
+            "constraints": ["do_not_replace_base_media"],
+        },
+    }
+
+    failing_engine = MagicMock()
+    failing_engine.author_material_spec.side_effect = RuntimeError("material_author boom")
+    monkeypatch.setattr(
+        "app.providers.hyperframes_material_provider.create_composition_engine",
+        lambda **kwargs: failing_engine,
+    )
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert (ctx.generated_root / f"action-{slot_id}-finish.mp4").exists()
+
+
+def test_hyperframes_provider_finish_falls_back_to_text_card_when_author_fails_without_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
+    structure = _load_structure_fixture()
+    storage_root = tmp_path / "storage"
+    task_context = TaskContext(
+        project_id="project-1",
+        task_id="task-hf-finish-text-fallback",
+        storage_root=storage_root,
+    )
+    agent_runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True, fixtures={"material_author": {}}),
+        prompt_loader=PromptLoader(),
+        observability_sink=LocalFileSink(AgentRunStore(storage_root)),
+        model_name="fixture",
+    )
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        runner=agent_runner,
+        task_context=task_context,
+        material_tool=material_tool,
+    )
+    slot_id = "seg-2-benefit_card-1"
+    ctx.storyboard = [
+        {
+            "id": "scene-2",
+            "slotId": slot_id,
+            "startSec": 0.0,
+            "endSec": 4.0,
+            "visual": "Benefit card polish",
+            "script": "benefit",
+            "source": "generated",
+        }
+    ]
+    action = {
+        "id": f"action-{slot_id}-finish",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "sourceProvider": "hyperframes_material",
+        "reason": "finish polish",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+        "finishBrief": {
+            "completionMode": "source_then_polish",
+            "finishIntent": "Add benefit card styling",
+            "constraints": [],
+        },
+    }
+
+    failing_engine = MagicMock()
+    failing_engine.author_material_spec.side_effect = RuntimeError("material_author boom")
+    monkeypatch.setattr(
+        "app.providers.hyperframes_material_provider.create_composition_engine",
+        lambda **kwargs: failing_engine,
+    )
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert (ctx.generated_root / f"action-{slot_id}-finish.mp4").exists()
+
+
 def test_hyperframes_provider_missing_runner_returns_error(tmp_path: Path) -> None:
     structure = _load_structure_fixture()
     ctx = _make_hf_ctx(tmp_path, structure=structure)

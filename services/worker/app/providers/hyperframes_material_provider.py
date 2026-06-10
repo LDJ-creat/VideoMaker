@@ -15,10 +15,22 @@ from app.providers.finish_brief import build_finish_brief_for_action
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.runtime.agent_run_store import AgentRunLog
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
-from app.validation.material_spec_coercer import build_ken_burns_spec
+from composition.author.coercer import build_author_fallback_spec
 from composition.types import AuthorRequest, PatternDepositContext
 
 LOGGER = logging.getLogger(__name__)
+
+def _legacy_fallback_spec(
+    slot: dict[str, Any],
+    asset_refs: list[dict[str, Any]] | None,
+    *,
+    duration_sec: float,
+) -> dict[str, Any]:
+    return build_author_fallback_spec(
+        slot,
+        asset_refs=asset_refs,
+        duration_sec=duration_sec,
+    )
 
 
 def _slot_by_id(structure: dict[str, Any], slot_id: str) -> dict[str, Any]:
@@ -269,8 +281,9 @@ class HyperFramesMaterialProvider:
         spec = action.get("materialSpec")
         if spec is None:
             if ctx.runner is None or ctx.task_context is None:
-                if finish_action and asset_refs:
-                    spec = build_ken_burns_spec(
+                if asset_refs:
+                    spec = _legacy_fallback_spec(
+                        slot,
                         asset_refs,
                         duration_sec=_duration_for_slot(ctx, slot_id),
                     )
@@ -287,23 +300,16 @@ class HyperFramesMaterialProvider:
                     author = _author_spec_with_retry if finish_action else _author_spec
                     spec = author(ctx, slot, asset_refs, finish_brief=finish_brief)
                 except Exception:
-                    if finish_action and asset_refs:
-                        LOGGER.warning(
-                            "material_author failed for finish action %s; falling back to ken-burns",
-                            action_id,
-                        )
-                        spec = build_ken_burns_spec(
-                            asset_refs,
-                            duration_sec=_duration_for_slot(ctx, slot_id),
-                        )
-                    else:
-                        return _failure(
-                            action,
-                            slot_id,
-                            code="material_author_failed",
-                            message="material_author could not author composition spec",
-                            retryable=False,
-                        )
+                    LOGGER.warning(
+                        "material_author failed for action %s; falling back to legacy spec",
+                        action_id,
+                        exc_info=True,
+                    )
+                    spec = _legacy_fallback_spec(
+                        slot,
+                        asset_refs,
+                        duration_sec=_duration_for_slot(ctx, slot_id),
+                    )
 
         output_dir = ctx.generated_root / action_id / "composition"
         output_clip = expected_hyperframes_output(action, ctx.generated_root)

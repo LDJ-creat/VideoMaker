@@ -43,6 +43,7 @@ class MaterialContext:
     tts_directive_warning_emitted: bool = False
     visual_style_bible: dict[str, Any] | None = None
     packaging_plan: dict[str, Any] | None = None
+    material_state_path: Path | None = None
 
     @property
     def project_root(self) -> Path:

@@ -13,8 +13,10 @@ from app.providers.completion_registry import (
     execute_completion_plan,
     filter_aigc_completion_actions,
     load_material_state,
+    material_action_done,
     register_default_providers,
     save_material_state,
+    synthesize_material_results_from_disk,
 )
 from app.runtime.video_gen_quota import VideoGenQuota, provisional_gap_report
 from app.tools.image_gen_tool import ToolError
@@ -1039,19 +1041,25 @@ def run_generating_material(
         packaging_plan=(
             dict(plan["packagingPlan"]) if isinstance(plan.get("packagingPlan"), dict) else None
         ),
+        material_state_path=state_path,
     )
     register_default_providers(ctx)
 
     pending = [
         action
         for action in actions
-        if not (
-            str(action["id"]) in ctx.completed_action_ids
-            and action_artifact_satisfied(action, generated_root)
-        )
+        if not material_action_done(action, generated_root)
     ]
     if not pending:
-        return plan, []
+        sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
+        if sync_results:
+            plan = apply_material_results_to_plan(
+                plan,
+                results=sync_results,
+                render_root=render_root,
+                generated_root=generated_root,
+            )
+        return plan, sync_results
 
     results = execute_completion_plan(pending, ctx, fail_fast=True)
     failed = next((item for item in results if not item.get("ok")), None)
@@ -1063,7 +1071,21 @@ def run_generating_material(
             retryable=bool(error.get("retryable", False)),
         )
 
-    updated_plan = apply_material_results_to_plan(plan, results=results, render_root=render_root)
+    updated_plan = apply_material_results_to_plan(
+        plan,
+        results=results,
+        render_root=render_root,
+        generated_root=generated_root,
+    )
+    # Always merge any disk artifacts missing artifactRef (resume / partial runs).
+    sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
+    if sync_results:
+        updated_plan = apply_material_results_to_plan(
+            updated_plan,
+            results=sync_results,
+            render_root=render_root,
+            generated_root=generated_root,
+        )
     save_material_state(
         state_path,
         quota=ctx.quota,

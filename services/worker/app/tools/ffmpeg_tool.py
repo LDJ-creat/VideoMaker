@@ -512,11 +512,13 @@ class FFmpegTool:
 
     @staticmethod
     def _ffmpeg_ass_filter_path(path: Path) -> str:
-        """Escape ASS path for ffmpeg filter syntax (Windows drive-safe)."""
+        """Escape ASS path for ffmpeg ass= filter (Windows drive-safe, quoted)."""
         posix = path.resolve().as_posix()
         if len(posix) > 1 and posix[1] == ":":
-            return posix[0] + "\\:" + posix[2:]
-        return posix
+            escaped = posix[0] + "\\:" + posix[2:]
+        else:
+            escaped = posix
+        return escaped.replace("'", "\\'")
 
     def burn_subtitles(
         self,
@@ -541,7 +543,7 @@ class FFmpegTool:
             "-i",
             str(resolved_video),
             "-vf",
-            f"ass={ass_filter}",
+            f"ass='{ass_filter}'",
             "-c:v",
             "libx264",
             "-pix_fmt",

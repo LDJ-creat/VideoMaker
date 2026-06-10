@@ -318,8 +318,9 @@ def is_generation_stage_done(stage: str, generation_root: Path, *, render_root: 
 
     if stage == "rendering":
         root = render_root or generation_root.parent.parent / "renders"
-        preview = root / generation_root.name / "preview.html" if render_root is None else render_root / "preview.html"
-        return preview.is_file()
+        render_dir = root / generation_root.name if render_root is None else render_root
+        output_mp4 = render_dir / "output.mp4"
+        return output_mp4.is_file() and output_mp4.stat().st_size > 0
 
     return False
 

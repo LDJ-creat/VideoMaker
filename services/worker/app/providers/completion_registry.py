@@ -48,6 +48,29 @@ MATERIAL_PROVIDERS = frozenset(
 AIGC_PROVIDERS = frozenset({"asset_reuse", "image_generation", "video_generation", "tts"})
 SKIPPED_PROVIDERS = frozenset({"text_completion", "packaging_completion"})
 
+# Stock / reuse mp4 below this size are treated as failed downloads.
+MIN_STOCK_VIDEO_BYTES = 100_000
+# HyperFrames text-card clips can be smaller but sub-15KB outputs are near-black failures.
+MIN_HYPERFRAMES_VIDEO_BYTES = 15_000
+MIN_VISUAL_VIDEO_BYTES = MIN_STOCK_VIDEO_BYTES
+
+
+def _min_video_bytes_for_path(path: Path) -> int:
+    name = path.name.lower()
+    if name.startswith("action-slot-"):
+        return MIN_HYPERFRAMES_VIDEO_BYTES
+    if "-stock" in name or name.endswith("-reuse.mp4"):
+        return MIN_STOCK_VIDEO_BYTES
+    return MIN_STOCK_VIDEO_BYTES
+
+
+def _is_valid_visual_artifact(path: Path) -> bool:
+    if not path.is_file() or path.stat().st_size <= 0:
+        return False
+    if path.suffix.lower() in {".mp4", ".webm", ".mov", ".mkv"}:
+        return path.stat().st_size >= _min_video_bytes_for_path(path)
+    return True
+
 
 def filter_material_completion_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     filtered: list[dict[str, Any]] = []
@@ -90,14 +113,148 @@ def expected_output_path(action: dict[str, Any], generated_root: Path) -> Path:
     return generated_root / f"{slot_id}.bin"
 
 
+def _visual_artifact_path(result_or_action: dict[str, Any], generated_root: Path | None = None) -> Path | None:
+    artifact_ref = result_or_action.get("artifactRef")
+    if isinstance(artifact_ref, dict):
+        uri = str(artifact_ref.get("uri", "")).strip()
+        if uri:
+            path = Path(uri)
+            if path.is_file() and _is_valid_visual_artifact(path):
+                return path
+    if generated_root is not None and "slotId" in result_or_action:
+        output = expected_output_path(result_or_action, generated_root)
+        if _is_valid_visual_artifact(output):
+            return output
+    return None
+
+
+def _hyperframes_composition_dir(action: dict[str, Any], generated_root: Path) -> Path | None:
+    action_id = str(action.get("id") or "")
+    if not action_id:
+        return None
+    candidate = generated_root / action_id / "composition"
+    return candidate if candidate.is_dir() else None
+
+
+def _composition_needs_tailwind_rebuild(action: dict[str, Any], generated_root: Path) -> bool:
+    provider = str(action.get("provider") or action.get("strategy") or "")
+    if provider != "hyperframes_material":
+        return False
+    composition_dir = _hyperframes_composition_dir(action, generated_root)
+    if composition_dir is None:
+        return False
+    index_path = composition_dir / "index.html"
+    if not index_path.is_file():
+        return False
+    html = index_path.read_text(encoding="utf-8")
+    from composition.build.tailwind_runtime import html_uses_tailwind_classes
+
+    return html_uses_tailwind_classes(html) and "window.__tailwindReady" not in html
+
+
 def action_artifact_satisfied(action: dict[str, Any], generated_root: Path) -> bool:
+    if _composition_needs_tailwind_rebuild(action, generated_root):
+        return False
+    path = _visual_artifact_path(action, generated_root)
+    if path is None:
+        return False
+    return _is_valid_visual_artifact(path)
+
+
+def material_action_done(action: dict[str, Any], generated_root: Path) -> bool:
+    """True when the action output already exists on disk (resume-safe)."""
+    return action_artifact_satisfied(action, generated_root)
+
+
+def action_needs_plan_material_sync(action: dict[str, Any], generated_root: Path) -> bool:
+    """True when a usable disk output exists but the plan action lacks artifactRef."""
+    usable = _visual_artifact_path(action, generated_root)
+    if usable is None:
+        return False
     artifact_ref = action.get("artifactRef")
-    if isinstance(artifact_ref, dict) and artifact_ref.get("uri"):
-        path = Path(str(artifact_ref["uri"]))
-        if path.is_file() and path.stat().st_size > 0:
-            return True
-    output = expected_output_path(action, generated_root)
-    return output.is_file() and output.stat().st_size > 0
+    if isinstance(artifact_ref, dict) and str(artifact_ref.get("uri", "")).strip():
+        existing = Path(str(artifact_ref["uri"]))
+        if (
+            existing.is_file()
+            and _is_valid_visual_artifact(existing)
+            and existing.resolve() == usable.resolve()
+        ):
+            return False
+    return True
+
+
+def synthesize_material_results_from_disk(
+    actions: list[dict[str, Any]],
+    *,
+    generated_root: Path,
+) -> list[MaterialResult]:
+    """Rebuild MaterialResult rows for completed actions missing plan artifactRef."""
+    from datetime import datetime, timezone
+
+    results: list[MaterialResult] = []
+    for action in actions:
+        if not action_needs_plan_material_sync(action, generated_root):
+            continue
+        output = expected_output_path(action, generated_root)
+        if not _is_valid_visual_artifact(output):
+            continue
+        action_id = str(action.get("id") or "")
+        slot_id = str(action.get("slotId") or "")
+        provider = str(action.get("provider") or action.get("strategy") or "")
+        suffix = output.suffix.lower()
+        artifact_type = "video" if suffix in {".mp4", ".webm", ".mov", ".mkv"} else "image"
+        results.append(
+            {
+                "ok": True,
+                "actionId": action_id,
+                "slotId": slot_id,
+                "provider": provider,
+                "artifactRef": {
+                    "id": action_id or slot_id,
+                    "type": artifact_type,
+                    "uri": str(output.resolve()),
+                    "createdAt": datetime.now(timezone.utc)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                },
+            }
+        )
+    return results
+
+
+def _visual_result_priority(result: MaterialResult) -> tuple[int, int, int]:
+    action_id = str(result.get("actionId") or "")
+    score = 0
+    artifact = result.get("artifactRef") or {}
+    uri = str(artifact.get("uri", "")).strip()
+    path = Path(uri) if uri else None
+    size = path.stat().st_size if path is not None and path.is_file() else 0
+    min_bytes = _min_video_bytes_for_path(path) if path is not None else MIN_STOCK_VIDEO_BYTES
+    if size >= min_bytes:
+        score += 20
+    elif size > 0:
+        score -= 50
+    if action_id.endswith("-finish") and size >= min_bytes:
+        score += 10
+    elif str(artifact.get("uri", "")).strip():
+        score += 5
+    return (score, size, len(action_id))
+
+
+def _prefer_visual_result(candidate: MaterialResult, current: MaterialResult | None) -> bool:
+    if current is None:
+        return True
+    return _visual_result_priority(candidate) > _visual_result_priority(current)
+
+
+def _persist_material_state(ctx: MaterialContext) -> None:
+    if ctx.material_state_path is None:
+        return
+    save_material_state(
+        ctx.material_state_path,
+        quota=ctx.quota,
+        completed_action_ids=ctx.completed_action_ids,
+    )
 
 
 def register_default_providers(ctx: MaterialContext) -> None:
@@ -180,7 +337,12 @@ def execute_completion_plan(
                 retryable=False,
             )
         action_id = str(action["id"])
-        if action_id in ctx.completed_action_ids and action_artifact_satisfied(action, ctx.generated_root):
+        if material_action_done(action, ctx.generated_root):
+            ctx.completed_action_ids.add(action_id)
+            _persist_material_state(ctx)
+            disk_results = synthesize_material_results_from_disk([action], generated_root=ctx.generated_root)
+            if disk_results:
+                results.extend(disk_results)
             continue
         provider = ctx.providers.get(provider_name)
         if provider is None:
@@ -208,6 +370,7 @@ def execute_completion_plan(
                 return results
             continue
         ctx.completed_action_ids.add(str(action["id"]))
+        _persist_material_state(ctx)
     return results
 
 
@@ -243,7 +406,6 @@ VISUAL_MATERIAL_PROVIDERS = frozenset(
         "hyperframes_material",
     }
 )
-
 
 def _voiceover_track(tracks: list[dict[str, Any]]) -> dict[str, Any]:
     for track in tracks:
@@ -286,16 +448,77 @@ def _voiceover_end_sec(
     return start_sec
 
 
+def _merge_material_results(
+    primary: list[MaterialResult],
+    supplemental: list[MaterialResult],
+) -> list[MaterialResult]:
+    merged: dict[str, MaterialResult] = {}
+    for result in primary + supplemental:
+        action_id = str(result.get("actionId") or "")
+        if not action_id:
+            continue
+        merged[action_id] = result
+    return list(merged.values())
+
+
+def _collect_visual_results(
+    results: list[MaterialResult],
+    *,
+    actions: list[dict[str, Any]],
+    generated_root: Path | None,
+) -> list[MaterialResult]:
+    merged = _merge_material_results(
+        results,
+        synthesize_material_results_from_disk(actions, generated_root=generated_root)
+        if generated_root is not None
+        else [],
+    )
+    visual_by_slot: dict[str, MaterialResult] = {}
+    ordered: list[MaterialResult] = []
+    for result in merged:
+        if not result.get("ok") or not result.get("slotId"):
+            continue
+        provider = str(result.get("provider", ""))
+        if provider == "tts":
+            ordered.append(result)
+            continue
+        if provider not in VISUAL_MATERIAL_PROVIDERS:
+            continue
+        slot_id = str(result["slotId"])
+        if _prefer_visual_result(result, visual_by_slot.get(slot_id)):
+            visual_by_slot[slot_id] = result
+    for result in merged:
+        if result in ordered or str(result.get("provider", "")) in VISUAL_MATERIAL_PROVIDERS:
+            if result not in ordered and result.get("actionId") not in {
+                str(item.get("actionId")) for item in visual_by_slot.values()
+            }:
+                if str(result.get("provider", "")) not in VISUAL_MATERIAL_PROVIDERS:
+                    ordered.append(result)
+    # Return all results but timeline uses visual_by_slot built from merged list
+    return merged
+
+
 def apply_material_results_to_plan(
     plan: dict[str, Any],
     *,
     results: list[MaterialResult],
     render_root: Path | None = None,
+    generated_root: Path | None = None,
 ) -> dict[str, Any]:
-    results_by_action = {str(item.get("actionId")): item for item in results if item.get("actionId")}
+    actions = [
+        action for action in plan.get("completionActions", []) if isinstance(action, dict)
+    ]
+    merged_results = _collect_visual_results(
+        results,
+        actions=actions,
+        generated_root=generated_root,
+    )
+    results_by_action = {
+        str(item.get("actionId")): item for item in merged_results if item.get("actionId")
+    }
     visual_by_slot: dict[str, MaterialResult] = {}
     tts_by_slot: dict[str, MaterialResult] = {}
-    for result in results:
+    for result in merged_results:
         if not result.get("ok") or not result.get("slotId"):
             continue
         slot_id = str(result["slotId"])
@@ -303,7 +526,8 @@ def apply_material_results_to_plan(
         if provider == "tts":
             tts_by_slot[slot_id] = result
         elif provider in VISUAL_MATERIAL_PROVIDERS:
-            visual_by_slot[slot_id] = result
+            if _prefer_visual_result(result, visual_by_slot.get(slot_id)):
+                visual_by_slot[slot_id] = result
 
     updated_actions: list[dict[str, Any]] = []
     for action in plan.get("completionActions", []):
@@ -343,7 +567,7 @@ def apply_material_results_to_plan(
     tts_mode = str(plan.get("ttsMode") or resolve_tts_mode(plan))
     plan["timeline"] = _apply_generated_sources_to_timeline(
         plan.get("timeline", {}),
-        results=results,
+        results=merged_results,
         render_root=render_root,
         storyboard=plan.get("storyboard", []),
         tts_mode=tts_mode,
@@ -384,8 +608,10 @@ def _material_source_ref(uri: str, *, render_root: Path | None) -> str:
     dest_dir = render_root / "materials"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / path.name
-    if not dest.exists() or dest.stat().st_size == 0:
-        dest.write_bytes(path.read_bytes())
+    if path.is_file():
+        source_size = path.stat().st_size
+        if not dest.is_file() or dest.stat().st_size < source_size:
+            dest.write_bytes(path.read_bytes())
     return f"materials/{path.name}"
 
 
@@ -436,7 +662,8 @@ def _apply_generated_sources_to_timeline(
         if provider == "tts":
             tts_by_slot[slot_id] = result
         elif provider in VISUAL_MATERIAL_PROVIDERS:
-            visual_by_slot[slot_id] = result
+            if _prefer_visual_result(result, visual_by_slot.get(slot_id)):
+                visual_by_slot[slot_id] = result
 
     tracks = timeline.get("tracks", [])
     if not isinstance(tracks, list):

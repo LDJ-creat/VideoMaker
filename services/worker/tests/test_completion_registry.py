@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 import json
 
@@ -266,8 +267,69 @@ def test_resume_skips_when_artifact_file_exists(tmp_path: Path) -> None:
     assert action_artifact_satisfied(action, ctx.generated_root)
 
     results = execute_completion_plan([action], ctx)
-    assert results == []
+    assert len(results) == 1
+    assert results[0]["ok"] is True
+    assert results[0]["actionId"] == "action-1"
     gateway.generate_image.assert_not_called()
+
+
+def test_resume_skips_existing_artifacts_when_completed_ids_empty(tmp_path: Path) -> None:
+    from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID
+
+    png = tmp_path / "generated" / "slot-1.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
+    png.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    tts_invoked: list[dict[str, Any]] = []
+    image_called = False
+
+    class FakeTTS:
+        name = "tts"
+
+        def execute(self, action: dict, ctx: MaterialContext) -> dict:
+            tts_invoked.append(action)
+            wav = ctx.generated_root / "master.wav"
+            wav.write_bytes(b"RIFF----WAVE")
+            return {
+                "ok": True,
+                "actionId": action["id"],
+                "slotId": action["slotId"],
+                "provider": "tts",
+                "artifactRef": {"uri": str(wav)},
+            }
+
+    ctx = _make_ctx(
+        tmp_path,
+        completed_action_ids=set(),
+        material_state_path=tmp_path / "material-state.json",
+    )
+    register_default_providers(ctx)
+    ctx.providers["tts"] = FakeTTS()
+    orig_image = ctx.providers["image_generation"]
+
+    class TrackingImage:
+        name = "image_generation"
+
+        def execute(self, action: dict, ctx: MaterialContext) -> dict:
+            nonlocal image_called
+            image_called = True
+            return orig_image.execute(action, ctx)
+
+    ctx.providers["image_generation"] = TrackingImage()
+
+    execute_completion_plan(
+        [
+            _action("action-slot-1", "slot-1", "image_generation"),
+            _action("action-master-tts", MASTER_TTS_SLOT_ID, "tts"),
+        ],
+        ctx,
+    )
+
+    assert image_called is False
+    assert len(tts_invoked) == 1
+    state = json.loads((tmp_path / "material-state.json").read_text(encoding="utf-8"))
+    assert "action-slot-1" in state["completedActionIds"]
+    assert "action-master-tts" in state["completedActionIds"]
 
 
 def test_apply_material_moves_video_clip_to_video_track(tmp_path: Path) -> None:

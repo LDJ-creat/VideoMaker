@@ -52,6 +52,8 @@ class FfmpegRenderBackend(RenderBackend):
         log = dict(compile_result.log)
         log["backend"] = "ffmpeg"
         log.setdefault("durationMs", round((time.perf_counter() - started) * 1000))
+        if compile_result.error:
+            log["error"] = compile_result.error
         log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
 
         artifact_refs = [
