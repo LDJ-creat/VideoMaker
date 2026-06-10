@@ -67,6 +67,17 @@ export function projectFileMediaUrl(
   return `/api/projects/${projectId}/media/file/${segments}`;
 }
 
+/** Browser URL for preview TTS master.wav under generations/{generationId}/preview/ */
+export function generationNarrationPreviewAudioUrl(
+  projectId: string,
+  generationId: string,
+): string {
+  return projectFileMediaUrl(
+    projectId,
+    `generations/${generationId}/preview/master.wav`,
+  );
+}
+
 /** Browser URL for rendered demo MP4 when the HyperFrames CLI produced output.mp4 */
 export function generationRenderVideoUrl(
   projectId: string,

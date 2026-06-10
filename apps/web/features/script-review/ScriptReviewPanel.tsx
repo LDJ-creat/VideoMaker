@@ -30,6 +30,7 @@ import {
 } from "@/lib/durationTargetLabels";
 import { getErrorMessage } from "@/lib/errors";
 import { getTaskStageLabel } from "@/features/tasks/stageLabels";
+import { generationNarrationPreviewAudioUrl } from "@/lib/artifactUrl";
 
 export type ScriptReviewVariant = {
   generationId: string;
@@ -501,6 +502,29 @@ export function ScriptReviewPanel({
 
         {storyboardReview && draft && (
           <div className="space-y-3">
+            {draft.narrationPreviewDurationSec != null && (
+              <div
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+                data-testid="narration-preview-duration"
+              >
+                <p>
+                  口播预览时长 {formatDurationSec(draft.narrationPreviewDurationSec)}
+                  {draft.durationTargetSec != null &&
+                    draft.narrationPreviewDurationSec > draft.durationTargetSec + 0.05 && (
+                      <>
+                        ，长于目标时长 {formatDurationSec(draft.durationTargetSec)}
+                        ；分镜窗口已按实测口播对齐。
+                      </>
+                    )}
+                </p>
+                <audio
+                  className="mt-2 w-full"
+                  controls
+                  preload="metadata"
+                  src={generationNarrationPreviewAudioUrl(projectId, activeId)}
+                />
+              </div>
+            )}
             <ScriptNlReviseBar
               scope="storyboard"
               busy={activeState?.saving}

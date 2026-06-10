@@ -6,6 +6,8 @@ export const GENERATION_MIGRATION_STAGES = new Set<TaskStage>([
   "planning_completion",
   "drafting_master_script",
   "awaiting_master_review",
+  "synthesizing_narration_preview",
+  "aligning_narration_timing",
   "drafting_storyboard",
   "awaiting_storyboard_review",
   "producing_media",
@@ -32,6 +34,8 @@ export function migrationStageGroup(
     stage === "planning_completion" ||
     stage === "drafting_master_script" ||
     stage === "awaiting_master_review" ||
+    stage === "synthesizing_narration_preview" ||
+    stage === "aligning_narration_timing" ||
     stage === "drafting_storyboard" ||
     stage === "awaiting_storyboard_review" ||
     stage === "producing_media"

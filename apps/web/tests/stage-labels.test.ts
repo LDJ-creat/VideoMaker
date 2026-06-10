@@ -16,6 +16,8 @@ describe("stageLabels", () => {
   it("getTaskStageLabel returns label for known stage", () => {
     expect(getTaskStageLabel("transcribing")).toBe("语音转写");
     expect(getTaskStageLabel("generating_material")).toBe("生成补全素材");
+    expect(getTaskStageLabel("synthesizing_narration_preview")).toBe("合成口播预览");
+    expect(getTaskStageLabel("aligning_narration_timing")).toBe("对齐分镜时长");
   });
 
   it("isMaterialStage identifies material generation stages", () => {

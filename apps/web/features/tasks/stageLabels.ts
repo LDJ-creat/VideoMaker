@@ -20,6 +20,8 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
   mapping_slots: "槽位匹配",
   drafting_master_script: "撰写总脚本",
   awaiting_master_review: "等待总脚本审核",
+  synthesizing_narration_preview: "合成口播预览",
+  aligning_narration_timing: "对齐分镜时长",
   drafting_storyboard: "撰写分镜脚本",
   awaiting_storyboard_review: "等待分镜审核",
   producing_media: "生成素材与视频",
