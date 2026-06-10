@@ -8,7 +8,6 @@ import { ProjectGrid } from "@/components/home/project-grid";
 import { TemplateCategorySection } from "@/components/home/template-category-section";
 import { WorkflowStrip } from "@/components/home/workflow-strip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { fixtureProject } from "@/fixtures";
 import {
   createProject,
   deleteProject,
@@ -16,41 +15,6 @@ import {
   type ProjectSummary,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
-
-const DEMO_STORAGE_KEY = "videomaker:demo-project";
-
-function loadDemoProjectFromSession(): ProjectSummary | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(DEMO_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as ProjectSummary;
-  } catch {
-    return null;
-  }
-}
-
-function saveDemoProjectToSession(project: ProjectSummary) {
-  sessionStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(project));
-}
-
-function clearDemoProjectFromSession(projectId: string) {
-  const demo = loadDemoProjectFromSession();
-  if (demo?.id === projectId) {
-    sessionStorage.removeItem(DEMO_STORAGE_KEY);
-  }
-}
-
-function mergeProjects(
-  apiProjects: ProjectSummary[],
-  demoProject: ProjectSummary | null,
-): ProjectSummary[] {
-  const merged = [...apiProjects];
-  if (demoProject && !merged.some((project) => project.id === demoProject.id)) {
-    merged.unshift(demoProject);
-  }
-  return merged;
-}
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -73,7 +37,7 @@ export default function ProjectsPage() {
       try {
         const { data } = await listProjects();
         if (cancelled) return;
-        setProjects(mergeProjects(data.projects, loadDemoProjectFromSession()));
+        setProjects(data.projects);
       } catch (err) {
         if (!cancelled) {
           setError(getErrorMessage(err));
@@ -103,11 +67,6 @@ export default function ProjectsPage() {
     }
   }, [name, router]);
 
-  const loadDemoProject = () => {
-    saveDemoProjectToSession(fixtureProject);
-    setProjects((prev) => mergeProjects(prev, fixtureProject));
-  };
-
   const focusNameInput = useCallback(() => {
     document.getElementById("hero")?.scrollIntoView({ behavior: "smooth", block: "start" });
     window.setTimeout(() => nameInputRef.current?.focus(), 300);
@@ -131,23 +90,13 @@ export default function ProjectsPage() {
     setDeleteError(null);
 
     const target = deleteTarget;
-    const isDemoOnly = target.id === fixtureProject.id;
 
     try {
-      if (!isDemoOnly) {
-        await deleteProject(target.id);
-      }
-      clearDemoProjectFromSession(target.id);
+      await deleteProject(target.id);
       setProjects((prev) => prev.filter((project) => project.id !== target.id));
       setDeleteTarget(null);
     } catch (err) {
-      if (isDemoOnly) {
-        clearDemoProjectFromSession(target.id);
-        setProjects((prev) => prev.filter((project) => project.id !== target.id));
-        setDeleteTarget(null);
-      } else {
-        setDeleteError(getErrorMessage(err));
-      }
+      setDeleteError(getErrorMessage(err));
     } finally {
       setDeleting(false);
     }
@@ -161,7 +110,6 @@ export default function ProjectsPage() {
         error={error}
         onNameChange={setName}
         onCreate={() => void handleCreate()}
-        onLoadDemo={loadDemoProject}
         inputRef={nameInputRef}
       />
 

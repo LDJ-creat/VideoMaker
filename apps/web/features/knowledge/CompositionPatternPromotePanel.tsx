@@ -26,12 +26,15 @@ type CompositionPatternPromotePanelProps = {
   videoReady: boolean;
 };
 
+type LoadState = "idle" | "loading" | "loaded" | "error";
+
 export function CompositionPatternPromotePanel({
   projectId,
   generationId,
   videoReady,
 }: CompositionPatternPromotePanelProps) {
   const [patterns, setPatterns] = useState<CompositionPatternCandidate[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
   const [loadingSlotId, setLoadingSlotId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
@@ -39,29 +42,32 @@ export function CompositionPatternPromotePanel({
   const loadPatterns = useCallback(async () => {
     if (!generationId || !videoReady) {
       setPatterns([]);
+      setLoadState("idle");
       return;
     }
+    setLoadState("loading");
     try {
       const result = await getCompositionPatterns(generationId);
       setPatterns(result.data.patterns ?? []);
-    } catch {
+      setLoadState("loaded");
+    } catch (error) {
       setPatterns([]);
+      setLoadState("error");
+      setErrorStatus(getErrorMessage(error));
     }
   }, [generationId, videoReady]);
 
   useEffect(() => {
     if (!videoReady) {
       setPatterns([]);
+      setLoadState("idle");
+      setErrorStatus(null);
       return;
     }
     void loadPatterns();
   }, [loadPatterns, videoReady]);
 
   if (!videoReady) {
-    return null;
-  }
-
-  if (patterns.length === 0) {
     return null;
   }
 
@@ -97,6 +103,8 @@ export function CompositionPatternPromotePanel({
     }
   };
 
+  const unpublishedCount = patterns.filter((item) => !item.publishedEntry?.id).length;
+
   return (
     <Card data-testid="composition-pattern-promote-panel">
       <CardHeader className="pb-3">
@@ -106,6 +114,35 @@ export function CompositionPatternPromotePanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
+        {loadState === "loading" ? (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="composition-pattern-loading"
+          >
+            正在检查可入库的 HyperFrames 包装分镜…
+          </p>
+        ) : null}
+
+        {loadState === "loaded" && patterns.length === 0 ? (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="composition-pattern-empty"
+          >
+            本次生成没有可入库的 HyperFrames 包装动效（需分镜经 hyperframes_material
+            完成且 lint 通过）。若刚完成改片，可刷新页面后再看。
+          </p>
+        ) : null}
+
+        {loadState === "loaded" && patterns.length > 0 ? (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid="composition-pattern-hint"
+          >
+            发现 {patterns.length} 个可入库分镜
+            {unpublishedCount > 0 ? `，其中 ${unpublishedCount} 个尚未加入知识库` : "，均已入库"}。
+          </p>
+        ) : null}
+
         {patterns.map((pattern) => {
           const published = Boolean(pattern.publishedEntry?.id);
           const summary =
@@ -142,7 +179,12 @@ export function CompositionPatternPromotePanel({
             </div>
           );
         })}
-        {errorStatus ? (
+        {loadState === "error" && errorStatus ? (
+          <p className="text-xs text-destructive" data-testid="composition-pattern-error">
+            无法加载可入库分镜：{errorStatus}
+          </p>
+        ) : null}
+        {loadState !== "error" && errorStatus ? (
           <p className="text-xs text-destructive" data-testid="composition-pattern-error">
             {errorStatus}
           </p>

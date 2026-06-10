@@ -112,7 +112,7 @@ export function SampleAnalysisPanel({
   highlightedSlotIds = [],
   onHighlightSlot,
   analysisStage,
-  emptyMessage = "暂无分析结果，请先完成样例分析或加载演示数据。",
+  emptyMessage = "暂无分析结果，请先完成样例分析。",
 }: SampleAnalysisPanelProps) {
   const [previewSample, setPreviewSample] = useState<ActiveSampleSummary | null>(
     null,
@@ -137,7 +137,7 @@ export function SampleAnalysisPanel({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              请先在「录入」上传样例视频，或点击顶栏「加载演示数据」预览流程。
+              请先在「录入」上传样例视频并开始样例分析。
             </p>
           )}
         </CardContent>

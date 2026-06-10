@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 
 import { KnowledgeMarkdownPreview } from "@/features/knowledge/KnowledgeMarkdownPreview";
+import { useTaskProgress } from "@/features/tasks/useTaskProgress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import {
   getKnowledgeDraft,
   promoteKnowledgeDraft,
+  renderKnowledgeDraft,
   type KnowledgeDraftResponse,
 } from "@/lib/apiClient";
 import { getErrorMessage } from "@/lib/errors";
@@ -24,6 +26,8 @@ type KnowledgeDraftPanelProps = {
   onPromoted?: () => void;
 };
 
+type DraftLoadState = "loading" | "missing" | "ready";
+
 export function KnowledgeDraftPanel({
   projectId,
   sampleId,
@@ -31,33 +35,160 @@ export function KnowledgeDraftPanel({
   onPromoted,
 }: KnowledgeDraftPanelProps) {
   const [draft, setDraft] = useState<KnowledgeDraftResponse | null>(null);
+  const [loadState, setLoadState] = useState<DraftLoadState>("loading");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("通用短视频");
   const [style, setStyle] = useState("标准结构");
   const [hookType, setHookType] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [renderTaskId, setRenderTaskId] = useState<string | null>(null);
+
+  const renderProgress = useTaskProgress({
+    taskId: renderTaskId,
+    enabled: Boolean(renderTaskId),
+  });
+  const renderStatus = renderProgress.event?.status;
+
+  const reloadDraft = useCallback(async () => {
+    setLoadState("loading");
+    try {
+      const result = await getKnowledgeDraft(projectId, sampleId);
+      setDraft(result.data);
+      const meta = result.data.entryMeta as Record<string, string>;
+      setTitle(String(meta.title ?? ""));
+      setCategory(String(meta.category ?? "通用短视频"));
+      setStyle(String(meta.style ?? "标准结构"));
+      setHookType(String(meta.hookType ?? ""));
+      setLoadState("ready");
+      setStatus(null);
+    } catch {
+      setDraft(null);
+      setLoadState("missing");
+    }
+  }, [projectId, sampleId]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const result = await getKnowledgeDraft(projectId, sampleId);
-        if (cancelled) return;
-        setDraft(result.data);
-        const meta = result.data.entryMeta as Record<string, string>;
-        setTitle(String(meta.title ?? ""));
-        setCategory(String(meta.category ?? "通用短视频"));
-        setStyle(String(meta.style ?? "标准结构"));
-        setHookType(String(meta.hookType ?? ""));
-      } catch {
-        if (!cancelled) setDraft(null);
-      }
+      if (cancelled) return;
+      await reloadDraft();
     })();
     return () => {
       cancelled = true;
     };
-  }, [projectId, sampleId]);
+  }, [reloadDraft]);
+
+  useEffect(() => {
+    if (!renderTaskId) return;
+    if (renderStatus === "succeeded") {
+      setRenderTaskId(null);
+      void reloadDraft();
+    }
+    if (renderStatus === "failed" || renderStatus === "cancelled") {
+      const taskError = renderProgress.event?.error;
+      setStatus(
+        typeof taskError === "object" && taskError && "message" in taskError
+          ? String(taskError.message)
+          : renderProgress.error ?? "知识草稿生成失败，请重试。",
+      );
+      setRenderTaskId(null);
+    }
+  }, [
+    renderProgress.error,
+    renderProgress.event?.error,
+    renderStatus,
+    renderTaskId,
+    reloadDraft,
+  ]);
+
+  const handleRenderDraft = async () => {
+    setLoading(true);
+    setStatus(null);
+    try {
+      const result = await renderKnowledgeDraft(projectId, sampleId);
+      setRenderTaskId(result.data.taskId);
+      setStatus("正在生成知识草稿…");
+    } catch (error) {
+      setStatus(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isRendering =
+    Boolean(renderTaskId) &&
+    (renderStatus === "running" ||
+      renderStatus === "retrying" ||
+      renderStatus === "awaiting_review" ||
+      renderProgress.mode === "sse" ||
+      renderProgress.mode === "polling");
+
+  if (loadState === "loading") {
+    if (layout === "inline") return null;
+    return (
+      <Card data-testid="knowledge-draft-loading">
+        <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          正在加载知识草稿…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loadState === "missing") {
+    if (layout === "inline") {
+      return (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2"
+          data-testid="knowledge-draft-missing-inline"
+        >
+          <p className="text-xs text-muted-foreground">知识草稿尚未生成</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={loading || isRendering}
+            onClick={() => void handleRenderDraft()}
+          >
+            {isRendering ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3 w-3" />
+            )}
+            生成草稿
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <Card data-testid="knowledge-draft-missing">
+        <CardHeader>
+          <CardTitle>知识草稿</CardTitle>
+          <CardDescription>
+            样例结构已就绪，但知识草稿尚未生成（可能因 LLM 输出格式错误而失败）。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            type="button"
+            disabled={loading || isRendering}
+            onClick={() => void handleRenderDraft()}
+            data-testid="knowledge-draft-render-button"
+          >
+            {isRendering ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            {isRendering ? "正在生成知识草稿…" : "生成知识草稿"}
+          </Button>
+          {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!draft?.skillMarkdown) return null;
 
@@ -142,12 +273,31 @@ export function KnowledgeDraftPanel({
                 样例分析完成后自动生成。确认内容后可加入全局知识库供其他项目复用。
               </CardDescription>
             </div>
-            {isPublished ? (
-              <Badge variant="default" data-testid="knowledge-draft-published-badge">
-                <CheckCircle2 className="mr-1 h-3 w-3" />
-                已加入知识库
-              </Badge>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              {!isPublished ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || isRendering}
+                  onClick={() => void handleRenderDraft()}
+                  data-testid="knowledge-draft-rerender-button"
+                >
+                  {isRendering ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                  )}
+                  重新生成
+                </Button>
+              ) : null}
+              {isPublished ? (
+                <Badge variant="default" data-testid="knowledge-draft-published-badge">
+                  <CheckCircle2 className="mr-1 h-3 w-3" />
+                  已加入知识库
+                </Badge>
+              ) : null}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">

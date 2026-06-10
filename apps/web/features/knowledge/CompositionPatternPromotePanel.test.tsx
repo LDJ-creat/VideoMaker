@@ -60,6 +60,8 @@ describe("CompositionPatternPromotePanel", () => {
       expect(screen.getByTestId("composition-pattern-promote-panel")).toBeInTheDocument();
     });
 
+    expect(screen.getByTestId("composition-pattern-hint")).toHaveTextContent("发现 1 个可入库分镜");
+
     await userEvent.click(screen.getByTestId("composition-pattern-promote-slot-1"));
 
     await waitFor(() => {
@@ -70,6 +72,26 @@ describe("CompositionPatternPromotePanel", () => {
       });
       expect(screen.getByTestId("composition-pattern-published-badge")).toBeInTheDocument();
     });
+  });
+
+  it("shows empty hint when no patterns are available", async () => {
+    vi.mocked(getCompositionPatterns).mockResolvedValue({
+      data: { generationId: "gen-1", patterns: [] },
+      meta: { dataSource: "api" },
+    });
+
+    render(
+      <CompositionPatternPromotePanel
+        projectId="project-1"
+        generationId="gen-1"
+        videoReady
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("composition-pattern-empty")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("composition-pattern-promote-slot-1")).not.toBeInTheDocument();
   });
 
   it("does not render when video is not ready", () => {

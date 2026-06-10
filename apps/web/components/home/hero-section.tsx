@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, Sparkles } from "lucide-react";
+import { AlertCircle, Sparkles } from "lucide-react";
 import type { RefObject } from "react";
 
 import { StructureMigrationVisual } from "@/components/home/structure-migration-visual";
@@ -13,7 +13,6 @@ type HeroSectionProps = {
   error: string | null;
   onNameChange: (value: string) => void;
   onCreate: () => void;
-  onLoadDemo: () => void;
   inputRef?: RefObject<HTMLInputElement | null>;
 };
 
@@ -23,7 +22,6 @@ export function HeroSection({
   error,
   onNameChange,
   onCreate,
-  onLoadDemo,
   inputRef,
 }: HeroSectionProps) {
   return (
@@ -98,18 +96,6 @@ export function HeroSection({
               <span className="truncate">{error}</span>
             </p>
           ) : null}
-
-          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <span>还没想好怎么做？</span>
-            <button
-              type="button"
-              onClick={onLoadDemo}
-              className="inline-flex cursor-pointer items-center gap-1 font-medium text-primary transition-colors hover:underline underline-offset-4"
-            >
-              加载演示项目
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
         </div>
 
         <div className="motion-safe-animate-in [animation-delay:320ms]">
