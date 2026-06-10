@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { KnowledgeDraftPanel } from "@/features/knowledge/KnowledgeDraftPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
 import { StructureEvidencePanel } from "@/features/structure-evidence/StructureEvidencePanel";
-import type { ActiveSampleSummary, SampleKeyframeRecord } from "@/lib/apiClient";
+import type { ActiveSampleSummary } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 
 type SampleAnalysisPanelProps = {
@@ -28,7 +28,6 @@ type SampleAnalysisPanelProps = {
   onSelectSample: (sampleId: string) => void;
   structure: VideoStructure | null;
   sampleAnalysisFacts?: SampleAnalysisFacts | null;
-  sampleKeyframes: SampleKeyframeRecord[];
   error?: string | null;
   highlightedSlotIds?: string[];
   onHighlightSlot?: (slotId: string) => void;
@@ -109,7 +108,6 @@ export function SampleAnalysisPanel({
   onSelectSample,
   structure,
   sampleAnalysisFacts = null,
-  sampleKeyframes,
   error = null,
   highlightedSlotIds = [],
   onHighlightSlot,
@@ -215,9 +213,6 @@ export function SampleAnalysisPanel({
             >
               <StructureEvidencePanel
                 structure={structure}
-                projectId={projectId}
-                sampleId={displayedSampleId}
-                keyframes={sampleKeyframes}
                 sampleAnalysisFacts={sampleAnalysisFacts}
                 highlightedSlotIds={highlightedSlotIds}
                 onHighlightSlot={onHighlightSlot}
@@ -230,7 +225,7 @@ export function SampleAnalysisPanel({
                   />
                 }
               />
-              <details className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <details open className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <summary className="cursor-pointer font-serif text-base font-semibold">
                   知识草稿详情
                 </summary>

@@ -55,7 +55,7 @@ describe("StructureEvidencePanel", () => {
     expect(onHighlightSlot).toHaveBeenCalled();
   });
 
-  it("keeps v3 track panel inside collapsed details by default", () => {
+  it("shows v3 track panel inside expanded details by default", () => {
     render(
       <StructureEvidencePanel
         structure={fixtureVideoStructure}
@@ -65,6 +65,6 @@ describe("StructureEvidencePanel", () => {
 
     const summary = screen.getByText("四轨深度洞察");
     expect(summary).toBeInTheDocument();
-    expect(summary.closest("details")).not.toHaveAttribute("open");
+    expect(summary.closest("details")).toHaveAttribute("open");
   });
 });
