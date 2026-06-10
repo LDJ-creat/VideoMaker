@@ -55,7 +55,46 @@ def _packaging_forced(slot: dict[str, Any]) -> bool:
     return role in GAP_HYPERFRAMES_PRIMARY_ROLES or "packaging" in required
 
 
-def _default_mode_for_slot(slot: dict[str, Any]) -> str:
+def _completion_mode_from_variant(
+    slot: dict[str, Any],
+    variant_overrides: dict[str, Any] | None,
+) -> str | None:
+    overrides = variant_overrides or {}
+    bias = overrides.get("completionModeBias")
+    if not isinstance(bias, dict):
+        return None
+    role = normalize_slot_role(str(slot.get("role", "")))
+    mode = str(bias.get(role, "") or "").strip()
+    return mode if mode in COMPLETION_MODES else None
+
+
+def _finish_intent_from_variant(
+    slot: dict[str, Any],
+    variant_overrides: dict[str, Any] | None,
+) -> str | None:
+    overrides = variant_overrides or {}
+    by_role = overrides.get("finishIntentByRole")
+    if not isinstance(by_role, dict):
+        return None
+    role = normalize_slot_role(str(slot.get("role", "")))
+    intent = str(by_role.get(role, "") or "").strip()
+    return intent or None
+
+
+def resolve_finish_intent_from_variant(
+    slot: dict[str, Any],
+    variant_overrides: dict[str, Any] | None,
+) -> str | None:
+    return _finish_intent_from_variant(slot, variant_overrides)
+
+
+def _default_mode_for_slot(
+    slot: dict[str, Any],
+    variant_overrides: dict[str, Any] | None = None,
+) -> str:
+    biased = _completion_mode_from_variant(slot, variant_overrides)
+    if biased is not None:
+        return biased
     role = normalize_slot_role(str(slot.get("role", "")))
     if role in GAP_HYPERFRAMES_PRIMARY_ROLES:
         return "hf_native"
@@ -254,7 +293,10 @@ def reconcile_provider_chain(
     variant_overrides: dict[str, Any] | None,
 ) -> tuple[list[str], str, str]:
     slot_id = _slot_id(slot)
-    mode = _normalize_mode(llm_item.get("completionMode"), default=_default_mode_for_slot(slot))
+    mode = _normalize_mode(
+        llm_item.get("completionMode"),
+        default=_default_mode_for_slot(slot, variant_overrides),
+    )
     llm_chain = _llm_chain(llm_item)
 
     if llm_chain:

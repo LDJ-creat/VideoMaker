@@ -24,7 +24,7 @@ from app.perception.sample_facts import (
 from app.perception.visual_facts_progress import load_existing_digests, load_visual_facts_progress
 from app.agents.structure_inputs import KeyframeEncodingError
 from app.agents.failure_debug import tool_error_from_agent_failure
-from app.config.variants import load_variant_gap_planner_overrides
+from app.config.variants import load_variant_gap_planner_overrides, load_variant_material_execution_overrides
 from model_gateway.fixture import is_fixture_mode
 from model_gateway.store import ModelGatewayStore
 
@@ -854,6 +854,7 @@ class P0DemoPipeline:
                         context=context,
                         generation_id=generation_id,
                         variant=variant,
+                        generation_run_id=generation_run_id,
                         revise_context=revise_context,
                         knowledge_context=knowledge_context,
                         database_path=self._database_path,
@@ -1154,7 +1155,7 @@ class P0DemoPipeline:
                     gap_report=material_gap_report,
                     runner=runner,
                     task_context=context,
-                    variant_overrides=load_variant_gap_planner_overrides(str(plan.get("variant", variant))),
+                    variant_overrides=load_variant_material_execution_overrides(str(plan.get("variant", variant))),
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")

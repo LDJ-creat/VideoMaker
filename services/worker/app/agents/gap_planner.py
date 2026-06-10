@@ -4,7 +4,7 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_variant_gap_planner_overrides
-from app.pipelines.gap_reconcile import reconcile_provider_chain
+from app.pipelines.gap_reconcile import reconcile_provider_chain, resolve_finish_intent_from_variant
 from app.pipelines.gap_selection import provider_rationale
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.agents.slot_mapper import classify_slot_matches
@@ -160,15 +160,18 @@ def apply_provider_reconciliation(
                 weak_match=weak_match,
                 providers=providers,
             )
-            updated.append(
-                {
-                    **item,
-                    "reason": reason,
-                    "suggestedFixes": providers,
-                    "completionMode": mode,
-                    "reconcileNotes": notes,
-                }
-            )
+            merged_item = {
+                **item,
+                "reason": reason,
+                "suggestedFixes": providers,
+                "completionMode": mode,
+                "reconcileNotes": notes,
+            }
+            if not str(merged_item.get("finishIntent", "")).strip():
+                default_intent = resolve_finish_intent_from_variant(slot, overrides)
+                if default_intent and mode in {"source_then_polish", "hf_native", "packaging_only"}:
+                    merged_item["finishIntent"] = default_intent
+            updated.append(merged_item)
         gap_report[bucket] = updated
     return gap_report
 

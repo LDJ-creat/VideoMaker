@@ -85,5 +85,21 @@ def load_all_agent_overrides(variant: str) -> dict[str, dict[str, Any]]:
     }
 
 
+def load_variant_material_author_overrides(variant: str) -> dict[str, Any]:
+    return load_agent_overrides(variant, "material_author")
+
+
+def load_variant_packaging_designer_overrides(variant: str) -> dict[str, Any]:
+    return load_agent_overrides(variant, "packaging_designer")
+
+
+def load_variant_material_execution_overrides(variant: str) -> dict[str, Any]:
+    """Flat overrides for HF material_author execution (packaging + material hints)."""
+    merged: dict[str, Any] = {}
+    merged.update(load_variant_packaging_designer_overrides(variant))
+    merged.update(load_variant_material_author_overrides(variant))
+    return merged
+
+
 def clear_registry_cache() -> None:
     _load_registry.cache_clear()

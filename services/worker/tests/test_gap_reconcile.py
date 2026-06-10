@@ -21,6 +21,43 @@ def _slot(**overrides) -> dict:
     return base
 
 
+def test_variant_completion_mode_bias_differs_without_changing_primary_provider() -> None:
+    from app.config.variants import clear_registry_cache, load_variant_gap_planner_overrides
+
+    clear_registry_cache()
+    slot = _slot(role="hook_visual")
+    llm_item = {
+        "slotId": "slot-hook",
+        "suggestedFixes": ["stock_media_search"],
+        "impact": "high",
+    }
+    quota = VideoGenQuota(max_slots=2, max_per_slot=1)
+    inventory = {"userBrief": {"topic": "demo"}}
+
+    click_chain, click_mode, _ = reconcile_provider_chain(
+        llm_item=llm_item,
+        slot=slot,
+        weak_match=None,
+        quota=quota,
+        inventory=inventory,
+        variant_overrides=load_variant_gap_planner_overrides("high_click"),
+    )
+    conv_chain, conv_mode, _ = reconcile_provider_chain(
+        llm_item=llm_item,
+        slot=slot,
+        weak_match=None,
+        quota=quota,
+        inventory=inventory,
+        variant_overrides=load_variant_gap_planner_overrides("high_conversion"),
+    )
+
+    assert click_mode == "source_only"
+    assert conv_mode == "source_then_polish"
+    assert click_chain[0] == conv_chain[0] == "stock_media_search"
+    assert "hyperframes_material" not in click_chain
+    assert conv_chain[-1] == "hyperframes_material"
+
+
 def test_reconcile_preserves_llm_chain_and_appends_finish() -> None:
     slot = _slot()
     llm_item = {

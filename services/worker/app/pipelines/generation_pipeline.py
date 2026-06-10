@@ -36,6 +36,8 @@ from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
+from app.pipelines.run_slot_matches_store import resolve_slot_matches_for_run
+from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
 from app.agents.slot_mapper import classify_slot_matches, run_slot_mapper
@@ -317,6 +319,7 @@ def run_mapping_and_gap(
     context: TaskContext,
     generation_id: str,
     variant: str = "default",
+    generation_run_id: str | None = None,
     revise_context: ReviseContext | None = None,
     knowledge_context: dict[str, Any] | None = None,
     database_path: Path | None = None,
@@ -327,14 +330,23 @@ def run_mapping_and_gap(
         progress=35,
         message="Mapping structure slots to user assets",
     )
-    slot_matches = run_slot_mapper(
-        runner,
-        structure=structure,
-        inventory=inventory,
-        context=context,
-        generation_id=generation_id,
-        variant_overrides=merge_agent_overrides(variant, "slot_mapper", revise_context),
-        knowledge_context=knowledge_context,
+
+    def _invoke_slot_mapper() -> list[dict[str, Any]]:
+        return run_slot_mapper(
+            runner,
+            structure=structure,
+            inventory=inventory,
+            context=context,
+            generation_id=generation_id,
+            variant_overrides=merge_agent_overrides(variant, "slot_mapper", revise_context),
+            knowledge_context=knowledge_context,
+        )
+
+    slot_matches = resolve_slot_matches_for_run(
+        storage_root=context.storage_root,
+        project_id=context.project_id,
+        generation_run_id=generation_run_id,
+        run_slot_mapper=_invoke_slot_mapper,
     )
     resolved_knowledge = knowledge_context
     _, weak_ids, _missing_ids = classify_slot_matches(structure, slot_matches)

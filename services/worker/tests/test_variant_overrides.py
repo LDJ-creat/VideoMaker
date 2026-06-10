@@ -40,16 +40,31 @@ def _missing_visual_slot() -> dict:
     }
 
 
-def test_variant_registry_gap_planner_overrides_differ() -> None:
+def test_variant_registry_gap_planner_overrides_share_cost_ladder() -> None:
     clear_registry_cache()
     high_click = load_variant_gap_planner_overrides("high_click")
     high_conversion = load_variant_gap_planner_overrides("high_conversion")
     assert high_click["videoGenPriority"] == "low"
     assert high_conversion["videoGenPriority"] == "low"
+    assert high_click["preferProviders"] == high_conversion["preferProviders"]
     assert high_click["preferProviders"][0] == "stock_media_search"
-    assert high_conversion["preferProviders"][0] == "stock_media_search"
-    assert "hyperframes_material" in high_click["preferProviders"]
-    assert "hyperframes_material" in high_conversion["preferProviders"]
+
+
+def test_variant_registry_completion_mode_bias_differs() -> None:
+    clear_registry_cache()
+    high_click = load_variant_gap_planner_overrides("high_click")
+    high_conversion = load_variant_gap_planner_overrides("high_conversion")
+    assert high_click["completionModeBias"]["hook_visual"] == "source_only"
+    assert high_conversion["completionModeBias"]["hook_visual"] == "source_then_polish"
+    assert high_conversion["completionModeBias"]["benefit_card"] == "hf_native"
+
+
+def test_variant_registry_finish_intent_differs() -> None:
+    clear_registry_cache()
+    high_click = load_variant_gap_planner_overrides("high_click")
+    high_conversion = load_variant_gap_planner_overrides("high_conversion")
+    assert "cta" not in high_click.get("finishIntentByRole", {})
+    assert "cta" in high_conversion["finishIntentByRole"]
 
 
 def test_high_click_prefers_hyperframes_when_stock_unavailable() -> None:
