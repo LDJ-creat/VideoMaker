@@ -13,6 +13,7 @@ from app.db.session import Database
 from app.services.artifact_store import ArtifactStore
 from app.services.cookie_store import CookieStore
 from app.services.project_store import ProjectStore
+from app.services.generation_responses import generation_render_video_url
 from app.services.task_events import TaskEventService
 from app.services.upload_batch_store import UploadBatchStore
 
@@ -1327,10 +1328,22 @@ class PipelineRunner:
             raise KeyError(task_id)
 
         status = current.get("status")
-        if status not in {"failed", "retrying", "running", "awaiting_review"}:
+        generation = self.project_store.get_generation_by_task_id(task_id)
+        render_incomplete = False
+        if generation is not None and status == "succeeded":
+            render_incomplete = generation_render_video_url(
+                self.storage_root,
+                str(generation["projectId"]),
+                str(generation["id"]),
+            ) is None
+
+        if status not in {"failed", "retrying", "running", "awaiting_review"} and not (
+            status == "succeeded" and render_incomplete
+        ):
             raise ValueError(
                 f"Task cannot be retried from status '{status}' "
-                "(expected failed, retrying, awaiting_review, or stale running)"
+                "(expected failed, retrying, awaiting_review, stale running, "
+                "or succeeded without render output)"
             )
         if self._is_task_active(task_id):
             raise ValueError(
@@ -1363,7 +1376,6 @@ class PipelineRunner:
             )
             return updated
 
-        generation = self.project_store.get_generation_by_task_id(task_id)
         if generation is not None:
             structure = self.project_store.get_latest_sample_structure(generation["projectId"])
             if structure is None:

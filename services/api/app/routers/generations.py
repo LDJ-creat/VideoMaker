@@ -106,6 +106,49 @@ def _persist_edit_intent(
         )
 
 
+@router.get("/{generation_id}/migration-snapshot")
+def get_migration_snapshot(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+
+    slot_matches: list[Any] = []
+    slot_matches_path = generation_root / "slot-matches.json"
+    if slot_matches_path.is_file():
+        slot_payload = json.loads(slot_matches_path.read_text(encoding="utf-8"))
+        if isinstance(slot_payload, dict):
+            raw_matches = slot_payload.get("slotMatches")
+            if isinstance(raw_matches, list):
+                slot_matches = raw_matches
+
+    gap_report: dict[str, Any] | None = None
+    gap_report_path = generation_root / "gap-report.json"
+    if gap_report_path.is_file():
+        gap_payload = json.loads(gap_report_path.read_text(encoding="utf-8"))
+        if isinstance(gap_payload, dict):
+            gap_report = gap_payload
+
+    completion_actions: list[Any] = []
+    plan_path = generation_root / "generation-plan.json"
+    if plan_path.is_file():
+        plan_payload = json.loads(plan_path.read_text(encoding="utf-8"))
+        if isinstance(plan_payload, dict):
+            raw_actions = plan_payload.get("completionActions")
+            if isinstance(raw_actions, list):
+                completion_actions = raw_actions
+
+    return {
+        "slotMatches": slot_matches,
+        "gapReport": gap_report,
+        "completionActions": completion_actions,
+    }
+
+
 @router.get("/{generation_id}/agent-runs")
 def get_generation_agent_runs(generation_id: str, request: Request) -> dict[str, Any]:
     record = _project_store(request).get_generation(generation_id)
