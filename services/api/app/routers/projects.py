@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -232,6 +232,32 @@ def _sample_recommender(request: Request) -> SampleRecommender:
         SampleSelectionStore(db),
         UploadBatchStore(db),
     )
+
+
+def _ensure_selections_after_brief_save(
+    *,
+    project_id: str,
+    database_path: Path,
+    storage_root: Path,
+) -> None:
+    from app.db.session import Database
+
+    db = Database(database_path)
+    project_store = ProjectStore(db)
+    knowledge_store = KnowledgeStore(db, storage_root)
+    sample_recommender = SampleRecommender(
+        project_store,
+        SampleSelectionStore(db),
+        UploadBatchStore(db),
+    )
+    knowledge_recommender = KnowledgeRecommender(
+        knowledge_store,
+        project_store,
+        storage_root=storage_root,
+        database_path=database_path,
+    )
+    sample_recommender.ensure_selection(project_id)
+    knowledge_recommender.ensure_selection(project_id)
 
 
 def _generation_run_store(request: Request) -> GenerationRunStore:
@@ -754,12 +780,21 @@ async def upload_cookies(
 
 
 @router.post("/{project_id}/brief")
-def save_brief(project_id: str, payload: UserBriefPayload, request: Request) -> dict[str, bool]:
+def save_brief(
+    project_id: str,
+    payload: UserBriefPayload,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, bool]:
     if _project_store(request).get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     _project_store(request).save_brief(project_id, payload.model_dump(by_alias=True, exclude_none=True))
-    _sample_recommender(request).ensure_selection(project_id)
-    _knowledge_recommender(request).ensure_selection(project_id)
+    background_tasks.add_task(
+        _ensure_selections_after_brief_save,
+        project_id=project_id,
+        database_path=request.app.state.db.path,
+        storage_root=request.app.state.storage_root,
+    )
     return {"ok": True}
 
 

@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import os
 import uuid
 from pathlib import Path
 from typing import Any
 
 from knowledge.recommender import build_recommendation
+from model_gateway.fixture import is_fixture_mode
 
 from app.services.knowledge_store import KnowledgeStore
 from app.services.pipeline_runner import SubprocessDemoPipeline
 from app.services.project_store import ProjectStore
-
-
-def _fixture_mode_enabled() -> bool:
-    return os.getenv("VIDEOMAKER_FIXTURE_MODE", "true").lower() in ("1", "true", "yes")
 
 
 class KnowledgeRecommender:
@@ -48,7 +44,7 @@ class KnowledgeRecommender:
         brief: dict[str, Any],
         candidates: list[dict[str, Any]],
     ) -> list[str] | None:
-        if _fixture_mode_enabled() or not candidates:
+        if is_fixture_mode() or not candidates:
             return None
 
         pipeline = SubprocessDemoPipeline(
