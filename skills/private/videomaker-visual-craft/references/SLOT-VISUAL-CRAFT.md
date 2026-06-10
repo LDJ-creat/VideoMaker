@@ -11,7 +11,7 @@
 - 列表：≤3 条，用 stagger 依次出现（非一次全展示）
 - finish 润色：底片为主，overlay 不遮主体
 
-不要把口播全文打字到画面上 — 那是 PPT，不是视频镜头。
+不要把口播全文打字到画面上 — 那是 PPT，不是视频镜头。**口播 substring（`voiceoverContext.line`）同样禁止**出现在 HF composition 内；逐句字幕需求由 timeline 字幕轨处理，finish 模式只用无字 lower-third 动效或 emphasis，不在 HF 内打字。
 
 ## 画幅与安全区
 

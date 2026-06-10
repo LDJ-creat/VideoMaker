@@ -2,7 +2,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from composition.build.media_staging import normalize_and_stage_composition_media
+from composition.build.media_staging import (
+    normalize_and_stage_composition_media,
+    normalize_video_tags_for_lint,
+)
+
+
+def test_normalize_video_tags_adds_muted_for_data_start() -> None:
+    html = (
+        '<video id="base-video" class="absolute inset-0 h-full w-full object-cover" '
+        'src="slot-3-stock.mp4" data-start="0" data-duration="3"></video>'
+    )
+    normalized = normalize_video_tags_for_lint(html)
+    assert ' muted' in normalized or normalized.startswith('<video muted')
+    assert "playsinline" in normalized
+
+
+def test_normalize_video_tags_preserves_audible_video() -> None:
+    html = (
+        '<video id="base-video" src="clip.mp4" data-start="0" '
+        'data-has-audio="true"></video>'
+    )
+    normalized = normalize_video_tags_for_lint(html)
+    assert " muted" not in normalized
+    assert 'data-has-audio="true"' in normalized
 
 
 def test_normalize_and_stage_copies_stock_video_into_composition(tmp_path: Path) -> None:

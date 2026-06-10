@@ -45,7 +45,7 @@ When the user payload includes **`visualStyleBible`**, treat it as the **locked 
 - Match **palette**, **lighting**, **camera grammar**, and **mood** in composition colors, backgrounds, and motion tone.
 - Honor **`avoid`** as hard bans (purple diagonal gradients, left-border cards, emoji icons, etc.) — see `videomaker-visual-craft`.
 - Map palette to CSS `--vm-bg` / `--vm-fg` / `--vm-accent` / `--vm-muted` in `composition.styles` (see PALETTE-FROM-BIBLE).
-- Do **not** invent a conflicting color temperature or contrast per slot — per-slot `visualIntent` must sit **inside** the global bible.
+- Do **not** invent a conflicting color temperature or contrast per slot — per-slot creative direction must sit **inside** the global bible.
 - `brandColors` still apply for brand marks; harmonize them with the bible rather than overriding it.
 - HF/registry motion choices are independent; the bible governs **visual mood**, not which GSAP skill to load.
 
@@ -58,23 +58,42 @@ When the user payload includes **`visualStyleBible`**, treat it as the **locked 
 
 # Legacy template selection
 
-- `benefit-card`: bullet lists, feature highlights
-- `title-lower-third`: title + subtitle overlays
+- `benefit-card`: motion/graphic packaging — **not** a place to paste brief text as bullets
+- `title-lower-third`: graphic lower-third bars — **not** narration subtitles
 - `ken-burns`: still image with slow zoom (`assetRefs` required) — **fallback only** when finish authoring fails
 - `composition`: custom HTML fragment + optional GSAP timeline
+
+# Creative brief vs rendered copy
+
+User payload strings are **implementation specs**, not on-screen copy — unless explicitly listed in **`renderPolicy.allowedDisplayCopy`**.
+
+**Never render verbatim:**
+
+- `slot.creativeDirection.scriptGoal` / `visualGoal` (legacy: `scriptIntent` / `visualIntent`)
+- `finishBrief.finishIntent`, `finishBrief.creativeBrief.*`, `finishBrief.storyboardScene.visual`
+- `finishBrief.packagingRequirements`, `finishBrief.packagingHint`
+
+**Voiceover must not appear in the composition:**
+
+- `finishBrief.voiceoverContext.line` (and legacy `finishBrief.storyboardScene.script`) are for **timing/emotion context only**.
+- Full-video narration subtitles are burned in by the **timeline subtitle track** — do **not** duplicate VO in `bodyHtml`, `params.title` / `params.bullets`, or caption nodes inside HF.
+
+**`packagingRequirements`** are task tokens (`lower_third`, `caption`, …) → implement as **text-free** packaging UI (bars, frames, motion emphasis). Never display the requirement string itself.
+
+When unsure, prefer **zero readable text** — motion, shapes, and base footage only.
 
 # Finish polish mode (`source_then_polish`)
 
 When the user payload includes **`finishBrief`** with `completionMode=source_then_polish` and **`assetRefs`** contains a **video** base:
 
 - Use `<video muted playsinline>` as full-screen or primary visual layer; do **not** replace or crop away the base footage.
-- Add overlays (lower third, captions, stickers) above the video within safe margins.
-- Honor `finishBrief.finishIntent`, `storyboardScene`, and `packagingRequirements`.
-- Respect `constraints` such as `do_not_replace_base_media` and `keep_base_video_visible`.
+- Add **non-narration** overlays (lower-third bars, stickers, motion emphasis) above the video within safe margins — **no VO text**.
+- Implement `finishBrief.creativeBrief` / `finishIntent` as **layout and motion**, never as visible copy.
+- Respect `constraints` such as `do_not_replace_base_media`, `keep_base_video_visible`, and `never_render_voiceover_text`.
 
 When base media is **image**, you may apply ken-burns-style motion on the image layer plus overlays.
 
-When `completionMode=hf_native` and no base media: full synthetic composition (existing behavior).
+When `completionMode=hf_native` and no base media: full synthetic composition — prefer pure motion / icons / data viz; use **`renderPolicy.allowedDisplayCopy`** only when present; never fill `title` / `bullets` from brief fields or voiceover.
 
 # Variant overrides (`variantOverrides`)
 
@@ -85,7 +104,7 @@ When present, align composition density and motion with the generation variant (
 | `polishStyle: minimal` | Thin overlays, avoid heavy cards | — |
 | `polishStyle: rich` | — | Stronger cards, badges, comparison rows |
 | `overlayDensity: low` | Maximize visible base video | — |
-| `overlayDensity: high` | — | More captions, lower thirds, stickers |
+| `overlayDensity: high` | — | More lower thirds, stickers, motion emphasis (still no VO text in HF) |
 | `motionTempo: fast` | Snappier GSAP / shorter holds | — |
 | `motionTempo: medium` | — | Slightly longer reads for CTA/benefit |
 

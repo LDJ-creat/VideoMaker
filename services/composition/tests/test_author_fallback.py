@@ -61,7 +61,22 @@ def test_build_author_fallback_spec_uses_composition_for_video() -> None:
     assert 'id="base-video"' in body_html
     assert 'data-start="0"' in body_html
     assert "slot-1-stock.mp4" in body_html
+    assert "hook copy" not in body_html
+    assert "daily scene" not in body_html
+    assert "overlay-text" not in body_html
     assert "const tl" not in spec["composition"]["timelineScript"]
+
+
+def test_fallback_legacy_spec_omits_brief_text() -> None:
+    spec = fallback_legacy_spec(
+        {
+            "role": "benefit_card",
+            "scriptIntent": "消解受众懊悔情绪",
+            "visualIntent": "用逐行动态字幕强化金句",
+        },
+    )
+    assert spec["template"] == "benefit-card"
+    assert spec.get("params", {}) == {}
 
 
 def test_build_author_fallback_spec_uses_ken_burns_for_image() -> None:

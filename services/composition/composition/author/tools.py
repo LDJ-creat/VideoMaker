@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from composition.author.forbidden_copy_guard import check_forbidden_copy_in_spec
 from composition.build.composition_builder import build_composition
 from composition.registry.installer import load_registry_catalog
 from composition.render.hyperframes_cli import HyperFramesCli
@@ -78,11 +79,13 @@ class CompositionToolExecutor:
         lint_root: Path,
         hyperframes_cli: HyperFramesCli | None = None,
         repo_root: Path | None = None,
+        author_payload: dict[str, Any] | None = None,
     ) -> None:
         self._runtime = skill_runtime
         self._build_ctx = build_ctx
         self._lint_root = lint_root
         self._cli = hyperframes_cli or HyperFramesCli(repo_root=repo_root)
+        self._author_payload = author_payload or {}
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         if name == "skill_view":
@@ -111,6 +114,9 @@ class CompositionToolExecutor:
             spec = arguments.get("spec_json")
             if not isinstance(spec, dict):
                 return json.dumps({"ok": False, "errors": ["spec_json must be object"]})
+            copy_errors = check_forbidden_copy_in_spec(spec, self._author_payload)
+            if copy_errors:
+                return json.dumps({"ok": False, "errors": copy_errors}, ensure_ascii=False)
             draft_dir = self._lint_root / "lint-draft"
             draft_dir.mkdir(parents=True, exist_ok=True)
             try:

@@ -68,5 +68,10 @@ def visual_craft_bootstrap_section() -> str:
             "",
             "In composition.styles declare :root { --vm-bg; --vm-fg; --vm-accent; --vm-muted; } and use var(--vm-*) — no default AI purple hex.",
             "At least one content-driven motion beat per slot (not only fade/blur). Hold the final frame through slotTiming.durationSec.",
+            "",
+            "# Copy policy (hard rules)",
+            "Brief fields (creativeBrief, finishIntent, slot.creativeDirection, packagingRequirements) are implementation specs — never render them as visible copy.",
+            "Voiceover text must not appear in composition DOM; narration subtitles are burned via the timeline track, not HF slot clips.",
+            "When unsure, prefer text-free packaging overlays (motion, bars, shapes) over readable text.",
         ]
     )

@@ -6,6 +6,7 @@ from composition.skills.usage_requirements import (
     VISUAL_BIBLE_EXTRA_READ_PATHS,
     record_skill_view,
     skill_view_requirement_error,
+    visual_craft_bootstrap_section,
 )
 
 
@@ -36,3 +37,9 @@ def test_skill_view_requirement_error_requires_palette_when_bible_present() -> N
     error = skill_view_requirement_error(viewed, has_visual_style_bible=True)
     assert error is not None
     assert VISUAL_BIBLE_EXTRA_READ_PATHS[0] in error
+
+
+def test_bootstrap_includes_copy_policy_rules() -> None:
+    section = visual_craft_bootstrap_section()
+    assert "Voiceover text must not appear in composition DOM" in section
+    assert "Brief fields" in section

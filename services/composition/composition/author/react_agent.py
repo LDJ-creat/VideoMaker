@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from composition.author.coercer import build_author_fallback_spec
+from composition.author.forbidden_copy_guard import check_forbidden_copy_in_spec
 from composition.author.payload import build_material_author_user_payload
 from composition.author.react_trace import NullReactTraceRecorder, ReactTraceRecorder
 from composition.author.tools import CompositionToolExecutor, tool_definitions
@@ -89,6 +90,7 @@ def author_material_spec(
 
     scratch = lint_scratch_dir or (root / "services" / "composition" / ".pytest-tmp" / "react-scratch")
     scratch.mkdir(parents=True, exist_ok=True)
+    author_payload = build_material_author_user_payload(request)
     runtime = SkillRuntime(repo_root=root, storage_root=storage_root)
     build_ctx = BuildContext(
         project_root=root,
@@ -102,6 +104,7 @@ def author_material_spec(
         lint_root=scratch,
         hyperframes_cli=hyperframes_cli,
         repo_root=root,
+        author_payload=author_payload,
     )
     messages: list[dict[str, Any]] = [
         {
@@ -114,7 +117,7 @@ def author_material_spec(
         {
             "role": "user",
             "content": json.dumps(
-                build_material_author_user_payload(request),
+                author_payload,
                 ensure_ascii=False,
             ),
         },
@@ -194,6 +197,8 @@ def author_material_spec(
                     spec = args.get("spec_json")
                     if isinstance(spec, dict):
                         errors = _validate_spec(spec)
+                        copy_errors = check_forbidden_copy_in_spec(spec, author_payload)
+                        errors = errors + copy_errors
                         validation_errors = errors
                         if not errors:
                             submitted = spec

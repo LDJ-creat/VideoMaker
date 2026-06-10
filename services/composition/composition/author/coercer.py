@@ -17,6 +17,11 @@ _ROLE_DEFAULT_TEMPLATE: dict[str, str] = {
     "usage_scene": "ken-burns",
 }
 
+_WORDLESS_LOWER_THIRD = (
+    '<div class="lower-third-bar absolute inset-x-[8%] bottom-[12%] h-1 '
+    'rounded-full bg-white/35"></div>'
+)
+
 
 def _first_video_ref(asset_refs: list[dict[str, Any]]) -> dict[str, Any] | None:
     for ref in asset_refs:
@@ -38,12 +43,6 @@ def _image_asset_refs(asset_refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return refs
 
 
-def _overlay_text(slot: dict[str, Any]) -> str:
-    return html.escape(
-        str(slot.get("scriptIntent") or slot.get("visualIntent") or "").strip()[:200],
-    )
-
-
 def build_video_composition_fallback(
     slot: dict[str, Any],
     asset_refs: list[dict[str, Any]],
@@ -58,24 +57,18 @@ def build_video_composition_fallback(
         raise ValueError("video asset ref missing uri")
 
     duration = max(0.5, min(30.0, float(duration_sec)))
-    overlay = _overlay_text(slot)
-    overlay_html = ""
-    timeline_script = 'tl.set(\'[data-composition-id="main"]\', { autoAlpha: 1 }, 0);'
-    if overlay:
-        overlay_html = (
-            '<div class="overlay-text absolute inset-x-0 bottom-24 px-8 text-center '
-            f'text-white text-3xl font-bold drop-shadow-lg">{overlay}</div>'
-        )
-        timeline_script = (
-            "tl.from('.overlay-text', { opacity: 0, y: 20, duration: 0.5, ease: 'power2.out' }, 0);"
-        )
+    timeline_script = (
+        "tl.set('[data-composition-id=\"main\"]', { autoAlpha: 1 }, 0);"
+        "tl.from('.lower-third-bar', { scaleX: 0, transformOrigin: 'left center', "
+        "duration: 0.45, ease: 'power2.out' }, 0.2);"
+    )
 
     body_html = (
         '<div data-composition-id="main" class="relative h-full w-full overflow-hidden">'
         f'<video id="base-video" class="absolute inset-0 h-full w-full object-cover" '
         f'src="{html.escape(uri, quote=True)}" data-start="0" data-duration="{duration:g}" '
         f'muted playsinline></video>'
-        f"{overlay_html}"
+        f"{_WORDLESS_LOWER_THIRD}"
         "</div>"
     )
     return {
@@ -83,7 +76,7 @@ def build_video_composition_fallback(
         "durationSec": duration,
         "composition": {
             "bodyHtml": body_html,
-            "styles": ".overlay-text { will-change: transform, opacity; }",
+            "styles": ".lower-third-bar { will-change: transform; }",
             "timelineScript": timeline_script,
             "registryBlocks": [],
         },
@@ -93,15 +86,10 @@ def build_video_composition_fallback(
 def fallback_legacy_spec(slot: dict[str, Any], *, duration_sec: float = 3.0) -> dict[str, Any]:
     role = str(slot.get("role", "")).strip()
     template = _ROLE_DEFAULT_TEMPLATE.get(role, "benefit-card")
-    title = str(slot.get("scriptIntent") or slot.get("visualIntent") or "VideoMaker")[:120]
-    params: dict[str, Any] = {"title": title}
-    visual = str(slot.get("visualIntent", "")).strip()
-    if template == "benefit-card" and visual:
-        params["bullets"] = [visual[:160]]
     return {
         "template": template,
         "durationSec": max(0.5, min(30.0, float(duration_sec))),
-        "params": params,
+        "params": {},
     }
 
 
