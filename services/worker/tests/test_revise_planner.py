@@ -107,3 +107,21 @@ def test_build_planner_output_last_scene_visual_material_regen() -> None:
     assert output["executionMode"] == "fork"
     assert output["intents"][0]["executionTool"] == "material_regen"
 
+
+def test_build_planner_output_multi_intent_not_collapsed_to_scene_patch() -> None:
+    plan = {
+        "variant": "high_click",
+        "storyboard": [
+            {"id": "scene-1", "slotId": "slot-1", "startSec": 0, "endSec": 3, "script": "a"},
+            {"id": "scene-6", "slotId": "slot-6", "startSec": 15, "endSec": 18, "script": "b"},
+        ],
+        "timeline": {"durationSec": 18.0, "tracks": []},
+        "packagingPlan": {"subtitle": {"density": "medium"}},
+    }
+    output = build_planner_output_from_rules("开头更抓人一些，字幕少一点", plan)
+    assert output["executionMode"] == "fork"
+    operations = {str(intent.get("operation", "")) for intent in output["intents"]}
+    assert "adjust_hook" in operations
+    assert "reduce_subtitles" in operations
+    assert "packaging_scene_patch" not in operations
+

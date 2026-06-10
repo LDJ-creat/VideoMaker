@@ -20,7 +20,39 @@ from app.runtime.checkpoint import generation_artifact_root
 from app.tools.ffmpeg_tool import build_fixture_ffmpeg_tool
 
 EmitFn = Callable[..., dict[str, Any]]
-SUBTITLE_CLIP_PREFIX = "subtitle-"
+_SUBTITLE_CLIP_PREFIX = "subtitle-"
+_OVERLAY_CLIP_PREFIX = "overlay-"
+
+
+def load_revise_edit_intents(generation_root: Path) -> list[dict[str, Any]]:
+    path = generation_root / "edit-intent.json"
+    if not path.is_file():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    intents = payload.get("intents") if isinstance(payload, dict) else None
+    if not isinstance(intents, list):
+        return []
+    return [intent for intent in intents if isinstance(intent, dict)]
+
+
+def _intents_include_packaging_scene_patch(intents: list[dict[str, Any]]) -> bool:
+    return any(
+        str(intent.get("operation", "")) == "packaging_scene_patch"
+        or str(intent.get("executionTool", "")) == "packaging_scene_patch"
+        for intent in intents
+    )
+
+
+def apply_fork_packaging_scene_patches(
+    plan: dict[str, Any],
+    generation_root: Path,
+) -> dict[str, Any]:
+    """Apply packaging_scene_patch intents during fork revise before render."""
+    intents = load_revise_edit_intents(generation_root)
+    if not _intents_include_packaging_scene_patch(intents):
+        return plan
+    updated = apply_packaging_scene_patch(plan, intents)
+    return rebuild_timeline_from_storyboard(updated, generation_root)
 
 
 def _utc_now_iso() -> str:
@@ -64,12 +96,12 @@ def _strip_subtitle_clips(timeline: dict[str, Any], slot_ids: set[str] | None = 
             if not isinstance(clip, dict):
                 continue
             clip_id = str(clip.get("id", ""))
-            if not clip_id.startswith(SUBTITLE_CLIP_PREFIX):
+            if not clip_id.startswith(_SUBTITLE_CLIP_PREFIX):
                 filtered.append(clip)
                 continue
             if slot_ids is None:
                 continue
-            remainder = clip_id[len(SUBTITLE_CLIP_PREFIX):]
+            remainder = clip_id[len(_SUBTITLE_CLIP_PREFIX):]
             slot_part = remainder.split("-", 1)[0]
             if slot_part not in slot_ids:
                 filtered.append(clip)

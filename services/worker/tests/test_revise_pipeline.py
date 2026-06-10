@@ -213,6 +213,45 @@ def test_seed_revise_preserves_generated_for_packaging_only_fork(tmp_path: Path)
     assert not (tmp_path / "projects" / project_id / "generations" / target_id / "generation-plan.json").is_file()
 
 
+def test_seed_revise_generation_disables_human_review(tmp_path: Path) -> None:
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_completed_generation(tmp_path, project_id=project_id, generation_id=source_id)
+    source_root = tmp_path / "projects" / project_id / "generations" / source_id
+    checkpoint_path = source_root / "checkpoint.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint["humanReviewMode"] = True
+    checkpoint_path.write_text(json.dumps(checkpoint, indent=2), encoding="utf-8")
+
+    intents = [
+        {
+            "target": "generation_plan.storyboard",
+            "operation": "adjust_hook",
+            "params": {"strength": "high"},
+            "rationale": "hook",
+        }
+    ]
+    context = apply_intents_to_context(
+        intents,
+        source_plan=json.loads((source_root / "generation-plan.json").read_text(encoding="utf-8")),
+    )
+    seed_revise_generation(
+        project_root=tmp_path / "projects" / project_id,
+        source_generation_id=source_id,
+        target_generation_id=target_id,
+        intents=intents,
+        revise_context=context,
+    )
+
+    target_checkpoint = json.loads(
+        (
+            tmp_path / "projects" / project_id / "generations" / target_id / "checkpoint.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert target_checkpoint["humanReviewMode"] is False
+
+
 def test_mapping_slots_skip_requires_gap_report_artifact(tmp_path: Path) -> None:
     from app.runtime.checkpoint import GenerationCheckpoint, should_skip_mapping_slots_resumable
 
@@ -238,6 +277,30 @@ def test_mapping_slots_skip_requires_gap_report_artifact(tmp_path: Path) -> None
     ) is True
 
 
+def _mock_successful_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.render.backend import RenderOutput, RenderOptions
+
+    class _FakeRenderBackend:
+        def render(self, options: RenderOptions) -> RenderOutput:
+            render_root = (
+                options.storage_root
+                / "projects"
+                / options.project_id
+                / "generations"
+                / options.generation_id
+                / "renders"
+            )
+            render_root.mkdir(parents=True, exist_ok=True)
+            output_path = render_root / "preview.mp4"
+            output_path.write_bytes(b"mock-mp4")
+            return RenderOutput(artifact_refs=[{"type": "video", "uri": str(output_path)}])
+
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        lambda *args, **kwargs: _FakeRenderBackend(),
+    )
+
+
 def test_run_revise_reexecutes_storyboard_and_packaging_stages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -256,6 +319,11 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
         "app.tools.hyperframes_material_tool.HyperFramesMaterialTool.render_material",
         _fake_render_material,
     )
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        lambda **kwargs: (kwargs["plan"], []),
+    )
+    _mock_successful_render(monkeypatch)
 
     project_id = "project-1"
     source_id = "gen-source"
@@ -326,3 +394,83 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
     target_plan_path = tmp_path / "projects" / project_id / "generations" / target_id / "generation-plan.json"
     assert target_plan_path.is_file()
     assert target_id != source_id
+
+
+def test_seed_revise_scoped_persists_invalidated_plan(tmp_path: Path) -> None:
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_completed_generation(tmp_path, project_id=project_id, generation_id=source_id)
+    source_root = tmp_path / "projects" / project_id / "generations" / source_id
+    plan = json.loads((source_root / "generation-plan.json").read_text(encoding="utf-8"))
+    plan["completionActions"] = [
+        {
+            "id": "action-slot-1",
+            "slotId": "slot-1",
+            "provider": "hyperframes_material",
+            "artifactRef": {"uri": "generated/slot-1.mp4"},
+        },
+        {
+            "id": "action-slot-6",
+            "slotId": "slot-6",
+            "provider": "hyperframes_material",
+            "artifactRef": {"uri": "generated/slot-6.mp4"},
+        },
+    ]
+    (source_root / "generation-plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    generated_root = source_root / "generated"
+    generated_root.mkdir(parents=True, exist_ok=True)
+    (generated_root / "action-slot-1.mp4").write_bytes(b"keep")
+    (generated_root / "action-slot-6.mp4").write_bytes(b"drop")
+
+    intents = [
+        {
+            "target": "generation_plan.storyboard",
+            "operation": "change_packaging_style",
+            "params": {"requiresMaterialRegen": True, "sceneId": "scene-6", "slotId": "slot-6"},
+            "rationale": "单镜重生成",
+            "executionTool": "material_regen",
+            "sceneIds": ["scene-6"],
+            "slotIds": ["slot-6"],
+        }
+    ]
+    context = apply_intents_to_context(intents, source_plan=plan)
+    seed_revise_generation(
+        project_root=tmp_path / "projects" / project_id,
+        source_generation_id=source_id,
+        target_generation_id=target_id,
+        intents=intents,
+        revise_context=context,
+    )
+
+    target_plan_path = tmp_path / "projects" / project_id / "generations" / target_id / "generation-plan.json"
+    assert target_plan_path.is_file()
+    target_plan = json.loads(target_plan_path.read_text(encoding="utf-8"))
+    actions_by_slot = {str(item.get("slotId")): item for item in target_plan.get("completionActions", [])}
+    assert "artifactRef" in actions_by_slot["slot-1"]
+    assert "artifactRef" not in actions_by_slot["slot-6"]
+    assert not (tmp_path / "projects" / project_id / "generations" / target_id / "generated" / "action-slot-6.mp4").is_file()
+    assert (tmp_path / "projects" / project_id / "generations" / target_id / "generated" / "action-slot-1.mp4").is_file()
+
+
+def test_packaging_only_material_scope_skips_regen_when_actions_satisfied(tmp_path: Path) -> None:
+    from app.pipelines.generation_pipeline import is_material_stage_done
+
+    project_id = "project-1"
+    source_id = "gen-source"
+    plan = _write_completed_generation(tmp_path, project_id=project_id, generation_id=source_id)
+    generation_root = tmp_path / "projects" / project_id / "generations" / source_id
+    intents = [
+        {
+            "target": "generation_plan.packaging",
+            "operation": "change_packaging_style",
+            "params": {"style": "minimal"},
+            "rationale": "全片包装",
+            "executionTool": "packaging_agent",
+        }
+    ]
+    context = apply_intents_to_context(intents, source_plan=plan)
+    assert context.material_scope == "none"
+    assert is_material_stage_done(generation_root, plan) is True
+    slot_filter = set(context.affected_slot_ids) if context.material_scope == "scoped" else None
+    assert slot_filter is None

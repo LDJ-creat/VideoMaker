@@ -80,6 +80,34 @@ def _resolve_target_scene(instruction: str, source_plan: dict[str, Any]) -> dict
     return None
 
 
+_STORYBOARD_ROUTING_OPERATIONS = frozenset(
+    {"adjust_hook", "reorder_selling_points", "change_pace", "adjust_cta"}
+)
+_STORYBOARD_ROUTING_TOOLS = frozenset(
+    {"storyboard_agent", "full_pipeline", "script_revise", "material_regen"}
+)
+
+
+def _has_non_packaging_storyboard_intent(intents: list[dict[str, Any]]) -> bool:
+    for intent in intents:
+        operation = str(intent.get("operation", ""))
+        tool = str(intent.get("executionTool") or "")
+        if operation in _STORYBOARD_ROUTING_OPERATIONS:
+            return True
+        if tool in _STORYBOARD_ROUTING_TOOLS:
+            return True
+    return False
+
+
+def _can_rewrite_whole_request_to_scene_route(intents: list[dict[str, Any]]) -> bool:
+    """Only collapse the full request when it is a single packaging/scene edit."""
+    if len(intents) > 1:
+        return False
+    if _has_non_packaging_storyboard_intent(intents):
+        return False
+    return True
+
+
 def route_packaging_intents(instruction: str, intents: list[dict[str, Any]], source_plan: dict[str, Any]) -> list[dict[str, Any]]:
     """Rewrite generic packaging intents into scoped low-cost routes when possible."""
     target_scene = _resolve_target_scene(instruction, source_plan)
@@ -87,7 +115,11 @@ def route_packaging_intents(instruction: str, intents: list[dict[str, Any]], sou
     visual = any(marker in instruction or marker in text for marker in _VISUAL_PACKAGING_MARKERS)
     overlay = any(marker in instruction or marker in text for marker in _OVERLAY_PACKAGING_MARKERS)
 
-    if target_scene is not None and (visual or overlay or "背景" in instruction or "包装" in instruction):
+    if (
+        _can_rewrite_whole_request_to_scene_route(intents)
+        and target_scene is not None
+        and (visual or overlay or "背景" in instruction or "包装" in instruction)
+    ):
         scene_id = str(target_scene.get("id") or "")
         slot_id = str(target_scene.get("slotId") or "")
         if visual and ("背景" in instruction or "包装" in instruction or "画面" in instruction):
@@ -187,11 +219,19 @@ def _infer_execution_from_intents(intents: list[dict[str, Any]]) -> tuple[str, s
 def build_planner_output_from_intents(
     intents: list[dict[str, Any]],
     instruction: str,
+    *,
+    source_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cost_tier, execution_mode, requires_render, steps = _infer_execution_from_intents(intents)
     summaries: list[str] = [str(i.get("rationale") or "") for i in intents if i.get("rationale")]
     summary = "；".join(summaries) if summaries else instruction
     affected_scene_ids = resolve_affected_scene_ids(intents)
+    storyboard = (
+        list(source_plan.get("storyboard") or [])
+        if isinstance(source_plan, dict) and isinstance(source_plan.get("storyboard"), list)
+        else []
+    )
+    affected_slot_ids = resolve_slot_ids_from_intents(intents, storyboard=storyboard)
     output: dict[str, Any] = {
         "summary": summary,
         "costTier": cost_tier,
@@ -203,6 +243,8 @@ def build_planner_output_from_intents(
     }
     if affected_scene_ids:
         output["affectedSceneIds"] = affected_scene_ids
+    if affected_slot_ids:
+        output["affectedSlotIds"] = affected_slot_ids
     return output
 
 
@@ -219,7 +261,7 @@ def build_planner_output_from_rules(
     intents = route_packaging_intents(instruction, intents, source_plan)
     if not intents:
         raise ValueError("Could not parse any edit intents from instruction")
-    return build_planner_output_from_intents(intents, instruction)
+    return build_planner_output_from_intents(intents, instruction, source_plan=source_plan)
 
 
 def enrich_revise_plan(

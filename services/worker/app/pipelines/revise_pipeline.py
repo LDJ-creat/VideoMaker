@@ -72,6 +72,10 @@ def seed_revise_generation(
 
     affected = compute_affected_stages(intents)
     first_stage = affected[0] if affected else PIPELINE_STAGE_ORDER[-1]
+    artifacts_to_clear = _artifacts_to_clear_from(
+        first_stage,
+        material_scope=revise_context.material_scope,
+    )
 
     plan_path = target_root / "generation-plan.json"
     source_plan: dict[str, Any] | None = None
@@ -103,11 +107,14 @@ def seed_revise_generation(
                 slot_ids=set(revise_context.affected_slot_ids),
                 material_state_path=material_state_path,
             )
+            source_plan["completionActions"] = completion_actions
+            if "generation-plan.json" not in artifacts_to_clear:
+                plan_path.write_text(
+                    json.dumps(source_plan, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
 
-    for artifact_name in _artifacts_to_clear_from(
-        first_stage,
-        material_scope=revise_context.material_scope,
-    ):
+    for artifact_name in artifacts_to_clear:
         artifact_path = target_root / artifact_name
         if artifact_path.is_file():
             artifact_path.unlink()
@@ -143,6 +150,7 @@ def seed_revise_generation(
     checkpoint.generationId = target_generation_id
     checkpoint.completedStages = _stages_before(first_stage)
     checkpoint.failedStage = None
+    checkpoint.humanReviewMode = False
     checkpoint.save(target_root / "checkpoint.json")
     return target_root
 
