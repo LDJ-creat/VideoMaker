@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from composition.skills.catalog import SkillCatalog, SkillEntry
+from composition.skills.usage_requirements import visual_craft_bootstrap_section
 
 
 def build_bootstrap_system_prompt(
@@ -30,6 +31,8 @@ def build_bootstrap_system_prompt(
         catalog.render_available_skills_xml(extra=extra or None),
         "",
         catalog.skill_usage_rule_xml(),
+        "",
+        visual_craft_bootstrap_section(),
         "",
         "# Output",
         "Use submit_material_spec with JSON matching material-spec schema.",

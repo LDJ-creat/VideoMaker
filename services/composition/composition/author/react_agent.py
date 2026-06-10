@@ -15,6 +15,10 @@ from composition.render.hyperframes_cli import HyperFramesCli
 from composition.schema_loader import validate_contract
 from composition.skills.bootstrap import build_bootstrap_system_prompt
 from composition.skills.runtime import SkillRuntime
+from composition.skills.usage_requirements import (
+    record_skill_view,
+    skill_view_requirement_error,
+)
 from composition.types import AuthorRequest, BuildContext, ToolGateway
 from model_gateway.chat_messages import normalize_tool_call_for_api
 
@@ -117,7 +121,11 @@ def author_material_spec(
     ]
     tools = tool_definitions()
     submitted: dict[str, Any] | None = None
-    skill_view_count = 0
+    skill_views_seen: set[str] = set()
+    has_visual_style_bible = bool(
+        isinstance(request.visual_style_bible, dict)
+        and str(request.visual_style_bible.get("summary") or "").strip()
+    )
 
     try:
         for turn in range(1, _max_turns() + 1):
@@ -145,25 +153,27 @@ def author_material_spec(
                 if isinstance(args, str):
                     args = json.loads(args)
                 if name == "skill_view":
-                    skill_view_count += 1
-                if name == "submit_material_spec" and skill_view_count < 1:
-                    observation = json.dumps(
-                        {
-                            "accepted": False,
-                            "error": "skill_usage_rule: call skill_view at least once before submit_material_spec",
-                        },
-                        ensure_ascii=False,
+                    record_skill_view(skill_views_seen, str(args.get("location") or ""))
+                if name == "submit_material_spec":
+                    requirement_error = skill_view_requirement_error(
+                        skill_views_seen,
+                        has_visual_style_bible=has_visual_style_bible,
                     )
-                    _append_assistant_tool_call(messages, call)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.get("id", name),
-                            "content": observation,
-                        }
-                    )
-                    trace.on_tool_result(turn, tool_name=name, observation=observation)
-                    continue
+                    if requirement_error:
+                        observation = json.dumps(
+                            {"accepted": False, "error": requirement_error},
+                            ensure_ascii=False,
+                        )
+                        _append_assistant_tool_call(messages, call)
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call.get("id", name),
+                                "content": observation,
+                            }
+                        )
+                        trace.on_tool_result(turn, tool_name=name, observation=observation)
+                        continue
                 try:
                     observation = executor.execute(name, args)
                 except Exception as exc:

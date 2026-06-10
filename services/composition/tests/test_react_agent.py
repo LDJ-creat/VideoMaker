@@ -26,13 +26,50 @@ class _FakeGateway:
 
 
 def test_react_requires_skill_view_before_submit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from composition.skills.usage_requirements import (
+        REQUIRED_PRIVATE_SKILL_PATHS,
+        REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS,
+    )
+
     monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AGENT_MODE", "react")
-    gateway = _FakeGateway(
+    responses: list[dict] = [
+        {
+            "tool_calls": [
+                {
+                    "id": "call-submit-early",
+                    "name": "submit_material_spec",
+                    "arguments": {
+                        "spec_json": {
+                            "template": "benefit-card",
+                            "durationSec": 3,
+                            "params": {"title": "x"},
+                        }
+                    },
+                }
+            ]
+        }
+    ]
+    for index, path in enumerate(
+        (*REQUIRED_PRIVATE_SKILL_PATHS, *REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS),
+        start=1,
+    ):
+        responses.append(
+            {
+                "tool_calls": [
+                    {
+                        "id": f"call-read-{index}",
+                        "name": "skill_view",
+                        "arguments": {"location": path},
+                    }
+                ]
+            }
+        )
+    responses.extend(
         [
             {
                 "tool_calls": [
                     {
-                        "id": "call-1",
+                        "id": "call-submit-final",
                         "name": "submit_material_spec",
                         "arguments": {
                             "spec_json": {
@@ -44,18 +81,10 @@ def test_react_requires_skill_view_before_submit(monkeypatch: pytest.MonkeyPatch
                     }
                 ]
             },
-            {
-                "tool_calls": [
-                    {
-                        "id": "call-2",
-                        "name": "skill_view",
-                        "arguments": {"location": "skills/public/hyperframes/SKILL.md"},
-                    }
-                ]
-            },
             {"tool_calls": [], "content": None},
         ]
     )
+    gateway = _FakeGateway(responses)
     spec = author_material_spec(
         AuthorRequest(slot={"role": "benefit_card", "scriptIntent": "a", "visualIntent": "b"}),
         gateway,

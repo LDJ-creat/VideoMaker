@@ -25,6 +25,7 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
     "waapi": "Web Animations API。触发：element.animate 动效。",
     "animejs": "Anime.js 时间轴。触发：非 GSAP 的 anime 动画。",
     "videomaker-composition": "VideoMaker MaterialSpec 交卷约束。触发：任何 material 任务。",
+    "videomaker-visual-craft": "槽位画面审美与反 AI 视觉指纹。触发：template=composition、HF 包装 slot。",
 }
 
 
@@ -75,14 +76,15 @@ class SkillCatalog:
         entries = self._discover_dir(skills_public_dir(self.repo_root), scope="public")
         entries.extend(self._discover_dir(skills_private_dir(self.repo_root), scope="private"))
         if not entries:
+            private_skills = {"videomaker-composition", "videomaker-visual-craft"}
             entries = [
                 SkillEntry(
                     name=name,
                     description=desc,
                     location=(
-                        f"skills/public/{name}/SKILL.md"
-                        if name != "videomaker-composition"
-                        else "skills/private/videomaker-composition/SKILL.md"
+                        f"skills/private/{name}/SKILL.md"
+                        if name in private_skills
+                        else f"skills/public/{name}/SKILL.md"
                     ),
                 )
                 for name, desc in (
@@ -90,6 +92,7 @@ class SkillCatalog:
                     ("gsap", SKILL_DESCRIPTIONS["gsap"]),
                     ("hyperframes-registry", SKILL_DESCRIPTIONS["hyperframes-registry"]),
                     ("videomaker-composition", SKILL_DESCRIPTIONS["videomaker-composition"]),
+                    ("videomaker-visual-craft", SKILL_DESCRIPTIONS["videomaker-visual-craft"]),
                 )
             ]
         if extra:
@@ -113,13 +116,20 @@ class SkillCatalog:
 
     @staticmethod
     def skill_usage_rule_xml() -> str:
+        from composition.skills.usage_requirements import (
+            REQUIRED_PRIVATE_SKILL_PATHS,
+            REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS,
+            VISUAL_BIBLE_EXTRA_READ_PATHS,
+        )
+
+        required_reads = list(REQUIRED_PRIVATE_SKILL_PATHS) + list(REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS)
         return "\n".join(
             [
                 "<skill_usage_rule>",
-                "Before submit_material_spec, scan available_skills and skill_view EVERY",
-                "plausibly-relevant SKILL.md. When in doubt, read it.",
-                "Several skills may apply; read ALL relevant files before writing JSON.",
-                "You MUST call skill_view at least once before submit_material_spec.",
+                "Before submit_material_spec, skill_view ALL required paths (enforced):",
+                *[f"- {path}" for path in required_reads],
+                f"- {VISUAL_BIBLE_EXTRA_READ_PATHS[0]} when visualStyleBible is in the user payload",
+                "Also skill_view plausibly-relevant public skills (hyperframes, gsap, registry).",
                 "</skill_usage_rule>",
             ]
         )

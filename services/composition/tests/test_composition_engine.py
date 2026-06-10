@@ -22,12 +22,25 @@ def test_skill_catalog_uses_trigger_descriptions() -> None:
     entries = {entry.name: entry.description for entry in catalog.list_entries()}
     assert "hyperframes" in entries
     assert "触发" in entries["hyperframes"]
+    assert "videomaker-visual-craft" in entries
+    assert "反 AI" in entries["videomaker-visual-craft"]
 
 
 def test_skill_view_reads_private_skill(repo_root: Path) -> None:
     runtime = SkillRuntime(repo_root=repo_root)
     content = runtime.skill_view("skills/private/videomaker-composition/SKILL.md")
     assert "MaterialSpec" in content
+
+
+def test_skill_view_reads_visual_craft_skill(repo_root: Path) -> None:
+    runtime = SkillRuntime(repo_root=repo_root)
+    content = runtime.skill_view("skills/private/videomaker-visual-craft/SKILL.md")
+    assert "ANTI-AI" in content or "反 AI" in content
+    anti_ai = runtime.skill_view(
+        "skills/private/videomaker-visual-craft/references/ANTI-AI-FINGERPRINTS.md"
+    )
+    assert "紫粉" in anti_ai
+    assert "border-left" in anti_ai
 
 
 def test_html_safety_rejects_doctype() -> None:
