@@ -40,6 +40,7 @@ from app.pipelines.generation_pipeline import (
     run_generating_material,
     run_mapping_and_gap,
     run_planning_completion,
+    run_narration_preview,
     run_planning_from_script_draft,
 )
 from app.pipelines.duration_target import normalize_duration_target, scale_structure_to_target_duration
@@ -920,6 +921,21 @@ class P0DemoPipeline:
                 script_draft = load_script_draft(generation_root)
                 if not storyboard_is_approved(script_draft):
                     if not should_skip_generation_stage(
+                        "narration_preview", checkpoint, generation_root, resume=resume
+                    ):
+                        material_gateway = self._build_material_gateway()
+                        run_narration_preview(
+                            gateway=material_gateway,
+                            structure=structure,
+                            context=context,
+                            generation_id=generation_id,
+                            generation_root=generation_root,
+                            draft=script_draft or {},
+                        )
+                        checkpoint.mark_stage_complete("narration_preview")
+                        checkpoint.save(checkpoint_path)
+                        script_draft = load_script_draft(generation_root)
+                    if not should_skip_generation_stage(
                         "drafting_storyboard", checkpoint, generation_root, resume=resume
                     ) or not (script_draft and script_draft.get("storyboard")):
                         draft_storyboard_script(
@@ -1452,9 +1468,11 @@ class P0DemoPipeline:
         session: dict[str, Any] | None = None,
         emit: EmitFn,
     ) -> dict[str, Any]:
+        from app.agents.edit_intent_parser import run_edit_intent_parser
         from app.agents.revise_planner import run_revise_planner
         from app.pipelines.intent_applier import build_source_summary
         from app.pipelines.revise_plan_builder import (
+            build_planner_output_from_intents,
             build_planner_output_from_rules,
             build_session_turns_for_planner,
             build_storyboard_scenes_for_planner,
@@ -1467,15 +1485,18 @@ class P0DemoPipeline:
             storage_root=self._storage_root,
         )
         runner = self._build_runner()
+        source_summary = build_source_summary(source_plan)
         session_turns = build_session_turns_for_planner(session)
         conversation_summary = (
             str(session.get("conversationSummary") or "") if isinstance(session, dict) else None
         )
+        planner_output: dict[str, Any] | None = None
+
         try:
             planner_output = run_revise_planner(
                 runner,
                 instruction=instruction,
-                source_summary=build_source_summary(source_plan),
+                source_summary=source_summary,
                 storyboard_scenes=build_storyboard_scenes_for_planner(source_plan),
                 session_turns=session_turns or None,
                 conversation_summary=conversation_summary or None,
@@ -1483,7 +1504,44 @@ class P0DemoPipeline:
                 generation_id=generation_id,
             )
         except Exception:
-            planner_output = build_planner_output_from_rules(instruction, source_plan)
+            planner_output = None
+
+        if planner_output is None:
+            try:
+                parsed = run_edit_intent_parser(
+                    runner,
+                    instruction=instruction,
+                    source_summary=source_summary,
+                    context=context,
+                    generation_id=generation_id,
+                )
+                intents = list(parsed.get("intents") or [])
+                if intents:
+                    planner_output = build_planner_output_from_intents(intents, instruction)
+            except Exception:
+                planner_output = None
+
+        if planner_output is None:
+            try:
+                planner_output = build_planner_output_from_rules(instruction, source_plan)
+            except ValueError as exc:
+                message = str(exc) or "Could not parse any edit intents from instruction"
+                return {
+                    "ok": False,
+                    "error": message,
+                    "finalEvent": {
+                        "status": "failed",
+                        "stage": "parsing_edit_intent",
+                        "progress": 0,
+                        "message": message,
+                        "error": {
+                            "code": "revise_plan_parse_failed",
+                            "message": message,
+                            "retryable": False,
+                        },
+                    },
+                }
+
         return {"ok": True, "plannerOutput": planner_output}
 
     def run_revise_patch(

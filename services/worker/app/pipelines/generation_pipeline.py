@@ -37,6 +37,15 @@ from app.render.aspect_ratio import resolve_aspect_ratio
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
+from app.pipelines.narration_scene_timing import (
+    ensure_narration_preview,
+    load_narration_preview,
+    narration_timing_payload,
+    preview_wav_path,
+    transcribe_preview_wav,
+)
+from app.pipelines.tts_synthesis import synthesize_master_wav
+from app.tools.tts_tool import TTSTool
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.pipelines.run_slot_matches_store import resolve_slot_matches_for_run
 from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
@@ -495,6 +504,24 @@ def run_automated_script_drafting(
         raise ValueError("Automated master script drafting returned empty masterNarration")
     visual_style_bible = dict(master_output.get("visualStyleBible") or {})
 
+    preview_draft: dict[str, Any] = {
+        "masterNarration": master_narration,
+        "narrationVoProfile": master_output.get("narrationVoProfile"),
+    }
+    narration_timing: dict[str, Any] | None = None
+    if generation_root is not None:
+        gateway = getattr(runner.llm, "gateway", None)
+        if gateway is not None:
+            preview = run_narration_preview(
+                gateway=gateway,
+                structure=structure,
+                context=context,
+                generation_id=generation_id,
+                generation_root=generation_root,
+                draft=preview_draft,
+            )
+            narration_timing = narration_timing_payload(preview)
+
     context.emit_event(
         stage="drafting_storyboard",
         progress=50,
@@ -514,6 +541,7 @@ def run_automated_script_drafting(
         master_narration=master_narration,
         visual_style_bible=visual_style_bible,
         duration_target=resolved_duration,
+        narration_timing=narration_timing,
     )
     storyboard = list(storyboard_output.get("storyboard") or [])
 
@@ -541,9 +569,98 @@ def run_automated_script_drafting(
             float(resolved_duration.get("targetSec", 30.0))
         )
         draft["approvedBy"] = "automated"
+        if narration_timing is not None:
+            draft["narrationPreviewDurationSec"] = round(
+                float(narration_timing.get("durationSec", 0.0)),
+                3,
+            )
         save_script_draft(generation_root, draft)
 
     return master_narration, storyboard, visual_style_bible
+
+
+def run_narration_preview(
+    *,
+    gateway: ModelGateway,
+    structure: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    generation_root: Path,
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    """Synthesize preview master.wav and align per-slot timing before storyboard drafting."""
+    context.emit_event(
+        stage="synthesizing_narration_preview",
+        progress=48,
+        message="Synthesizing narration preview audio",
+    )
+
+    def synthesize_preview() -> Path:
+        output = preview_wav_path(generation_root)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        tool = TTSTool(gateway=gateway, emit_progress=context.emit_progress)
+        synthesize_master_wav(
+            tool=tool,
+            master_narration=str(draft.get("masterNarration") or ""),
+            storyboard=[],
+            structure=structure,
+            workbench_prefs=gateway.config.tts_preferences,
+            generation_id=generation_id,
+            narration_vo_profile=(
+                draft.get("narrationVoProfile")
+                if isinstance(draft.get("narrationVoProfile"), dict)
+                else None
+            ),
+            output_path=output,
+        )
+        return output
+
+    def transcribe_wav(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+        context.emit_event(
+            stage="aligning_narration_timing",
+            progress=49,
+            message="Aligning storyboard timing to narration audio",
+        )
+        return transcribe_preview_wav(path)
+
+    try:
+        preview = ensure_narration_preview(
+            generation_root=generation_root,
+            draft=draft,
+            structure=structure,
+            synthesize_preview=synthesize_preview,
+            transcribe_wav=transcribe_wav,
+            workbench_prefs=gateway.config.tts_preferences,
+            generation_id=generation_id,
+        )
+    except (ToolError, ValueError) as exc:
+        from app.pipelines.narration_scene_timing import build_structure_estimate_preview
+
+        context.emit_event(
+            stage="synthesizing_narration_preview",
+            progress=48,
+            message=f"Narration preview TTS failed; using structure timing estimate: {exc}",
+        )
+        preview = build_structure_estimate_preview(
+            generation_root=generation_root,
+            draft=draft,
+            structure=structure,
+            workbench_prefs=gateway.config.tts_preferences,
+            generation_id=generation_id,
+            warnings=[str(exc)],
+        )
+    for warning in preview.get("warnings") or []:
+        context.emit_event(
+            stage="aligning_narration_timing",
+            progress=49,
+            message=f"Narration alignment warning: {warning}",
+        )
+    existing = load_script_draft(generation_root)
+    if existing is not None:
+        updated = dict(existing)
+        updated["narrationPreviewDurationSec"] = round(float(preview.get("durationSec", 0.0)), 3)
+        save_script_draft(generation_root, updated)
+    return preview
 
 
 def draft_storyboard_script(
@@ -563,6 +680,8 @@ def draft_storyboard_script(
     draft = load_script_draft(generation_root)
     if draft is None or not master_is_approved(draft):
         raise ValueError("Master narration must be approved before drafting storyboard")
+    preview = load_narration_preview(generation_root)
+    narration_timing = narration_timing_payload(preview) if preview else None
     context.emit_event(
         stage="drafting_storyboard",
         progress=50,
@@ -586,6 +705,7 @@ def draft_storyboard_script(
             else None
         ),
         duration_target=duration_target,
+        narration_timing=narration_timing,
     )
     draft = dict(draft)
     draft["storyboard"] = list(writer_output.get("storyboard") or [])
@@ -671,6 +791,11 @@ def run_planning_from_script_draft(
         generation_strategy=strategy,
         duration_target_sec=target_sec,
     )
+    preview = load_narration_preview(generation_root)
+    if preview is not None:
+        plan["narrationPreviewDurationSec"] = round(float(preview.get("durationSec", 0.0)), 3)
+    elif draft.get("narrationPreviewDurationSec") is not None:
+        plan["narrationPreviewDurationSec"] = round(float(draft["narrationPreviewDurationSec"]), 3)
     return inventory, slot_matches, gap_report, plan
 
 
@@ -1070,6 +1195,9 @@ def run_generating_material(
             message=str(error.get("message", "Material completion failed")),
             retryable=bool(error.get("retryable", False)),
         )
+
+    if list(plan.get("storyboard", [])) != ctx.storyboard:
+        plan = {**plan, "storyboard": list(ctx.storyboard)}
 
     updated_plan = apply_material_results_to_plan(
         plan,

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from composition.aspect_ratio import render_dimensions
+
 from app.tools.llm_tool import LLMTool, LLMToolValidationError
 from app.validation.material_spec_coercer import coerce_material_spec_output
 from app.validation.schema_loader import validate_contract
@@ -44,6 +46,23 @@ def _validate_material_output(
     return coerced
 
 
+def _author_render_payload(
+    *,
+    aspect_ratio: str,
+    slot_timing: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    width, height = render_dimensions(aspect_ratio)
+    payload["renderTarget"] = {
+        "aspectRatio": aspect_ratio,
+        "width": width,
+        "height": height,
+    }
+    if isinstance(slot_timing, dict) and slot_timing:
+        payload["slotTiming"] = slot_timing
+    return payload
+
+
 def run_material_author(
     llm: LLMTool,
     *,
@@ -52,12 +71,15 @@ def run_material_author(
     brand_colors: dict[str, Any] | None = None,
     asset_refs: list[dict[str, Any]] | None = None,
     visual_style_bible: dict[str, Any] | None = None,
+    aspect_ratio: str = "9:16",
+    slot_timing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "systemPrompt": load_prompt(),
         "slot": slot,
         "variantOverrides": variant_overrides or {},
         "brandColors": brand_colors or {},
+        **_author_render_payload(aspect_ratio=aspect_ratio, slot_timing=slot_timing),
     }
     if asset_refs:
         inputs["assetRefs"] = asset_refs
@@ -79,11 +101,14 @@ def run_material_author_with_runner(
     finish_brief: dict[str, Any] | None = None,
     progress: int = 58,
     generation_id: str | None = None,
+    aspect_ratio: str = "9:16",
+    slot_timing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "slot": slot,
         "variantOverrides": variant_overrides or {},
         "brandColors": brand_colors or {},
+        **_author_render_payload(aspect_ratio=aspect_ratio, slot_timing=slot_timing),
     }
     if asset_refs:
         inputs["assetRefs"] = asset_refs

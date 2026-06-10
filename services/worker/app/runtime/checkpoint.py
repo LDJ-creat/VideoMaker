@@ -297,6 +297,20 @@ def is_generation_stage_done(stage: str, generation_root: Path, *, render_root: 
             and str(draft.get("masterNarration") or "").strip() != ""
         )
 
+    if stage == "narration_preview":
+        from app.pipelines.narration_scene_timing import narration_preview_is_current
+
+        draft = _read_json(generation_root / "script-draft.json")
+        structure = _read_json(generation_root / "structure-scaled.json")
+        if not isinstance(draft, dict):
+            return False
+        return narration_preview_is_current(
+            generation_root,
+            draft,
+            structure=structure if isinstance(structure, dict) else None,
+            generation_id=str(draft.get("generationId") or generation_root.name),
+        )
+
     if stage == "drafting_storyboard":
         draft = _read_json(generation_root / "script-draft.json")
         storyboard = draft.get("storyboard") if isinstance(draft, dict) else None

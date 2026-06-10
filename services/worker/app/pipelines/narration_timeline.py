@@ -13,12 +13,12 @@ from app.pipelines.tts_mode import (
     resolve_tts_mode,
 )
 
-NarrationTimelineMode = Literal["hold_tail", "ripple_overflow", "scale_to_target"]
+NarrationTimelineMode = Literal["hold_tail", "ripple_overflow", "scale_to_target", "global_ripple"]
 
 
 def resolve_narration_timeline_mode() -> NarrationTimelineMode:
     env = os.getenv("VIDEOMAKER_NARRATION_TIMELINE_MODE", "hold_tail").strip().lower()
-    if env in {"hold_tail", "ripple_overflow", "scale_to_target"}:
+    if env in {"hold_tail", "ripple_overflow", "scale_to_target", "global_ripple"}:
         return env  # type: ignore[return-value]
     return "hold_tail"
 
@@ -280,6 +280,70 @@ def _refresh_voiceover_clips(
             clip["endSec"] = round(storyboard_end, 3)
 
 
+def _global_proportional_scale(
+    plan: dict[str, Any],
+    narration_end: float,
+) -> None:
+    storyboard = plan.get("storyboard", [])
+    timeline = plan.get("timeline", {})
+    if not isinstance(storyboard, list) or not isinstance(timeline, dict):
+        return
+
+    planned = _planned_duration_sec(plan)
+    if planned <= 0 or narration_end <= 0:
+        _hold_tail(plan, narration_end)
+        return
+
+    ratio = narration_end / planned
+    if abs(ratio - 1.0) <= 0.01:
+        plan["timeline"]["durationSec"] = round(max(planned, narration_end), 3)
+        return
+
+    scaled: list[dict[str, Any]] = []
+    for scene in _sorted_storyboard([s for s in storyboard if isinstance(s, dict)]):
+        item = dict(scene)
+        item["startSec"] = round(float(item.get("startSec", 0.0)) * ratio, 3)
+        item["endSec"] = round(float(item.get("endSec", 0.0)) * ratio, 3)
+        scaled.append(item)
+
+    if scaled:
+        scaled[-1]["endSec"] = round(narration_end, 3)
+        for index in range(1, len(scaled)):
+            if scaled[index]["startSec"] < scaled[index - 1]["endSec"]:
+                scaled[index]["startSec"] = scaled[index - 1]["endSec"]
+
+    timing_by_id = {str(scene.get("id", "")): scene for scene in scaled}
+    updated = []
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            updated.append(scene)
+            continue
+        merged = dict(scene)
+        override = timing_by_id.get(str(scene.get("id", "")))
+        if override is not None:
+            merged["startSec"] = override["startSec"]
+            merged["endSec"] = override["endSec"]
+        updated.append(merged)
+
+    plan["storyboard"] = updated
+    plan["timeline"]["durationSec"] = round(narration_end, 3)
+    _apply_storyboard_to_timeline_clips(plan["timeline"], updated)
+
+
+def _should_use_global_ripple(
+    *,
+    resolved_mode: NarrationTimelineMode,
+    narration_end: float,
+    preview_duration_sec: float | None,
+) -> bool:
+    if resolved_mode == "global_ripple":
+        return True
+    if preview_duration_sec is None or preview_duration_sec <= 0 or narration_end <= 0:
+        return False
+    deviation = abs(narration_end - preview_duration_sec) / preview_duration_sec
+    return deviation > 0.03
+
+
 def _hold_tail(
     plan: dict[str, Any],
     narration_end: float,
@@ -320,6 +384,7 @@ def sync_timeline_to_narration(
     *,
     render_root: Path | None = None,
     mode: NarrationTimelineMode | None = None,
+    preview_duration_sec: float | None = None,
 ) -> dict[str, Any]:
     """Adjust storyboard/timeline duration to fit synthesized narration."""
     resolved_mode = mode or resolve_narration_timeline_mode()
@@ -354,6 +419,20 @@ def sync_timeline_to_narration(
                     max(float(scene.get("endSec", 0.0)) for scene in rippled),
                     3,
                 )
+    elif is_global_tts_mode(tts_mode) and _should_use_global_ripple(
+        resolved_mode=resolved_mode,
+        narration_end=narration_end,
+        preview_duration_sec=(
+            preview_duration_sec
+            if preview_duration_sec is not None
+            else (
+                float(plan["narrationPreviewDurationSec"])
+                if plan.get("narrationPreviewDurationSec") is not None
+                else None
+            )
+        ),
+    ):
+        _global_proportional_scale(plan, narration_end)
     elif resolved_mode == "hold_tail" or is_global_tts_mode(tts_mode):
         _hold_tail(plan, narration_end)
     elif resolved_mode == "scale_to_target":

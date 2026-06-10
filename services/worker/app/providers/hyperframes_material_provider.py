@@ -57,6 +57,27 @@ def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
     return 4.0
 
 
+def _slot_timing_for_slot(ctx: MaterialContext, slot_id: str) -> dict[str, float]:
+    for scene in ctx.storyboard:
+        if isinstance(scene, dict) and scene.get("slotId") == slot_id:
+            start = float(scene.get("startSec", 0.0))
+            end = float(scene.get("endSec", start))
+            duration = max(0.5, end - start)
+            return {
+                "startSec": round(start, 3),
+                "endSec": round(end, 3),
+                "durationSec": round(duration, 3),
+            }
+    duration = 4.0
+    return {"startSec": 0.0, "endSec": duration, "durationSec": duration}
+
+
+def _enforce_spec_duration(spec: dict[str, Any], duration_sec: float) -> dict[str, Any]:
+    merged = dict(spec)
+    merged["durationSec"] = round(max(0.5, float(duration_sec)), 3)
+    return merged
+
+
 def _resolve_material_asset_refs(
     action: dict[str, Any],
     ctx: MaterialContext,
@@ -143,6 +164,8 @@ def _author_spec(
     finish_brief: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     author_slot = _material_author_slot(slot)
+    slot_timing = _slot_timing_for_slot(ctx, str(slot.get("id", "")))
+    target_duration = float(slot_timing["durationSec"])
     started = time.perf_counter()
     errors: list[str] = []
     trace_dir: str | None = None
@@ -150,16 +173,21 @@ def _author_spec(
         if _composition_mode() == "legacy" or ctx.runner is None or ctx.task_context is None:
             if ctx.runner is None or ctx.task_context is None:
                 raise RuntimeError("material author unavailable")
-            spec = run_material_author_with_runner(
-                ctx.runner,
-                slot=author_slot,
-                context=ctx.task_context,
-                variant_overrides=ctx.variant_overrides,
-                brand_colors=ctx.brand_colors,
-                asset_refs=asset_refs,
-                visual_style_bible=ctx.visual_style_bible,
-                generation_id=ctx.generation_id,
-                finish_brief=finish_brief,
+            spec = _enforce_spec_duration(
+                run_material_author_with_runner(
+                    ctx.runner,
+                    slot=author_slot,
+                    context=ctx.task_context,
+                    variant_overrides=ctx.variant_overrides,
+                    brand_colors=ctx.brand_colors,
+                    asset_refs=asset_refs,
+                    visual_style_bible=ctx.visual_style_bible,
+                    generation_id=ctx.generation_id,
+                    finish_brief=finish_brief,
+                    aspect_ratio=ctx.aspect_ratio,
+                    slot_timing=slot_timing,
+                ),
+                target_duration,
             )
         else:
             from composition.author.react_trace import FileReactTraceRecorder
@@ -180,20 +208,24 @@ def _author_spec(
                 storage_root=ctx.project_root.parent,
                 emit_progress=ctx.emit_progress,
             )
-            spec = engine.author_material_spec(
-                AuthorRequest(
-                    project_id=ctx.project_id,
-                    slot=author_slot,
-                    brand_colors=ctx.brand_colors,
-                    variant_overrides=ctx.variant_overrides,
-                    asset_refs=asset_refs,
-                    aspect_ratio=ctx.aspect_ratio,
-                    visual_style_bible=ctx.visual_style_bible,
-                    finish_brief=finish_brief,
-                    task_id=ctx.task_context.task_id if ctx.task_context else None,
-                    generation_id=ctx.generation_id,
-                    react_trace=react_trace,
-                )
+            spec = _enforce_spec_duration(
+                engine.author_material_spec(
+                    AuthorRequest(
+                        project_id=ctx.project_id,
+                        slot=author_slot,
+                        brand_colors=ctx.brand_colors,
+                        variant_overrides=ctx.variant_overrides,
+                        asset_refs=asset_refs,
+                        aspect_ratio=ctx.aspect_ratio,
+                        slot_timing=slot_timing,
+                        visual_style_bible=ctx.visual_style_bible,
+                        finish_brief=finish_brief,
+                        task_id=ctx.task_context.task_id if ctx.task_context else None,
+                        generation_id=ctx.generation_id,
+                        react_trace=react_trace,
+                    )
+                ),
+                target_duration,
             )
         _record_material_author_run(
             ctx,

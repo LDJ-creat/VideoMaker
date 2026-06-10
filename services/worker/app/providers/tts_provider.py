@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.pipelines.narration_scene_timing import reconcile_storyboard_to_segment_durations
 from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID, MASTER_TTS_WAV_NAME
 from app.pipelines.tts_synthesis import synthesize_master_wav
 from app.providers.material_types import MaterialContext, MaterialResult
+from app.providers.tts_preview_reuse import try_reuse_preview_master_wav
 from app.tools.image_gen_tool import ToolError
 from app.tools.tts_tool import TTSTool
 
@@ -45,6 +47,15 @@ class TTSProvider:
             }
         output_path = ctx.generated_root / MASTER_TTS_WAV_NAME
         try:
+            if try_reuse_preview_master_wav(ctx, output_path):
+                registered = ctx.register_artifact("audio", output_path)
+                return {
+                    "ok": True,
+                    "actionId": action["id"],
+                    "slotId": slot_id,
+                    "provider": self.name,
+                    "artifactRef": registered,
+                }
             has_vo_directives = bool(ctx.narration_vo_profile) or any(
                 isinstance(scene.get("voDirective"), dict)
                 for scene in ctx.storyboard
@@ -68,6 +79,16 @@ class TTSProvider:
                 narration_vo_profile=ctx.narration_vo_profile,
                 output_path=output_path,
             )
+            segment_durations = artifact_ref.get("segmentDurations")
+            if isinstance(segment_durations, list) and segment_durations:
+                ctx.storyboard = reconcile_storyboard_to_segment_durations(
+                    list(ctx.storyboard),
+                    segment_durations=[
+                        (str(slot_id), float(duration))
+                        for slot_id, duration in segment_durations
+                        if slot_id and duration > 0
+                    ],
+                )
         except ToolError as exc:
             return {
                 "ok": False,

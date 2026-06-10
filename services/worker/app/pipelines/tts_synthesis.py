@@ -7,6 +7,7 @@ from typing import Any
 
 from knowledge.paths import validate_storage_segment
 
+from app.pipelines.narration_alignment import wav_duration_sec
 from app.pipelines.tts_voice_options import (
     build_tts_synthesis_options,
     canonical_tts_options_key,
@@ -110,13 +111,16 @@ def synthesize_master_wav(
         )
 
     wav_parts: list[bytes] = []
+    segment_durations: list[tuple[str, float]] = []
     for index, (scene, options) in enumerate(zip(scenes, segment_options, strict=True)):
         segment_text = str(scene.get("script") or "").strip()
-        safe_slot = _safe_segment_filename(str(scene.get("slotId") or "slot"), index=index)
+        slot_id = str(scene.get("slotId") or "slot")
+        safe_slot = _safe_segment_filename(slot_id, index=index)
         temp_path = output_path.parent / f".segment-{safe_slot}.wav"
         try:
             tool.synthesize(text=segment_text, output_path=temp_path, options=options)
             wav_parts.append(temp_path.read_bytes())
+            segment_durations.append((slot_id, wav_duration_sec(temp_path)))
         finally:
             if temp_path.is_file():
                 temp_path.unlink()
@@ -125,4 +129,6 @@ def synthesize_master_wav(
     output_path.write_bytes(_concat_wav_bytes(wav_parts))
     from app.tools.image_gen_tool import _artifact_ref
 
-    return _artifact_ref("audio", output_path)
+    artifact = _artifact_ref("audio", output_path)
+    artifact["segmentDurations"] = segment_durations
+    return artifact

@@ -70,6 +70,48 @@ def test_assert_master_only_preserves_narration_vo_profile() -> None:
     assert payload["narrationVoProfile"] == {"pace": "fast", "energy": "high"}
 
 
+def test_assert_storyboard_from_master_applies_narration_timing() -> None:
+    structure = {
+        "slots": [
+            {"id": "slot-1", "startSec": 0.0, "endSec": 10.0},
+            {"id": "slot-2", "startSec": 10.0, "endSec": 20.0},
+        ]
+    }
+    payload = _assert_storyboard_from_master(
+        {
+            "storyboard": [
+                {
+                    "slotId": "slot-1",
+                    "startSec": 0.0,
+                    "endSec": 10.0,
+                    "visual": "v1",
+                    "script": "第一句。",
+                    "source": "generated",
+                },
+                {
+                    "slotId": "slot-2",
+                    "startSec": 10.0,
+                    "endSec": 20.0,
+                    "visual": "v2",
+                    "script": "第二句。",
+                    "source": "generated",
+                },
+            ],
+        },
+        structure=structure,
+        master_narration="第一句。第二句。",
+        narration_timing={
+            "durationSec": 12.0,
+            "sceneTiming": [
+                {"slotId": "slot-1", "startSec": 0.0, "endSec": 5.0},
+                {"slotId": "slot-2", "startSec": 5.0, "endSec": 12.0},
+            ],
+        },
+    )
+    assert payload["storyboard"][0]["endSec"] == 5.0
+    assert payload["storyboard"][1]["endSec"] == 12.0
+
+
 def test_assert_storyboard_from_master_preserves_vo_directive() -> None:
     structure = {
         "slots": [

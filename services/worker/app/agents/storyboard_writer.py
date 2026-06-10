@@ -5,6 +5,7 @@ from typing import Any
 from app.agents.runner import AgentRunner
 from app.config.variants import load_agent_overrides
 from app.pipelines.master_narration import apply_master_narration_to_storyboard
+from app.pipelines.narration_scene_timing import apply_narration_timing_to_storyboard
 from app.pipelines.narration_script import is_creative_direction_text
 from app.pipelines.tts_voice_options import normalize_vo_directive, report_vo_directive_warnings
 from app.pipelines.visual_style_bible import (
@@ -193,6 +194,7 @@ def _assert_storyboard_from_master(
     *,
     structure: dict[str, Any],
     master_narration: str,
+    narration_timing: dict[str, Any] | None = None,
     vo_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     storyboard = payload.get("storyboard")
@@ -203,6 +205,13 @@ def _assert_storyboard_from_master(
         structure=structure,
         vo_warnings=vo_warnings,
     )
+    scene_timing = (
+        list(narration_timing.get("sceneTiming") or [])
+        if isinstance(narration_timing, dict)
+        else []
+    )
+    if scene_timing:
+        normalized = apply_narration_timing_to_storyboard(normalized, scene_timing)
     master = str(master_narration or payload.get("masterNarration") or "").strip()
     if not master:
         raise ValueError("approved masterNarration is required for storyboard_from_master")
@@ -211,6 +220,8 @@ def _assert_storyboard_from_master(
         storyboard=normalized,
         structure=structure,
     )
+    if scene_timing:
+        aligned = apply_narration_timing_to_storyboard(aligned, scene_timing)
     return {"storyboard": aligned, **_optional_summary(payload)}
 
 
@@ -256,6 +267,7 @@ def run_storyboard_writer(
     master_narration: str | None = None,
     visual_style_bible: dict[str, Any] | None = None,
     duration_target: dict[str, Any] | None = None,
+    narration_timing: dict[str, Any] | None = None,
     instruction: str | None = None,
     current_storyboard: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -280,6 +292,8 @@ def run_storyboard_writer(
     }
     if duration_target is not None:
         inputs["durationTarget"] = duration_target
+    if narration_timing is not None:
+        inputs["narrationTiming"] = narration_timing
     if master_narration is not None:
         inputs["masterNarration"] = master_narration
     if visual_style_bible is not None:
@@ -311,6 +325,7 @@ def run_storyboard_writer(
             payload,
             structure=structure,
             master_narration=approved_master,
+            narration_timing=narration_timing,
             vo_warnings=vo_warnings,
         )
 
