@@ -50,6 +50,16 @@ export function formatP1TaskError(error: ToolError): FormattedTaskError | null {
             : "请检查视频 Provider 配置、API Key 与模型名称，或在环境变量中设置 VIDEOMAKER_VIDEO_GEN_FALLBACK=image_generation 启用降级。",
         technical: error.message,
       };
+    case "tts_failed":
+      return {
+        title: "语音合成失败",
+        hint:
+          error.message?.includes("Invalid X-Api-Key") ||
+          error.message?.includes("401")
+            ? "TTS API Key 无效或未配置。豆包 Seed TTS 使用火山引擎语音控制台的 Key（与方舟 Ark Key 不同），请在「设置 → 模型服务」检查 tts Provider 的 API Key。"
+            : "请检查 TTS Provider 配置、音色参数与网络，修正后点击重试。",
+        technical: error.message,
+      };
     case "generation_failed":
       if (error.message && error.message !== "Worker task failed") {
         return {

@@ -26,6 +26,7 @@ import {
 } from "@/lib/generationRunLabels";
 import type { GenerationRunGenerationSummary } from "@/lib/reloadGenerationRunResults";
 import { getVariantLabel } from "@/lib/variantRegistry";
+import { canRetryGenerationTask } from "@/lib/generationTaskHydration";
 
 type GenerationRunHistoryPanelProps = {
   projectId: string;
@@ -161,10 +162,12 @@ export function GenerationRunHistoryPanel({
                       const variantId =
                         entry.variant ?? entry.plan?.variant ?? "default";
                       const canRetry =
-                        (entry.status === "failed" ||
-                          entry.status === "cancelled") &&
-                        Boolean(entry.taskId) &&
-                        Boolean(onRetryTask);
+                        canRetryGenerationTask({
+                          status: entry.status,
+                          taskId: entry.taskId,
+                          renderVideoUrl: entry.plan?.renderVideoUrl,
+                          plan: entry.plan,
+                        }) && Boolean(onRetryTask);
                       return (
                         <div
                           key={entry.generationId}
@@ -190,7 +193,7 @@ export function GenerationRunHistoryPanel({
                                 onRetryTask!(entry.taskId!);
                               }}
                             >
-                              重试
+                              {retryBusy ? "正在重新提交…" : "重新渲染"}
                             </Button>
                           ) : null}
                         </div>

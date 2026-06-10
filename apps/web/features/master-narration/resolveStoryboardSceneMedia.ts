@@ -120,6 +120,29 @@ function resolveFromCompletionAction(
   };
 }
 
+function completionActionScore(action: CompletionAction): number {
+  let score = 0;
+  if (action.artifactRef?.uri?.trim()) score += 10;
+  if (action.id?.endsWith("-finish")) score += 5;
+  if (action.provider === "hyperframes_material") score += 2;
+  if (action.provider === "stock_media_search") score -= 1;
+  return score;
+}
+
+function resolveFromCompletionActions(
+  projectId: string,
+  actions: CompletionAction[],
+): StoryboardSceneMedia | null {
+  const ranked = [...actions].sort(
+    (left, right) => completionActionScore(right) - completionActionScore(left),
+  );
+  for (const action of ranked) {
+    const media = resolveFromCompletionAction(projectId, action);
+    if (media?.url) return media;
+  }
+  return null;
+}
+
 function resolveFromVisualField(
   projectId: string,
   generationId: string,
@@ -170,8 +193,8 @@ export function resolveStoryboardSceneMedia(
   plan: GenerationPlan,
   scene: StoryboardScene,
 ): StoryboardSceneMedia {
-  const action = plan.completionActions.find((item) => item.slotId === scene.slotId);
-  const fromAction = resolveFromCompletionAction(plan.projectId, action);
+  const slotActions = plan.completionActions.filter((item) => item.slotId === scene.slotId);
+  const fromAction = resolveFromCompletionActions(plan.projectId, slotActions);
   if (fromAction?.url) {
     return fromAction;
   }
@@ -185,23 +208,25 @@ export function resolveStoryboardSceneMedia(
       timelineHit.trackType,
     );
     if (fromClip?.url) {
+      const primaryAction = slotActions[0];
       const provider =
         typeof timelineHit.clip.generatedBy === "object"
           ? timelineHit.clip.generatedBy?.provider
           : timelineHit.clip.generatedBy;
-      return { ...fromClip, provider: provider ?? action?.provider };
+      return { ...fromClip, provider: provider ?? primaryAction?.provider };
     }
   }
 
   const fromVisual = resolveFromVisualField(plan.projectId, plan.id, scene.visual);
   if (fromVisual?.url) {
-    return { ...fromVisual, provider: action?.provider };
+    const primaryAction = slotActions.find((item) => item.id?.endsWith("-finish")) ?? slotActions[0];
+    return { ...fromVisual, provider: primaryAction?.provider };
   }
 
   return {
     kind: "placeholder",
     url: null,
     caption: scene.visual,
-    provider: action?.provider ?? scene.source,
+    provider: slotActions[0]?.provider ?? scene.source,
   };
 }

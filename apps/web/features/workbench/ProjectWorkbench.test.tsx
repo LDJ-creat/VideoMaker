@@ -17,6 +17,7 @@ import {
   fixtureVideoStructure,
 } from "@/fixtures";
 import * as apiClient from "@/lib/apiClient";
+import * as projectSession from "@/lib/project-session";
 
 vi.mock("@/lib/project-session", () => ({
   loadProjectSession: vi.fn(() => null),
@@ -28,14 +29,28 @@ let capturedOnAllGenerationTerminal:
   | ((events: Record<string, TaskEvent>) => void)
   | undefined;
 let capturedOnGenerationTaskTerminal: ((event: TaskEvent) => void) | undefined;
+let capturedUseTaskProgressOpts:
+  | {
+      taskId: string | null;
+      enabled?: boolean;
+      watchKey?: number;
+    }
+  | undefined;
 let mockTaskEvent: TaskEvent | null = null;
 
 vi.mock("@/features/tasks/useTaskProgress", () => ({
-  useTaskProgress: (opts: { onTerminal?: (event: TaskEvent) => void }) => {
+  useTaskProgress: (opts: {
+    taskId: string | null;
+    enabled?: boolean;
+    watchKey?: number;
+    onTerminal?: (event: TaskEvent) => void;
+  }) => {
     capturedOnTerminal = opts.onTerminal;
+    capturedUseTaskProgressOpts = opts;
+    const subscribed = Boolean(opts.enabled && opts.taskId);
     return {
-      event: mockTaskEvent,
-      mode: mockTaskEvent ? ("polling" as const) : ("idle" as const),
+      event: subscribed ? mockTaskEvent : null,
+      mode: subscribed ? ("polling" as const) : ("idle" as const),
       sseFailureCount: 0,
       error: null,
     };
@@ -67,6 +82,7 @@ describe("ProjectWorkbench", () => {
     capturedOnTerminal = undefined;
     capturedOnAllGenerationTerminal = undefined;
     capturedOnGenerationTaskTerminal = undefined;
+    capturedUseTaskProgressOpts = undefined;
     mockTaskEvent = null;
     vi.restoreAllMocks();
     vi.spyOn(apiClient, "getBrief").mockRejectedValue(new Error("no brief"));
@@ -223,7 +239,13 @@ describe("ProjectWorkbench", () => {
     expect(screen.getByText("叙事分段 · 结构解读")).toBeInTheDocument();
   });
 
-    it("calls retryTask with the same task id when retry is clicked", async () => {
+  it("calls retryTask with the same task id when retry is clicked", async () => {
+    vi.spyOn(projectSession, "loadProjectSession").mockReturnValue({
+      taskId: "task-retry-1",
+      sampleId: "sample-retry-1",
+      generationId: null,
+      lastAction: "analysis",
+    });
     mockTaskEvent = {
       ...fixtureTaskEvent,
       taskId: "task-retry-1",
@@ -242,17 +264,17 @@ describe("ProjectWorkbench", () => {
       },
       meta: { dataSource: "api" },
     });
-    vi.spyOn(apiClient, "getTask").mockResolvedValue({
+    vi.spyOn(apiClient, "getTask").mockImplementation(async () => ({
       data: {
         ...fixtureTaskEvent,
         taskId: "task-retry-1",
-        status: "failed",
+        status: "retrying",
         progress: 45,
         stage: "transcribing",
-        message: "transcription failed",
+        message: "Retry requested, resuming from checkpoint",
       },
       meta: { dataSource: "api" },
-    });
+    }));
 
     const user = userEvent.setup();
     render(<ProjectWorkbench projectId="proj-test" />);
@@ -260,6 +282,15 @@ describe("ProjectWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "重试样例分析" }));
 
     expect(retryTaskSpy).toHaveBeenCalledWith("task-retry-1");
+    await waitFor(() => {
+      expect(capturedUseTaskProgressOpts?.taskId).toBe("task-retry-1");
+      expect(capturedUseTaskProgressOpts?.enabled).toBe(true);
+    });
+    expect(
+      screen.queryByText(
+        "暂无进行中的任务。若样例已分析完成，请前往「样例分析」查看结果；开始新任务后进度会显示在这里。",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("shows revise intents during revise task and diff after completion", async () => {

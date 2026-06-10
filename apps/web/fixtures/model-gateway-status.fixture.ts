@@ -28,8 +28,8 @@ export const fixtureModelGatewayStatus: ModelGatewayStatusResponse = {
       configured: false,
       hasApiKey: false,
       model: undefined,
-      driver: "openai_compatible",
-      baseUrl: "https://api.openai.com/v1",
+      driver: "volcengine_tts",
+      baseUrl: "https://openspeech.bytedance.com/api/v3/tts/unidirectional",
     },
     image: {
       configured: true,

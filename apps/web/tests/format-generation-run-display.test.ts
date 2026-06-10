@@ -4,6 +4,7 @@ import {
   formatGenerationRunDateTime,
   formatGenerationRunMetaLine,
   formatGenerationRunTitle,
+  deriveGenerationRunDisplayStatus,
   formatShortRunId,
   summarizeRunVariants,
 } from "@/lib/formatGenerationRunDisplay";
@@ -45,6 +46,27 @@ describe("formatGenerationRunDisplay", () => {
     expect(meta).toContain("部分失败");
     expect(meta).toContain("高点击版失败");
     expect(meta).toContain("高转化版成功");
+  });
+
+  it("derives completed status when variants succeeded but run status is stale", () => {
+    expect(
+      deriveGenerationRunDisplayStatus("awaiting_review", [
+        { variant: "high_click", status: "succeeded" },
+        { variant: "high_conversion", status: "succeeded" },
+      ]),
+    ).toBe("已完成");
+    expect(
+      formatGenerationRunMetaLine("2026-06-07T11:52:06.877595Z", "partial_failed", [
+        { variant: "high_click", status: "succeeded" },
+        { variant: "high_conversion", status: "succeeded" },
+      ]),
+    ).toContain("已完成");
+    expect(
+      formatGenerationRunMetaLine("2026-06-07T11:52:06.877595Z", "partial_failed", [
+        { variant: "high_click", status: "succeeded" },
+        { variant: "high_conversion", status: "succeeded" },
+      ]),
+    ).not.toContain("部分失败");
   });
 
   it("shortens run ids for secondary display", () => {

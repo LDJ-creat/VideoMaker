@@ -99,6 +99,7 @@ import {
   getGeneration,
   getGenerationRun,
   getLatestGenerations,
+  listGenerationRuns,
   getProject,
   getSampleKeyframes,
   getSampleAnalysis,
@@ -122,10 +123,14 @@ import {
 } from "@/lib/apiClient";
 import {
   buildGenerationStatusByTaskId,
+  canRetryGenerationTask,
   hasRetryableFailedGeneration,
+  isGenerationRenderIncomplete,
   shouldWatchGenerationTasks,
 } from "@/lib/generationTaskHydration";
 import { getErrorMessage } from "@/lib/errors";
+import { mergeTaskEvents } from "@/lib/taskEventMerge";
+import { isTaskWatchActive } from "@/lib/taskStatusLabels";
 import {
   loadProjectSession,
   saveProjectSession,
@@ -601,8 +606,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         (entry) => entry.status === "running",
       );
       const hasRetryableFailed = hasRetryableFailedGeneration(data.generations);
+      const hasRenderIncomplete = data.generations.some(isGenerationRenderIncomplete);
       const hasActiveGeneration = hasAwaitingReview || hasRunning;
-      if (hasActiveGeneration || hasRetryableFailed) {
+      if (hasActiveGeneration || hasRetryableFailed || hasRenderIncomplete) {
         setLastAction("generation");
       }
       if (hasActiveGeneration) {
@@ -612,6 +618,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         } else if (hasRunning) {
           setPanel("progress", "hydrate:running");
         }
+      } else if (hasRenderIncomplete) {
+        generationAutoNavRef.current = true;
+        setPanel("progress", "hydrate:render-incomplete");
       } else {
         generationAutoNavRef.current = false;
       }
@@ -710,6 +719,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         }));
         if (
           hasRetryableFailedGeneration(data.generations) ||
+          data.generations.some(isGenerationRenderIncomplete) ||
           data.generations.some((entry) => entry.status === "running")
         ) {
           setLastAction("generation");
@@ -779,9 +789,26 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       await loadProjectResults();
       if (saved?.activeGenerationRunId) {
         await loadGenerationRunView(saved.activeGenerationRunId);
+        return;
+      }
+      try {
+        const { data } = await listGenerationRuns(projectId);
+        const latestRunId = data.runs[0]?.id ?? null;
+        if (latestRunId) {
+          setActiveGenerationRunId(latestRunId);
+          void loadGenerationRunProvenance(latestRunId);
+        }
+      } catch {
+        /* no generation runs yet */
       }
     })();
-  }, [projectId, loadProjectInput, loadProjectResults, loadGenerationRunView]);
+  }, [
+    projectId,
+    loadProjectInput,
+    loadProjectResults,
+    loadGenerationRunView,
+    loadGenerationRunProvenance,
+  ]);
 
   const reloadActiveGenerationResults = useCallback(
     async (entries: ActiveGenerationEntry[]) => {
@@ -875,6 +902,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   const handleGenerationTaskTerminal = useCallback(
     (event: TaskEvent) => {
+      setSettledGenerationEvents((previous) => ({
+        ...previous,
+        [event.taskId]: event,
+      }));
       const match = activeGenerations.find((entry) => entry.taskId === event.taskId);
       if (
         match &&
@@ -1023,7 +1054,25 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [generationId, handleAnalysisTerminal, lastAction, loadGenerationResults],
   );
 
-  const [progressWatchKey, setProgressWatchKey] = useState(0);
+  const [taskWatchKeys, setTaskWatchKeys] = useState<Record<string, number>>({});
+
+  const bumpTaskWatchKey = useCallback((taskId: string) => {
+    setTaskWatchKeys((previous) => ({
+      ...previous,
+      [taskId]: (previous[taskId] ?? 0) + 1,
+    }));
+  }, []);
+
+  const bumpTaskWatchKeys = useCallback((taskIds: string[]) => {
+    if (taskIds.length === 0) return;
+    setTaskWatchKeys((previous) => {
+      const next = { ...previous };
+      for (const taskId of taskIds) {
+        next[taskId] = (next[taskId] ?? 0) + 1;
+      }
+      return next;
+    });
+  }, []);
 
   const progressSampleLabel = useMemo(() => {
     if (!sampleId) return undefined;
@@ -1091,7 +1140,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       !showMultiVariantGenerationProgress &&
       !isBatchAnalysisProgress &&
       Boolean(singleProgressTaskId),
-    watchKey: progressWatchKey,
+    watchKey: singleProgressTaskId
+      ? (taskWatchKeys[singleProgressTaskId] ?? 0)
+      : 0,
     onTerminal: handleTerminal,
   });
 
@@ -1102,8 +1153,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     error: generationProgressError,
   } = useMultiTaskProgress({
     tasks: generationProgressTasks,
-    enabled: watchGenerationTasks,
-    watchKey: progressWatchKey,
+    enabled: showMultiVariantGenerationProgress,
+    taskWatchKeys,
     onTaskTerminal: handleGenerationTaskTerminal,
     onAllTerminal: handleAllGenerationTerminal,
   });
@@ -1163,9 +1214,126 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     watchGenerationTasks,
   ]);
 
-  const displayGenerationEvents = watchGenerationTasks
-    ? generationEvents
-    : settledGenerationEvents;
+  const generationTaskIdsKey = useMemo(
+    () =>
+      activeGenerations
+        .map((entry) => entry.taskId)
+        .filter((taskId) => taskId.length > 0)
+        .sort()
+        .join("|"),
+    [activeGenerations],
+  );
+
+  useEffect(() => {
+    if (panel !== "progress" || !showMultiVariantGenerationProgress) return;
+    const taskIds = generationTaskIdsKey.split("|").filter(Boolean);
+    if (taskIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const updates: Record<string, TaskEvent> = {};
+      for (const taskId of taskIds) {
+        try {
+          const { data } = await getTask(taskId);
+          const cached =
+            generationEvents[taskId] ?? settledGenerationEvents[taskId] ?? null;
+          if (
+            !cached ||
+            cached.status !== data.status ||
+            cached.updatedAt !== data.updatedAt
+          ) {
+            updates[taskId] = data;
+          }
+        } catch {
+          /* task may have been purged */
+        }
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setSettledGenerationEvents((previous) => ({ ...previous, ...updates }));
+        setGenerationStatusByTaskId((previous) => {
+          const next = { ...previous };
+          for (const [taskId, event] of Object.entries(updates)) {
+            next[taskId] = event.status;
+          }
+          return next;
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    generationEvents,
+    generationTaskIdsKey,
+    panel,
+    settledGenerationEvents,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  useEffect(() => {
+    if (panel !== "progress" || !showMultiVariantGenerationProgress) return;
+    const taskIds = activeGenerations
+      .map((entry) => entry.taskId)
+      .filter((taskId) => taskId.length > 0);
+    if (taskIds.length === 0) return;
+    const hasActiveTask = taskIds.some((taskId) =>
+      isTaskWatchActive(generationStatusByTaskId[taskId]),
+    );
+    if (!hasActiveTask) return;
+
+    let cancelled = false;
+    const pollActiveTasks = async () => {
+      const updates: Record<string, TaskEvent> = {};
+      for (const taskId of taskIds) {
+        if (!isTaskWatchActive(generationStatusByTaskId[taskId])) continue;
+        try {
+          const { data } = await getTask(taskId);
+          const cached =
+            generationEvents[taskId] ?? settledGenerationEvents[taskId] ?? null;
+          if (
+            !cached ||
+            cached.status !== data.status ||
+            cached.updatedAt !== data.updatedAt ||
+            cached.progress !== data.progress
+          ) {
+            updates[taskId] = data;
+          }
+        } catch {
+          /* task may have been purged */
+        }
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setSettledGenerationEvents((previous) => ({ ...previous, ...updates }));
+        setGenerationStatusByTaskId((previous) => {
+          const next = { ...previous };
+          for (const [taskId, event] of Object.entries(updates)) {
+            next[taskId] = event.status;
+          }
+          return next;
+        });
+      }
+    };
+
+    void pollActiveTasks();
+    const timer = window.setInterval(() => {
+      void pollActiveTasks();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    activeGenerations,
+    generationEvents,
+    generationStatusByTaskId,
+    panel,
+    settledGenerationEvents,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  const displayGenerationEvents = useMemo(
+    () => mergeTaskEvents(settledGenerationEvents, generationEvents),
+    [generationEvents, settledGenerationEvents],
+  );
 
   useEffect(() => {
     if (!generationAutoNavRef.current) return;
@@ -1325,7 +1493,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setGenerationStatusByTaskId(initialStatuses);
       setGenerationId(entries[0]?.generationId ?? null);
       setTaskId(null);
-      setProgressWatchKey((key) => key + 1);
+      bumpTaskWatchKeys(entries.map((entry) => entry.taskId));
       setPanel("progress", "generation-started");
     } catch (err) {
       setDataError(getErrorMessage(err));
@@ -1436,7 +1604,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setActiveVariantGenerationId(resultGenerationId);
       const sessionResult = await getReviseSession(targetGenerationId);
       setReviseSession(sessionResult.data.session);
-      setProgressWatchKey((key) => key + 1);
+      bumpTaskWatchKey(data.taskId);
       setPanel("progress");
     } catch (err) {
       setDataError(getErrorMessage(err));
@@ -1568,32 +1736,53 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setDataError(null);
       try {
         const { data: latest } = await getTask(activeTaskId);
-        if (
-          latest.status !== "failed" &&
-          latest.status !== "retrying" &&
-          latest.status !== "running"
-        ) {
+        const activeEntry = activeGenerations.find(
+          (entry) => entry.taskId === activeTaskId,
+        );
+        const renderVideoUrl = activeEntry
+          ? renderVideoByGenerationId[activeEntry.generationId]
+          : undefined;
+        const canRetry =
+          latest.status === "failed" ||
+          latest.status === "retrying" ||
+          latest.status === "running" ||
+          canRetryGenerationTask({
+            status: latest.status,
+            taskId: activeTaskId,
+            renderVideoUrl,
+            plan: activeEntry
+              ? variantPlans[activeEntry.generationId]
+              : undefined,
+          });
+        if (!canRetry) {
           setDataError(`当前任务状态为「${latest.status}」，无法重试`);
           return;
         }
+        const isGenerationRetry = Boolean(activeEntry);
         await retryTask(activeTaskId);
         generationSettlementKeyRef.current = null;
-        setLastAction("generation");
-        setGenerationStatusByTaskId((previous) => ({
-          ...previous,
-          [activeTaskId]: "retrying",
-        }));
-        if (lastAction !== "generation") {
+        const { data: afterRetry } = await getTask(activeTaskId);
+        if (isGenerationRetry) {
+          setLastAction("generation");
+          setSettledGenerationEvents((previous) => ({
+            ...previous,
+            [activeTaskId]: afterRetry,
+          }));
+          setGenerationStatusByTaskId((previous) => ({
+            ...previous,
+            [activeTaskId]: afterRetry.status,
+          }));
+        } else {
           setTaskId(activeTaskId);
         }
-        setProgressWatchKey((key) => key + 1);
+        bumpTaskWatchKey(activeTaskId);
       } catch (err) {
         setDataError(getErrorMessage(err));
       } finally {
         setBusy(false);
       }
     },
-    [event?.status, event?.taskId, lastAction, taskId],
+    [activeGenerations, event?.status, event?.taskId, renderVideoByGenerationId, taskId, variantPlans],
   );
 
   const handleRetryGenerationFromResult = useCallback(
@@ -1878,10 +2067,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 setSampleId(id);
                 void loadAnalysisResults(id);
               }}
-              onSampleChanged={() => void loadProjectInput()}
+              onSampleChanged={() => {
+                void loadProjectInput().then(() => bumpKnowledgeRefreshKey());
+              }}
               onAssetsChanged={() => void loadProjectInput()}
               onKnowledgeApplied={() => void loadProjectInput()}
-              onSelectionChanged={() => void loadProjectInput()}
+              onSelectionChanged={() => {
+                void loadProjectInput().then(() => bumpKnowledgeRefreshKey());
+              }}
             />
           </div>
         )}
@@ -1912,11 +2105,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                     label: entry.label,
                     event: displayGenerationEvents[entry.taskId] ?? null,
                     mode: generationModes[entry.taskId] ?? "idle",
+                    retryable: canRetryGenerationTask({
+                      status:
+                        displayGenerationEvents[entry.taskId]?.status ??
+                        entry.status,
+                      taskId: entry.taskId,
+                      renderVideoUrl: renderVideoByGenerationId[entry.generationId],
+                      plan: variantPlans[entry.generationId],
+                    }),
                   }))}
                 sseFailureCounts={generationSseFailureCounts}
                 error={generationProgressError}
                 retryBusy={busy}
-                retryLabel="重试生成计划"
+                retryLabel="重试生成 / 重新渲染"
                 onRetry={(retryTaskId) => void handleRetryFailedTask(retryTaskId)}
                 onGoToScriptReview={() => setPanel("script-review")}
                 getMigrationContext={getMigrationContext}
@@ -1969,7 +2170,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               projectId={projectId}
               variants={scriptReviewVariants}
               onApproved={() => {
-                setProgressWatchKey((key) => key + 1);
+                bumpTaskWatchKeys(
+                  activeGenerations
+                    .map((entry) => entry.taskId)
+                    .filter((id) => id.length > 0),
+                );
                 setPanel("progress");
               }}
             />
@@ -2072,6 +2277,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 }
                 retryBusy={busy}
                 onRetryTask={handleRetryGenerationFromResult}
+                onGoToNarration={() => setPanel("narration")}
                 onActiveChange={(nextId) => {
                   setActiveVariantGenerationId(nextId);
                   const plan = variantPlans[nextId];
@@ -2091,6 +2297,31 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   generationPlan,
                   renderVideoByGenerationId,
                 )}
+                onGoToNarration={() => setPanel("narration")}
+                onRetryRender={
+                  (() => {
+                    const activeMeta = activeGenerations.find(
+                      (entry) => entry.generationId === generationPlan.id,
+                    );
+                    const taskId = activeMeta?.taskId;
+                    if (
+                      !taskId ||
+                      !canRetryGenerationTask({
+                        status: activeMeta?.status,
+                        taskId,
+                        renderVideoUrl: resolveRenderVideoUrl(
+                          generationPlan,
+                          renderVideoByGenerationId,
+                        ),
+                        plan: generationPlan,
+                      })
+                    ) {
+                      return undefined;
+                    }
+                    return () => handleRetryGenerationFromResult(taskId);
+                  })()
+                }
+                retryRenderBusy={busy}
               />
             ) : (
               <EmptyPanel message="暂无生成结果。" />

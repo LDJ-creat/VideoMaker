@@ -25,6 +25,9 @@ type GenerationResultViewProps = {
   /** When true, render the timeline section (collapsed by default). */
   showTimeline?: boolean;
   timelineDefaultExpanded?: boolean;
+  onGoToNarration?: () => void;
+  onRetryRender?: () => void;
+  retryRenderBusy?: boolean;
 };
 
 async function probeVideoUrl(url: string): Promise<boolean> {
@@ -41,6 +44,9 @@ export function GenerationResultView({
   videoHref,
   showTimeline = true,
   timelineDefaultExpanded = false,
+  onGoToNarration,
+  onRetryRender,
+  retryRenderBusy = false,
 }: GenerationResultViewProps) {
   const apiVideoUrl = videoHref?.trim() || null;
   const [probedVideoUrl, setProbedVideoUrl] = useState<string | null>(null);
@@ -102,10 +108,27 @@ export function GenerationResultView({
       <Card>
         <CardHeader>
           <CardTitle>生成结果</CardTitle>
-          <CardDescription>
-            变体 {plan.variant} · {plan.storyboard.length} 个分镜场景
-            {plan.ttsMode ? ` · 口播 ${plan.ttsMode === "global" ? "全片" : "分镜"}` : ""}
-            {" · 槽位拆解见「全片拆解」"}
+          <CardDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+            <span>
+              变体 {plan.variant} · {plan.storyboard.length} 个分镜场景
+              {plan.ttsMode
+                ? ` · 口播 ${plan.ttsMode === "global" ? "全片" : "分镜"}`
+                : ""}
+              {" · 槽位拆解见"}
+            </span>
+            {onGoToNarration ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 shrink-0 px-2 text-xs transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+                onClick={onGoToNarration}
+              >
+                全片拆解
+              </Button>
+            ) : (
+              <span>「全片拆解」</span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -140,10 +163,23 @@ export function GenerationResultView({
               </a>
             </div>
           ) : (
-            <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-              <Film className="h-4 w-4" />
-              演示视频 MP4（未生成）
-            </span>
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Film className="h-4 w-4" />
+                演示视频 MP4（未生成）
+              </span>
+              {onRetryRender ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={retryRenderBusy}
+                  onClick={onRetryRender}
+                >
+                  {retryRenderBusy ? "正在重新提交…" : "重新渲染 MP4"}
+                </Button>
+              ) : null}
+            </div>
           )}
         </CardContent>
       </Card>

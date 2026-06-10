@@ -52,6 +52,50 @@ describe("resolveStoryboardSceneMedia", () => {
     expect(media.provider).toBe("image_generation");
   });
 
+  it("prefers finish completion action with artifactRef over stock action", () => {
+    const scene = {
+      id: "scene-2",
+      slotId: "slot-2",
+      startSec: 5,
+      endSec: 19,
+      visual: "文字包装描述",
+      script: "口播",
+      source: "packaging_completion" as const,
+    };
+    const plan = {
+      ...fixtureGenerationPlan,
+      storyboard: [scene],
+      timeline: { durationSec: 19, tracks: [] },
+      completionActions: [
+        {
+          id: "action-slot-2",
+          slotId: "slot-2",
+          provider: "stock_media_search",
+          strategy: "stock_media_search",
+          reason: "stock",
+        },
+        {
+          id: "action-slot-2-finish",
+          slotId: "slot-2",
+          provider: "hyperframes_material",
+          strategy: "hyperframes_material",
+          reason: "finish",
+          artifactRef: {
+            id: "action-slot-2-finish",
+            type: "video" as const,
+            uri: "storage/projects/proj-demo-001/generations/gen-demo-001/generated/action-slot-2-finish.mp4",
+            createdAt: "1970-01-01T00:00:00.000Z",
+          },
+        },
+      ],
+    };
+
+    const media = resolveStoryboardSceneMedia(plan, scene);
+    expect(media.kind).toBe("video");
+    expect(media.provider).toBe("hyperframes_material");
+    expect(media.url).toContain("action-slot-2-finish.mp4");
+  });
+
   it("falls back to visual description placeholder when no media is resolvable", () => {
     const scene = {
       id: "scene-x",

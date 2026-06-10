@@ -60,7 +60,7 @@ describe("GenerationRunHistoryPanel", () => {
     render(
       <GenerationRunHistoryPanel
         projectId="proj-1"
-        activeRunId={null}
+        activeRunId="run-1"
         onSelectRun={onSelectRun}
       />,
     );
@@ -74,7 +74,10 @@ describe("GenerationRunHistoryPanel", () => {
       expect(screen.queryByText("2026-06-07T11:52:06.877595Z")).not.toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "查看结果" }));
+    expect(screen.getByRole("button", { name: "当前查看" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看结果" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "当前查看" }));
     expect(onSelectRun).toHaveBeenCalledWith("run-1");
   });
 });

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tabs";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { generationStatusLabel } from "@/lib/generationRunLabels";
+import { canRetryGenerationTask } from "@/lib/generationTaskHydration";
 import { getVariantLabel } from "@/lib/variantRegistry";
 
 export type VariantGenerationTab = {
@@ -31,6 +32,7 @@ type VariantTabsProps = {
   loading?: boolean;
   retryBusy?: boolean;
   onRetryTask?: (taskId: string) => void;
+  onGoToNarration?: () => void;
   renderPlan?: (plan: GenerationPlan, tab: VariantGenerationTab) => ReactNode;
 };
 
@@ -44,9 +46,12 @@ function FailedVariantResult({
   onRetryTask?: (taskId: string) => void;
 }) {
   const canRetry =
-    (tab.status === "failed" || tab.status === "cancelled") &&
-    Boolean(tab.taskId) &&
-    Boolean(onRetryTask);
+    canRetryGenerationTask({
+      status: tab.status,
+      taskId: tab.taskId,
+      renderVideoUrl: tab.renderVideoUrl,
+      plan: tab.plan ?? undefined,
+    }) && Boolean(onRetryTask);
 
   return (
     <div
@@ -64,7 +69,7 @@ function FailedVariantResult({
           disabled={retryBusy}
           onClick={() => onRetryTask!(tab.taskId!)}
         >
-          {retryBusy ? "正在重新提交…" : "重试生成"}
+          {retryBusy ? "正在重新提交…" : tab.plan ? "重新渲染 MP4" : "重试生成"}
         </Button>
       ) : null}
     </div>
@@ -78,6 +83,7 @@ export function VariantTabs({
   loading,
   retryBusy = false,
   onRetryTask,
+  onGoToNarration,
   renderPlan,
 }: VariantTabsProps) {
   if (tabs.length === 0) {
@@ -117,6 +123,18 @@ export function VariantTabs({
               <GenerationResultView
                 plan={tab.plan}
                 videoHref={tab.renderVideoUrl}
+                onGoToNarration={onGoToNarration}
+                onRetryRender={
+                  canRetryGenerationTask({
+                    status: tab.status,
+                    taskId: tab.taskId,
+                    renderVideoUrl: tab.renderVideoUrl,
+                    plan: tab.plan,
+                  }) && onRetryTask && tab.taskId
+                    ? () => onRetryTask(tab.taskId!)
+                    : undefined
+                }
+                retryRenderBusy={retryBusy}
               />
             )
           ) : (

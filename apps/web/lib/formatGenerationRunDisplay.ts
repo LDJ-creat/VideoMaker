@@ -75,6 +75,45 @@ export function summarizeRunVariants(
     .join("、");
 }
 
+/** Prefer live variant statuses over stale batch-level run.status from SQLite. */
+export function deriveGenerationRunDisplayStatus(
+  runStatus: string,
+  variantEntries: RunVariantSummaryEntry[],
+): string {
+  if (variantEntries.length === 0) {
+    return generationRunStatusLabel(runStatus);
+  }
+
+  const statuses = variantEntries
+    .map((entry) => entry.status)
+    .filter((status): status is string => Boolean(status));
+  if (statuses.length === 0) {
+    return generationRunStatusLabel(runStatus);
+  }
+
+  if (statuses.some((status) => status === "running" || status === "pending")) {
+    return generationRunStatusLabel("running");
+  }
+  if (statuses.some((status) => status === "awaiting_review")) {
+    return generationRunStatusLabel("awaiting_review");
+  }
+
+  const succeededCount = statuses.filter((status) => status === "succeeded").length;
+  const failedCount = statuses.filter((status) => status === "failed").length;
+
+  if (succeededCount === statuses.length) {
+    return generationRunStatusLabel("completed");
+  }
+  if (failedCount === statuses.length) {
+    return generationRunStatusLabel("failed");
+  }
+  if (succeededCount > 0 && failedCount > 0) {
+    return generationRunStatusLabel("partial_failed");
+  }
+
+  return generationRunStatusLabel(runStatus);
+}
+
 export function formatGenerationRunMetaLine(
   createdAt: string,
   runStatus: string,
@@ -83,7 +122,7 @@ export function formatGenerationRunMetaLine(
   const parts: string[] = [];
   const relative = formatGenerationRunRelative(createdAt);
   if (relative) parts.push(relative);
-  parts.push(generationRunStatusLabel(runStatus));
+  parts.push(deriveGenerationRunDisplayStatus(runStatus, variantEntries));
   const variantSummary = summarizeRunVariants(variantEntries);
   if (variantSummary) parts.push(variantSummary);
   return parts.join(" · ");

@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 
 import { VariantPicker } from "@/features/generation-variants/VariantPicker";
 import { VariantTabs } from "@/features/generation-variants/VariantTabs";
@@ -48,10 +49,13 @@ describe("VariantTabs", () => {
     cleanup();
   });
 
-  it("renders a tab per generation with plan content", async () => {
-    const user = userEvent.setup();
-
-    render(
+  function VariantTabsHarness({
+    initialActiveId,
+  }: {
+    initialActiveId: string;
+  }) {
+    const [activeGenerationId, setActiveGenerationId] = useState(initialActiveId);
+    return (
       <VariantTabs
         tabs={[
           {
@@ -67,16 +71,28 @@ describe("VariantTabs", () => {
             plan: fixtureGenerationPlan,
           },
         ]}
-        activeGenerationId={fixtureGenerationPlanHighClick.id}
-        onActiveChange={() => undefined}
-      />,
+        activeGenerationId={activeGenerationId}
+        onActiveChange={setActiveGenerationId}
+      />
+    );
+  }
+
+  it("renders a tab per generation with plan content", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <VariantTabsHarness initialActiveId={fixtureGenerationPlanHighClick.id} />,
     );
 
     expect(screen.getByRole("tab", { name: "高点击版" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "高转化版" })).toBeInTheDocument();
-    expect(screen.getByText(/还在被晒黑/)).toBeInTheDocument();
+    expect(screen.getByText(/变体 high_click · 3 个分镜场景/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "高转化版" }));
-    expect(screen.getByText(/限时第二件半价/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "高转化版" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText(/变体 high_conversion · 3 个分镜场景/)).toBeInTheDocument();
   });
 });
