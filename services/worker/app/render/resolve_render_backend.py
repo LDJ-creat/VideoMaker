@@ -6,6 +6,7 @@ from typing import Any, Literal
 RenderBackendKind = Literal["ffmpeg", "hyperframes"]
 
 _SUBTITLE_ID_PREFIX = "subtitle-"
+_OVERLAY_ID_PREFIX = "overlay-"
 
 
 def timeline_requires_live_html(timeline: dict[str, Any]) -> bool:
@@ -37,6 +38,8 @@ def timeline_requires_live_html(timeline: dict[str, Any]) -> bool:
                 clip_id = str(clip.get("id", ""))
                 style_ref = str(clip.get("styleRef", ""))
                 if clip_id.startswith(_SUBTITLE_ID_PREFIX):
+                    continue
+                if clip_id.startswith(_OVERLAY_ID_PREFIX):
                     continue
                 if style_ref.startswith("style://packaging/"):
                     return True

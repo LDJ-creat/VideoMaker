@@ -247,6 +247,12 @@ def is_analysis_stage_done(stage: str, analysis_root: Path, *, metadata: dict[st
         quality = data.get("analysisQuality")
         return isinstance(quality, dict) and "warnings" in quality
 
+    if stage == "rendering_knowledge_draft":
+        sample_id = analysis_root.parent.name
+        project_root = analysis_root.parent.parent
+        skill_path = project_root / "knowledge" / "drafts" / sample_id / "structure-skill.md"
+        return skill_path.is_file()
+
     return False
 
 

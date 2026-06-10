@@ -58,6 +58,21 @@ class TaskContext:
             self.event_publisher(event)
         return event
 
+    def emit_progress(
+        self,
+        stage: str,
+        message: str,
+        *,
+        progress: int | None = None,
+    ) -> dict[str, Any]:
+        """Emit a stage/message update; reuses the last progress when omitted."""
+        resolved = progress
+        if resolved is None and self.emitted_events:
+            resolved = int(self.emitted_events[-1].get("progress", 0))
+        if resolved is None:
+            resolved = 0
+        return self.emit_event(stage=stage, progress=resolved, message=message)
+
     def register_artifact(self, artifact_type: str, path: str | Path) -> dict[str, Any]:
         ref = {
             "id": f"{self.task_id}-{len(self.artifact_refs) + 1}",

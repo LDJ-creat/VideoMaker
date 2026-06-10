@@ -56,3 +56,13 @@ def test_tool_error_from_agent_failure_uses_llm_validation_code() -> None:
     assert payload["code"] == "LLMValidationError"
     assert payload["retryable"] is True
     assert payload["details"]["errorType"] == "StructureValidationError"
+
+
+def test_tool_error_from_agent_failure_marks_invalid_json_retryable() -> None:
+    from app.gateway.providers.base import GatewayError
+
+    exc = GatewayError(code="invalid_json", message="bad json", retryable=False)
+    payload = tool_error_from_agent_failure(exc)
+    assert payload["code"] == "invalid_json"
+    assert payload["retryable"] is True
+    assert payload["details"]["errorType"] == "GatewayError"

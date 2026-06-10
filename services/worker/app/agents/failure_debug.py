@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.gateway.providers.base import GatewayError
 from app.tools.llm_tool import LLMToolConfigError, LLMToolValidationError
 from app.validation.schema_loader import ValidationErrorItem
 from app.validation.structure_validator import StructureValidationError
@@ -44,17 +45,23 @@ def agent_failure_details(exc: Exception) -> dict[str, Any]:
         }
     if isinstance(exc, LLMToolConfigError):
         return {"errorType": "LLMToolConfigError", "message": str(exc)}
+    if isinstance(exc, GatewayError):
+        return {"errorType": "GatewayError", "code": exc.code, "message": exc.message}
     return {"errorType": type(exc).__name__, "message": str(exc)}
 
 
 def tool_error_from_agent_failure(exc: Exception) -> dict[str, Any]:
     code = "agent_failed"
+    retryable = True
     if isinstance(exc, (LLMToolValidationError, StructureValidationError)):
         code = "LLMValidationError"
+    elif isinstance(exc, GatewayError):
+        code = exc.code
+        retryable = exc.retryable or exc.code == "invalid_json"
     return {
         "code": code,
         "message": str(exc),
-        "retryable": True,
+        "retryable": retryable,
         "details": agent_failure_details(exc),
     }
 

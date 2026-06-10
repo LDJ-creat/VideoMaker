@@ -62,3 +62,27 @@ def test_build_render_backend_returns_hyperframes_when_forced(
 
     backend = build_render_backend({"durationSec": 1, "tracks": []})
     assert isinstance(backend, HyperFramesRenderBackend)
+
+
+def test_scene_overlay_clips_do_not_force_hyperframes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VIDEOMAKER_RENDER_BACKEND", raising=False)
+    timeline = {
+        "durationSec": 18,
+        "tracks": [
+            {
+                "id": "track-text",
+                "type": "text",
+                "clips": [
+                    {
+                        "id": "overlay-slot-6",
+                        "startSec": 15,
+                        "endSec": 18,
+                        "content": "dark",
+                        "styleRef": "style://packaging/dark",
+                    }
+                ],
+            }
+        ],
+    }
+    assert timeline_requires_live_html(timeline) is False
+    assert resolve_render_backend(timeline) == "ffmpeg"
