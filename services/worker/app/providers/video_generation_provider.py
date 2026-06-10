@@ -39,6 +39,7 @@ class VideoGenerationProvider:
             "durationSec": duration_sec,
             "slotId": slot_id,
             "resolution": os.getenv("VIDEO_DEFAULT_RESOLUTION", "720P"),
+            "aspectRatio": ctx.aspect_ratio,
         }
         if mode == "i2v" and reference_path is not None:
             options["referenceImagePath"] = str(reference_path)

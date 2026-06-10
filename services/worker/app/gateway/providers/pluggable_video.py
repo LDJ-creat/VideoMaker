@@ -2,10 +2,11 @@
 
 Drivers:
 - ``dashscope_wan``: DashScope Wan video-synthesis + task poll (auto when base URL contains ``dashscope``)
+- ``volcengine_seeddance``: Volcengine Ark SeedDance 2.0 (auto when base URL contains ``volces.com``)
 - ``generic_job``: ``POST /videos`` job API for custom gateways
 
 Environment:
-- ``VIDEO_DRIVER=dashscope_wan|generic_job`` (optional override)
+- ``VIDEO_DRIVER=dashscope_wan|volcengine_seeddance|generic_job`` (optional override)
 - ``VIDEO_MAX_POLL_SEC`` async poll timeout
 
 ``generic_job`` body includes ``prompt`` plus options such as ``mode``, ``referenceImagePath``, ``durationSec``.
@@ -207,6 +208,17 @@ def create_video_provider(
             config,
             client=client,
             poll_interval_sec=max(poll_interval_sec, 15.0),
+            max_poll_sec=resolved_poll_sec,
+        )
+    if resolved == "volcengine_seeddance":
+        from app.gateway.providers.volcengine_seeddance_video import (
+            VolcengineSeedDanceVideoProvider,
+        )
+
+        return VolcengineSeedDanceVideoProvider(
+            config,
+            client=client,
+            poll_interval_sec=max(poll_interval_sec, 10.0),
             max_poll_sec=resolved_poll_sec,
         )
     if resolved == "generic_job":
