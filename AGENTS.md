@@ -128,6 +128,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-05-sample-analysis-depth-plan.md` | SampleFacts (audioProfile + batch vision), multi-pass structure v2, warnings checklist, knowledge/promote gate | `docs/demos/sample-analysis-depth-e2e-checklist.md` |
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
+| `2026-06-10-revise-cost-optimization-plan.md` | NL revise 三档降本：`packaging_scene_patch` in_place、scoped `material_regen`、packaging-only fork 保留素材 | `docs/demos/nl-revise-e2e-checklist.md` |
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
@@ -282,7 +283,7 @@ POST /api/generations/{generation_id}/script-draft/nl-revise
 GET /api/generations/{generation_id}/agent-runs
 ```
 
-**NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`, e.g. subtitle patch) update the same `generationId`; high-cost plans fork a new generation. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
+**NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`: `subtitle_patch`, `timeline_scene_patch`, `packaging_scene_patch`) update the same `generationId`. Scoped `material_regen` forks a new generation but only invalidates/regenerates `affectedSlotIds`. Packaging-only fork (`packaging_agent`, `materialScope=none`) preserves `generated/` and skips AIGC. Full storyboard/hook forks still regenerate all materials. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
 
 Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. After master approval, worker runs **preview TTS** (`preview/master.wav`) + Whisper alignment → `narration-preview.json` with per-slot `sceneTiming` before `storyboard_from_master`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Material stage reuses preview wav when `contentHash` matches. Fork revise re-runs skip human review gates (`human_review_mode=false`).
 

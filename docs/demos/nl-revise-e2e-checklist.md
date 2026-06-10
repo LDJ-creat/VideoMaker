@@ -14,6 +14,24 @@
 - [ ] Plan shows `就地更新` + `subtitle_patch`
 - [ ] After execute, same `generationId`; new MP4 when render completes
 
+## Tier 1 — packaging scene patch (in_place)
+
+- [ ] Instruction: `最后一镜标题卡背景改成深色`
+- [ ] Plan shows `就地更新` + `packaging_scene_patch` + affected slot/scene ids
+- [ ] Same `generationId`; `generated/` unchanged; MP4 re-rendered
+
+## Tier 2 — scoped material regen (medium fork)
+
+- [ ] Instruction: `最后一镜画面背景换成深色合成`
+- [ ] Plan shows `Fork 新版本` + `material_regen` + `affectedSlotIds`
+- [ ] New `generationId`; only targeted slot material tasks run
+
+## Tier 3 — packaging-only fork (medium-low)
+
+- [ ] Instruction: `全片包装改成 minimal`
+- [ ] Plan shows `Fork 新版本` + `packaging_agent`; no full AIGC regen
+- [ ] New `generationId`; `packaging_designer` + timeline + render only
+
 ## Fork revise (high cost)
 
 - [ ] Instruction: `开头更抓人`
