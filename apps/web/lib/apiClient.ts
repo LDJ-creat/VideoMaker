@@ -743,6 +743,18 @@ export async function getGeneration(
   return apiFetch(`/api/generations/${generationId}`);
 }
 
+export type GenerationMigrationSnapshot = {
+  slotMatches: import("@videomaker/contracts").SlotMatch[];
+  gapReport: import("@videomaker/contracts").GapReport | null;
+  completionActions: import("@videomaker/contracts").CompletionAction[];
+};
+
+export async function getGenerationMigrationSnapshot(
+  generationId: string,
+): Promise<ApiResult<GenerationMigrationSnapshot>> {
+  return apiFetch(`/api/generations/${generationId}/migration-snapshot`);
+}
+
 export async function getLatestGenerations(
   projectId: string,
 ): Promise<ApiResult<LatestGenerationsResponse>> {

@@ -1,5 +1,6 @@
 import type { CompletionAction, GapReport, SlotMatch } from "@videomaker/contracts";
 
+import { getGenerationMigrationSnapshot } from "@/lib/apiClient";
 import { projectFileMediaUrl } from "@/lib/artifactUrl";
 
 export type GenerationMigrationArtifacts = {
@@ -18,7 +19,7 @@ async function fetchJsonFile<T>(url: string): Promise<T | null> {
   }
 }
 
-export async function fetchGenerationMigrationArtifacts(
+async function fetchGenerationMigrationArtifactsFromFiles(
   projectId: string,
   generationId: string,
 ): Promise<GenerationMigrationArtifacts> {
@@ -46,4 +47,20 @@ export async function fetchGenerationMigrationArtifacts(
     gapReport,
     completionActions: plan?.completionActions ?? [],
   };
+}
+
+export async function fetchGenerationMigrationArtifacts(
+  projectId: string,
+  generationId: string,
+): Promise<GenerationMigrationArtifacts> {
+  try {
+    const { data } = await getGenerationMigrationSnapshot(generationId);
+    return {
+      slotMatches: data.slotMatches ?? [],
+      gapReport: data.gapReport ?? null,
+      completionActions: data.completionActions ?? [],
+    };
+  } catch {
+    return fetchGenerationMigrationArtifactsFromFiles(projectId, generationId);
+  }
 }

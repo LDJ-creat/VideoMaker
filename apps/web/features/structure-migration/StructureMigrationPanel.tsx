@@ -43,6 +43,7 @@ type StructureMigrationPanelProps = {
   defaultExpanded?: boolean;
   collapsible?: boolean;
   compact?: boolean;
+  activeSlotId?: string | null;
   "data-testid"?: string;
 };
 
@@ -53,6 +54,7 @@ export function StructureMigrationPanel({
   defaultExpanded = true,
   collapsible = true,
   compact = false,
+  activeSlotId = null,
   "data-testid": testId = "structure-migration-panel",
 }: StructureMigrationPanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -86,12 +88,22 @@ export function StructureMigrationPanel({
       </CardHeader>
 
       {(!collapsible || expanded) && (
-        <CardContent className={cn("space-y-3", compact && "pt-0")}>
+        <CardContent
+          className={cn(
+            "space-y-3",
+            compact && "min-h-[28rem] pt-0",
+          )}
+        >
           {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">暂无结构槽位数据。</p>
           ) : (
             rows.map((row, index) => (
-              <SlotMigrationRowCard key={row.slotId} row={row} index={index} />
+              <SlotMigrationRowCard
+                key={row.slotId}
+                row={row}
+                index={index}
+                isActive={activeSlotId != null && row.slotId === activeSlotId}
+              />
             ))
           )}
         </CardContent>
@@ -103,14 +115,20 @@ export function StructureMigrationPanel({
 function SlotMigrationRowCard({
   row,
   index,
+  isActive = false,
 }: {
   row: SlotMigrationRow;
   index: number;
+  isActive?: boolean;
 }) {
   return (
     <article
-      className="rounded-lg border border-border/80 bg-card/40 p-4"
+      className={cn(
+        "rounded-lg border border-border/80 bg-card/40 p-4",
+        isActive && "border-primary/50 ring-1 ring-primary/30",
+      )}
       data-testid={`slot-migration-row-${row.slotId}`}
+      aria-current={isActive ? "step" : undefined}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">

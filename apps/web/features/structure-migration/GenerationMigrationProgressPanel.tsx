@@ -1,15 +1,18 @@
 "use client";
 
-import type { TaskEvent } from "@videomaker/contracts";
+import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useState } from "react";
 
 import { StructureMigrationPanel } from "@/features/structure-migration/StructureMigrationPanel";
 import { buildSlotMigrationRows } from "@/features/structure-migration/buildSlotMigrationRows";
-import { isGenerationMigrationStage } from "@/features/structure-migration/generationMigrationStages";
+import {
+  isGenerationMigrationStage,
+} from "@/features/structure-migration/generationMigrationStages";
 import {
   useGenerationMigrationArtifacts,
   type MigrationProgressContext,
 } from "@/features/structure-migration/useGenerationMigrationArtifacts";
+import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 import { cn } from "@/lib/utils";
 
 type GenerationMigrationProgressPanelProps = {
@@ -18,27 +21,75 @@ type GenerationMigrationProgressPanelProps = {
   defaultExpanded?: boolean;
 };
 
+const ACTIVE_MIGRATION_TASK_STATUSES = new Set<TaskStatus>([
+  "running",
+  "retrying",
+  "queued",
+  "awaiting_review",
+]);
+
+function shouldShowMigrationShell(event: TaskEvent | null): boolean {
+  if (!event) return false;
+  if (ACTIVE_MIGRATION_TASK_STATUSES.has(event.status)) return true;
+  return isGenerationMigrationStage(event.stage);
+}
+
 export function GenerationMigrationProgressPanel({
   context,
   event,
   defaultExpanded = true,
 }: GenerationMigrationProgressPanelProps) {
-  const { artifacts, progressGroup, loading } = useGenerationMigrationArtifacts({
+  const { artifacts, progressGroup, syncing } = useGenerationMigrationArtifacts({
     projectId: context.projectId,
     generationId: context.generationId,
     event,
   });
 
-  if (!event || !isGenerationMigrationStage(event.stage)) {
+  if (!event || !shouldShowMigrationShell(event)) {
     return null;
   }
 
+  const isPreMigration = !isGenerationMigrationStage(event.stage);
+  const materialProgress = parseTaskMaterialProgress(event.message);
+  const activeSlotId =
+    progressGroup === "completing" ? materialProgress.slotId : null;
+
   if (!context.structure) {
     return (
-      <MigrationProgressShell defaultExpanded={defaultExpanded} loading={loading}>
+      <MigrationProgressShell
+        defaultExpanded={defaultExpanded}
+        syncing={syncing}
+        variantLabel={context.variantLabel}
+      >
         <p className="text-sm text-muted-foreground">
           等待样例结构加载…完成样例分析后将显示槽位映射与补全进度。
         </p>
+      </MigrationProgressShell>
+    );
+  }
+
+  if (isPreMigration) {
+    return (
+      <MigrationProgressShell
+        defaultExpanded={defaultExpanded}
+        syncing={syncing}
+        variantLabel={context.variantLabel}
+      >
+        <div className="space-y-3" data-testid="migration-pre-stage-shell">
+          <p className="text-sm text-muted-foreground">
+            {event.stage === "analyzing_assets"
+              ? "等待进入槽位匹配…资产理解完成后将显示结构迁移表。"
+              : "等待进入结构迁移阶段…"}
+          </p>
+          <div className="space-y-2" aria-hidden>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-10 animate-pulse rounded-md bg-muted/60"
+              />
+            ))}
+          </div>
+        </div>
       </MigrationProgressShell>
     );
   }
@@ -65,16 +116,25 @@ export function GenerationMigrationProgressPanel({
   return (
     <MigrationProgressShell
       defaultExpanded={defaultExpanded}
-      loading={loading}
+      syncing={syncing}
       variantLabel={context.variantLabel}
     >
       <p className="text-sm text-muted-foreground">{stageHint}</p>
+      {materialProgress.summary ? (
+        <p
+          className="text-xs font-medium text-foreground/90"
+          data-testid="migration-active-action"
+        >
+          {materialProgress.summary}
+        </p>
+      ) : null}
       <StructureMigrationPanel
         rows={rows}
         title="槽位映射与补全"
         defaultExpanded
         collapsible={false}
         compact
+        activeSlotId={activeSlotId}
         data-testid="generation-migration-progress-panel"
       />
     </MigrationProgressShell>
@@ -84,33 +144,38 @@ export function GenerationMigrationProgressPanel({
 function MigrationProgressShell({
   children,
   defaultExpanded,
-  loading,
+  syncing,
   variantLabel,
 }: {
   children: React.ReactNode;
   defaultExpanded: boolean;
-  loading?: boolean;
+  syncing?: boolean;
   variantLabel?: string;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
     <div
-      className="relative mt-1 border-l-2 border-primary/30 pl-4"
+      className="relative mt-1 min-h-[120px] border-l-2 border-primary/30 pl-4"
       data-testid="generation-migration-progress-shell"
     >
       <span
         className="absolute -left-[5px] top-0 h-2 w-2 rounded-full bg-primary"
         aria-hidden
       />
+      {syncing ? (
+        <span
+          className="absolute right-0 top-0 h-2 w-2 animate-pulse rounded-full bg-primary/70"
+          title="同步中"
+          aria-label="同步中"
+          data-testid="migration-sync-indicator"
+        />
+      ) : null}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium">结构迁移进度</p>
           {variantLabel ? (
             <span className="text-xs text-muted-foreground">{variantLabel}</span>
-          ) : null}
-          {loading ? (
-            <span className="text-xs text-muted-foreground">同步中…</span>
           ) : null}
         </div>
         <button
