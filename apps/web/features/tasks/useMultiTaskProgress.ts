@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
 import { recordDevProgressMetric } from "@/lib/devProgressMetrics";
-import { preferTaskError } from "@/lib/taskEventMerge";
+import { preferTaskError, shouldAcceptTaskEventUpdate, taskEventEquals } from "@/lib/taskEventMerge";
 import { isTaskTerminalStatus } from "@/lib/taskStatusLabels";
 
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
@@ -203,17 +203,13 @@ export function useMultiTaskProgress({
 
   const applyEvent = useCallback((next: TaskEvent) => {
     const previous = eventsRef.current[next.taskId] ?? null;
-    if (
-      previous &&
-      new Date(next.updatedAt).getTime() < new Date(previous.updatedAt).getTime() &&
-      !(
-        isTaskTerminalStatus(next.status) &&
-        !isTaskTerminalStatus(previous.status)
-      )
-    ) {
+    if (!shouldAcceptTaskEventUpdate(previous, next)) {
       return;
     }
     const mergedEvent = preferTaskError(previous, next);
+    if (previous && taskEventEquals(previous, mergedEvent)) {
+      return;
+    }
     const merged = { ...eventsRef.current, [next.taskId]: mergedEvent };
     eventsRef.current = merged;
     setEvents(merged);

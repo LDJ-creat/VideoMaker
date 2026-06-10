@@ -84,6 +84,46 @@ describe("useTaskProgress", () => {
     expect(apiClient.getTask).toHaveBeenCalled();
   });
 
+  it("ignores stale failed snapshots replayed after running", async () => {
+    vi.mocked(apiClient.getTask).mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-demo-001",
+        status: "running",
+        progress: 55,
+        message: "Direct multimodal structure extraction",
+        updatedAt: "2026-06-10T12:10:00.000Z",
+      },
+      meta: { dataSource: "api" },
+    });
+
+    const { result } = renderHook(() =>
+      useTaskProgress({ taskId: "task-demo-001" }),
+    );
+
+    await waitFor(() => expect(result.current.event?.status).toBe("running"));
+
+    const source = MockEventSource.instances[0]!;
+    act(() => {
+      source.emitTask({
+        ...fixtureTaskEvent,
+        taskId: "task-demo-001",
+        status: "failed",
+        progress: 72,
+        message: "Direct multimodal structure extraction failed",
+        updatedAt: "2026-06-10T12:09:00.000Z",
+        error: {
+          code: "direct_multimodal_failed",
+          message: "Server disconnected without sending a response.",
+          retryable: true,
+        },
+      });
+    });
+
+    expect(result.current.event?.status).toBe("running");
+    expect(result.current.event?.error).toBeUndefined();
+  });
+
   it("stops polling on terminal status", async () => {
     vi.mocked(apiClient.getTask).mockResolvedValue({
       data: { ...fixtureTaskEvent, status: "succeeded", progress: 100 },

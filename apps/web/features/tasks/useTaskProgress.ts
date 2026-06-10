@@ -4,7 +4,11 @@ import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
-import { preferTaskError } from "@/lib/taskEventMerge";
+import {
+  preferTaskError,
+  shouldAcceptTaskEventUpdate,
+  taskEventEquals,
+} from "@/lib/taskEventMerge";
 
 const SSE_FAILURE_THRESHOLD = 3;
 const POLL_INTERVAL_MS = 3000;
@@ -78,7 +82,16 @@ export function useTaskProgress({
 
   const applyEvent = useCallback(
     (next: TaskEvent) => {
-      setEvent((previous) => preferTaskError(previous, next));
+      setEvent((previous) => {
+        if (!shouldAcceptTaskEventUpdate(previous, next)) {
+          return previous;
+        }
+        const merged = preferTaskError(previous, next);
+        if (previous && taskEventEquals(previous, merged)) {
+          return previous;
+        }
+        return merged;
+      });
       setError(null);
       handleTerminal(next);
     },
@@ -108,6 +121,12 @@ export function useTaskProgress({
     failuresRef.current = 0;
     setSseFailureCount(0);
     setMode("sse");
+    setEvent((previous) => {
+      if (previous && isTerminal(previous.status)) {
+        return null;
+      }
+      return previous;
+    });
     void pollOnce();
 
     const source = new EventSource(getTaskEventsUrl(taskId));

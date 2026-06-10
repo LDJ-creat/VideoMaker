@@ -305,4 +305,29 @@ describe("useMultiTaskProgress", () => {
     expect(firstSource.closed).toBe(true);
     expect(MockEventSource.instances[1]?.url).toContain("task-a");
   });
+
+  it("ignores duplicate SSE snapshots after preferTaskError merge", async () => {
+    const { result } = renderHook(() =>
+      useMultiTaskProgress({ tasks: [{ taskId: "task-a" }] }),
+    );
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const source = MockEventSource.instances[0]!;
+    const snapshot = {
+      ...fixtureTaskEvent,
+      taskId: "task-a",
+      status: "running",
+      progress: 55,
+      updatedAt: "2026-06-10T12:00:55.000Z",
+    };
+
+    source.emitTask(snapshot);
+    await waitFor(() => expect(result.current.events["task-a"]?.progress).toBe(55));
+    const eventsAfterFirst = result.current.events;
+
+    source.emitTask({ ...snapshot });
+    await act(async () => {});
+
+    expect(result.current.events).toBe(eventsAfterFirst);
+  });
 });

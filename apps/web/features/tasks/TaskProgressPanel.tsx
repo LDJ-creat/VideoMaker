@@ -70,7 +70,10 @@ export function TaskProgressPanel({
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [lastFailedSummary, setLastFailedSummary] = useState<string | null>(null);
   const displayProgress = event?.progress ?? 0;
-  const formattedError = formatTaskError(event?.error);
+  const formattedError =
+    event?.status === "failed" || event?.status === "cancelled"
+      ? formatTaskError(event?.error)
+      : null;
   const assetRoute = inferAssetUnderstandingRouteFromEvent(event);
   const materialProgress = parseTaskMaterialProgress(event?.message);
 
