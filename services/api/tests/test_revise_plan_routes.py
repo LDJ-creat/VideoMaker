@@ -75,6 +75,22 @@ def test_plan_revise_returns_draft_plan(
     assert session_path.is_file()
 
 
+def test_plan_revise_rejects_unparseable_instruction(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json={"instruction": "把背景音乐换成更轻快的"},
+    )
+    assert response.status_code == 400
+    assert "Could not parse any edit intents from instruction" in response.json()["detail"]
+
+
 def test_execute_in_place_revise_patch(
     revise_client: TestClient,
     app_paths,

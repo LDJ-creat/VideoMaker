@@ -75,6 +75,54 @@ def _write_script_draft(
     )
 
 
+def test_put_master_clears_narration_preview(script_client) -> None:
+    client, storage_root, project_store, task_events, _ = script_client
+    project = client.post("/api/projects", json={"name": "ClearPreview"}).json()
+    task = task_events.create_task(
+        project_id=project["id"],
+        stage="awaiting_master_review",
+        message="paused",
+    )
+    created = project_store.create_generation(
+        project_id=project["id"],
+        task_id=task["taskId"],
+        status="awaiting_review",
+        variant="high_click",
+    )
+    generation_id = created["id"]
+    _write_script_draft(storage_root, project_id=project["id"], generation_id=generation_id)
+    generation_root = storage_root / "projects" / project["id"] / "generations" / generation_id
+    preview = {
+        "contentHash": "sha256:deadbeef",
+        "durationSec": 8.5,
+        "wavUri": "preview/master.wav",
+        "alignmentMethod": "whisper",
+        "sceneTiming": [{"slotId": "slot-1", "startSec": 0.0, "endSec": 8.5}],
+        "warnings": [],
+    }
+    (generation_root / "narration-preview.json").write_text(
+        json.dumps(preview, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    preview_wav = generation_root / "preview" / "master.wav"
+    preview_wav.parent.mkdir(parents=True, exist_ok=True)
+    preview_wav.write_bytes(b"RIFF")
+    draft_path = generation_root / "script-draft.json"
+    draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    draft["narrationPreviewDurationSec"] = 8.5
+    draft_path.write_text(json.dumps(draft, ensure_ascii=False), encoding="utf-8")
+
+    response = client.put(
+        f"/api/generations/{generation_id}/script-draft",
+        json={"masterNarration": "主口播已修改"},
+    )
+    assert response.status_code == 200
+    body = response.json()["draft"]
+    assert "narrationPreviewDurationSec" not in body
+    assert not (generation_root / "narration-preview.json").is_file()
+    assert not preview_wav.is_file()
+
+
 def test_get_and_update_script_draft(script_client) -> None:
     client, storage_root, project_store, task_events, _ = script_client
     project = client.post("/api/projects", json={"name": "ScriptDraft"}).json()

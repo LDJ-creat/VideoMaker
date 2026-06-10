@@ -10,15 +10,22 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
+def generation_root(storage_root: Path, project_id: str, generation_id: str) -> Path:
+    return storage_root / "projects" / project_id / "generations" / generation_id
+
+
+def clear_narration_preview_artifacts(storage_root: Path, project_id: str, generation_id: str) -> None:
+    root = generation_root(storage_root, project_id, generation_id)
+    preview_json = root / "narration-preview.json"
+    preview_wav = root / "preview" / "master.wav"
+    if preview_json.is_file():
+        preview_json.unlink()
+    if preview_wav.is_file():
+        preview_wav.unlink()
+
+
 def script_draft_path(storage_root: Path, project_id: str, generation_id: str) -> Path:
-    return (
-        storage_root
-        / "projects"
-        / project_id
-        / "generations"
-        / generation_id
-        / "script-draft.json"
-    )
+    return generation_root(storage_root, project_id, generation_id) / "script-draft.json"
 
 
 def load_script_draft(storage_root: Path, project_id: str, generation_id: str) -> dict[str, Any]:

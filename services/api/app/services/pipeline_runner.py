@@ -1083,6 +1083,18 @@ class PipelineRunner:
                 session=session,
                 emit=self._make_emit(task_id),
             )
+            if result.get("ok") is False:
+                final_event = result.get("finalEvent")
+                error = final_event.get("error") if isinstance(final_event, dict) else None
+                message = (
+                    str(error.get("message"))
+                    if isinstance(error, dict) and error.get("message")
+                    else str(result.get("error") or "Could not parse any edit intents from instruction")
+                )
+                try:
+                    return PipelineRunner.build_planner_output_from_rules(instruction, source_plan)
+                except ValueError as exc:
+                    raise ValueError(message or str(exc)) from exc
             planner_output = result.get("plannerOutput")
             if isinstance(planner_output, dict):
                 return planner_output

@@ -236,6 +236,11 @@ def update_script_draft(
     if payload.masterNarration is not None:
         if draft.get("masterNarrationStatus") == "approved":
             raise HTTPException(status_code=400, detail="Master narration already approved")
+        if str(payload.masterNarration).strip() != str(draft.get("masterNarration") or "").strip():
+            from app.services.script_draft_service import clear_narration_preview_artifacts
+
+            clear_narration_preview_artifacts(storage_root, project_id, generation_id)
+            draft.pop("narrationPreviewDurationSec", None)
         draft["masterNarration"] = payload.masterNarration
     if payload.storyboard is not None:
         if draft.get("storyboardStatus") == "approved":
@@ -497,6 +502,8 @@ def plan_revise_generation(
         )
         runner._validate_edit_intents(list(planner_output.get("intents") or []))  # noqa: SLF001
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     turn_id = str(uuid.uuid4())
