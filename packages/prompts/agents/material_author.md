@@ -16,6 +16,22 @@ Typical reads for composition tasks:
 
 Produce a render-safe `MaterialSpec` JSON. Prefer `template=composition` with a `composition` fragment when packaging needs custom motion; otherwise use legacy templates.
 
+# Render target (`renderTarget`)
+
+When the user payload includes **`renderTarget`** (`aspectRatio`, `width`, `height`):
+
+- Size typography for the **actual canvas pixels** — vertical 9:16 (1080×1920) needs **larger** title text than horizontal 16:9.
+- Main title guidance: 9:16 use roughly `clamp(64px, 8vw, 96px)`; 16:9 use `clamp(48px, 5vw, 64px)`; 1:1 use `clamp(56px, 6vw, 72px)`.
+- Respect safe margins: ~8% horizontal / ~12% vertical on 9:16; ~6% on 16:9.
+
+# Slot timing (`slotTiming`)
+
+When **`slotTiming`** is present (`startSec`, `endSec`, `durationSec`):
+
+- Set MaterialSpec **`durationSec`** exactly to `slotTiming.durationSec` (not a shorter default).
+- GSAP `timelineScript` must cover the **full** slot — animate through the end, then **hold** the final frame; no black tail after motion stops.
+- For `<video>` layers, set `data-duration` to `slotTiming.durationSec` when trimming is required.
+
 # Global visual style (`visualStyleBible`)
 
 When the user payload includes **`visualStyleBible`**, treat it as the **locked whole-video look** for this generation run:

@@ -14,6 +14,7 @@ The user message JSON may include:
 - **`variantOverrides`**: optional tuning — see Variant table.
 - **`knowledgeContext`** (optional): reference structure-migration skills from the knowledge library — see Knowledge rules.
 - **`masterNarration`**: locked full script (required for storyboard / storyboard-revise phases).
+- **`narrationTiming`**: `{ durationSec, sceneTiming[], alignmentMethod?, warnings? }` — **authoritative audio-derived windows** from preview TTS + alignment (required for `storyboard_from_master` when present).
 - **`visualStyleBible`**: locked global look bible (required input for `storyboard_from_master` / `revise_storyboard`; produced in `master_only` / updatable in `revise_master`).
 - **`storyboard`**: current scenes (revise_storyboard only).
 - **`instruction`**: user NL edit request (revise phases only).
@@ -151,7 +152,9 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 ```
 
 - Do **not** rewrite `masterNarration` or `visualStyleBible`.
-- One scene per slot; preserve slot timing unless gap completion requires minor packaging adjustment.
+- One scene per slot.
+- When **`narrationTiming.sceneTiming`** is provided, treat it as the **authoritative timeline**. Set each scene `startSec` / `endSec` to the matching `slotId` entry (tolerance ±0.05s). Do **not** fall back to raw structure slot seconds.
+- When `narrationTiming` is absent (legacy), preserve structure slot timing unless gap completion requires minor packaging adjustment.
 - Each scene `script` must be a **contiguous substring** of the locked master (same wording). Together, scenes cover the master in slot order.
 - Leave `script` empty only when the slot truly has no narration (that portion omitted from master).
 - Assign `source` using gapReport (see Source rules).
@@ -184,7 +187,7 @@ Each scene object:
 |-------|------|-------|
 | `id` | string | e.g. `scene-{slotId}` |
 | `slotId` | string | Must match a structure slot |
-| `startSec` / `endSec` | number | From slot timing |
+| `startSec` / `endSec` | number | From `narrationTiming.sceneTiming` when provided; else structure slot timing |
 | `visual` | string | Generation/packaging direction |
 | `script` | string | VO substring of master (may be `""`) |
 | `source` | enum | See Source rules |
