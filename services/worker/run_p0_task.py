@@ -44,6 +44,8 @@ def _emit_factory(api_base_url: str, task_id: str):
 def _default_stage(mode: str) -> str:
     if mode == "analyze_sample":
         return "extracting_metadata"
+    if mode == "render_knowledge_draft":
+        return "rendering_knowledge_draft"
     if mode == "parse_edit_intent":
         return "parsing_edit_intent"
     if mode == "revise_script_draft":
@@ -119,6 +121,13 @@ def main() -> int:
                 cookies_path=payload.get("cookiesPath"),
                 emit=emit,
                 resume=resume,
+            )
+        elif mode == "render_knowledge_draft":
+            result = pipeline.render_knowledge_draft(
+                project_id=project_id,
+                task_id=task_id,
+                sample_id=str(payload["sampleId"]),
+                emit=emit,
             )
         elif mode == "run_generation":
             result = pipeline.run_generation(

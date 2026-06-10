@@ -7,12 +7,13 @@ import pytest
 
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
+from app.gateway.providers.base import GatewayError
 from app.knowledge.deposit import deposit_knowledge_draft
 from app.knowledge.skill_writer import write_knowledge_draft
 from app.observability.sink import build_observability_sink
+from app.pipelines.p0_demo_pipeline import P0DemoPipeline
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
-
 
 def _structure() -> dict:
     return json.loads(
@@ -92,3 +93,50 @@ def test_deposit_knowledge_draft(tmp_path: Path) -> None:
     draft = tmp_path / "projects" / "project-1" / "knowledge" / "drafts" / "sample-1" / "structure-skill.md"
     assert draft.is_file()
     assert result["uris"]["skillMdUri"]
+
+
+def test_render_knowledge_draft_fails_when_agent_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    pipeline = P0DemoPipeline(
+        tmp_path,
+        llm=LLMTool(fixture_mode=True, fixtures=fixtures),
+    )
+    analysis_root = tmp_path / "projects" / "project-1" / "samples" / "sample-1" / "analysis"
+    analysis_root.mkdir(parents=True, exist_ok=True)
+    structure = _structure()
+    (analysis_root / "video-structure.json").write_text(
+        json.dumps(structure, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (analysis_root / "sample-analysis.json").write_text(
+        json.dumps({"metadata": {"durationSec": 30}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def _raise_invalid_json(*_args, **_kwargs):
+        raise GatewayError(code="invalid_json", message="Model output is not valid JSON", retryable=False)
+
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.deposit_knowledge_draft",
+        _raise_invalid_json,
+    )
+
+    events: list[dict] = []
+
+    def emit(**kwargs):
+        events.append(kwargs)
+        return kwargs
+
+    result = pipeline.render_knowledge_draft(
+        project_id="project-1",
+        task_id="task-draft",
+        sample_id="sample-1",
+        emit=emit,
+    )
+
+    assert result["ok"] is False
+    assert result["finalEvent"]["stage"] == "rendering_knowledge_draft"
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["error"]["code"] == "invalid_json"
+    draft = tmp_path / "projects" / "project-1" / "knowledge" / "drafts" / "sample-1"
+    assert not (draft / "structure-skill.md").is_file()

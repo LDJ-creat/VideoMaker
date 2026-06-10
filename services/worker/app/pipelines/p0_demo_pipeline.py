@@ -55,6 +55,7 @@ from app.tools.image_gen_tool import ToolError
 from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.intent_applier import apply_intents_to_context
 from app.pipelines.revise_pipeline import (
+    is_revise_generation,
     load_revise_context,
     parse_instruction_intents,
     seed_revise_generation,
@@ -577,32 +578,22 @@ class P0DemoPipeline:
                 progress=DIRECT_KNOWLEDGE_PROGRESS,
                 message="(resumed) knowledge draft already rendered",
             )
-        elif structure is not None:
-            emit(
-                status="running",
-                stage="rendering_knowledge_draft",
-                progress=DIRECT_KNOWLEDGE_PROGRESS,
-                message="Rendering knowledge skill draft",
+        else:
+            knowledge_draft, draft_failure = self._try_render_knowledge_draft(
+                runner=runner,
+                project_id=project_id,
+                sample_id=sample_id,
+                structure=structure,
+                sample_analysis=sample_analysis,
+                context=context,
+                checkpoint=checkpoint,
+                checkpoint_path=checkpoint_path,
+                emit=emit,
             )
-            try:
-                knowledge_draft = deposit_knowledge_draft(
-                    runner,
-                    storage_root=self._storage_root,
-                    project_id=project_id,
-                    sample_id=sample_id,
-                    structure=structure,
-                    sample_analysis=sample_analysis,
-                    context=context,
-                )
-                checkpoint.mark_stage_complete("rendering_knowledge_draft")
-                checkpoint.save(checkpoint_path)
-            except Exception as exc:
-                emit(
-                    status="running",
-                    stage="rendering_knowledge_draft",
-                    progress=DIRECT_KNOWLEDGE_PROGRESS,
-                    message=f"Knowledge draft skipped: {exc}",
-                )
+            if draft_failure is not None:
+                draft_failure["sampleAnalysis"] = sample_analysis
+                draft_failure["resumeSummary"] = sample_run_result.get("resumeSummary")
+                return draft_failure
 
         emit(
             status="succeeded",
@@ -618,6 +609,155 @@ class P0DemoPipeline:
             "knowledgeDraft": knowledge_draft,
             "resumeSummary": sample_run_result.get("resumeSummary"),
         }
+
+    def render_knowledge_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        sample_id: str,
+        emit: EmitFn,
+    ) -> dict[str, Any]:
+        emit(
+            status="running",
+            stage="rendering_knowledge_draft",
+            progress=5,
+            message="Starting knowledge draft render",
+        )
+        project_root = self._storage_root / "projects" / project_id
+        analysis_root = analysis_artifact_root(project_root, sample_id)
+        checkpoint_path = analysis_root / "checkpoint.json"
+        checkpoint = AnalysisCheckpoint.load(checkpoint_path)
+        if not checkpoint.sampleId:
+            checkpoint.sampleId = sample_id
+
+        structure_path = analysis_root / "video-structure.json"
+        if not structure_path.is_file():
+            error = {
+                "code": "structure_missing",
+                "message": "Sample has no video structure; run sample analysis first",
+                "retryable": False,
+            }
+            emit(
+                status="failed",
+                stage="rendering_knowledge_draft",
+                progress=0,
+                message="Video structure not found",
+                error=error,
+            )
+            return {
+                "ok": False,
+                "error": "structure missing",
+                "finalEvent": {
+                    "status": "failed",
+                    "stage": "rendering_knowledge_draft",
+                    "progress": 0,
+                    "message": "Video structure not found",
+                    "error": error,
+                },
+            }
+
+        structure = json.loads(structure_path.read_text(encoding="utf-8"))
+        sample_analysis = _load_sample_analysis(
+            self._storage_root,
+            project_id,
+            sample_id,
+            required=False,
+        )
+        context = TaskContext(
+            project_id=project_id,
+            task_id=task_id,
+            storage_root=self._storage_root,
+        )
+        runner = self._build_runner()
+
+        if "rendering_knowledge_draft" in checkpoint.completedStages:
+            checkpoint.completedStages = [
+                stage
+                for stage in checkpoint.completedStages
+                if stage != "rendering_knowledge_draft"
+            ]
+            checkpoint.save(checkpoint_path)
+
+        knowledge_draft, draft_failure = self._try_render_knowledge_draft(
+            runner=runner,
+            project_id=project_id,
+            sample_id=sample_id,
+            structure=structure,
+            sample_analysis=sample_analysis,
+            context=context,
+            checkpoint=checkpoint,
+            checkpoint_path=checkpoint_path,
+            emit=emit,
+        )
+        if draft_failure is not None:
+            return draft_failure
+
+        emit(
+            status="succeeded",
+            stage="completed",
+            progress=100,
+            message="Knowledge draft rendered",
+        )
+        return {
+            "ok": True,
+            "structure": structure,
+            "knowledgeDraft": knowledge_draft,
+        }
+
+    def _try_render_knowledge_draft(
+        self,
+        *,
+        runner: AgentRunner,
+        project_id: str,
+        sample_id: str,
+        structure: dict[str, Any],
+        sample_analysis: dict[str, Any] | None,
+        context: TaskContext,
+        checkpoint: AnalysisCheckpoint,
+        checkpoint_path: Path,
+        emit: EmitFn,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        emit(
+            status="running",
+            stage="rendering_knowledge_draft",
+            progress=DIRECT_KNOWLEDGE_PROGRESS,
+            message="Rendering knowledge skill draft",
+        )
+        try:
+            knowledge_draft = deposit_knowledge_draft(
+                runner,
+                storage_root=self._storage_root,
+                project_id=project_id,
+                sample_id=sample_id,
+                structure=structure,
+                sample_analysis=sample_analysis,
+                context=context,
+            )
+            checkpoint.mark_stage_complete("rendering_knowledge_draft")
+            checkpoint.save(checkpoint_path)
+            return knowledge_draft, None
+        except _AGENT_FAILURES as exc:
+            error = tool_error_from_agent_failure(exc)
+            emit(
+                status="failed",
+                stage="rendering_knowledge_draft",
+                progress=DIRECT_KNOWLEDGE_PROGRESS,
+                message="Knowledge draft rendering failed",
+                error=error,
+            )
+            return None, {
+                "ok": False,
+                "error": str(exc),
+                "structure": structure,
+                "finalEvent": {
+                    "status": "failed",
+                    "stage": "rendering_knowledge_draft",
+                    "progress": DIRECT_KNOWLEDGE_PROGRESS,
+                    "message": "Knowledge draft rendering failed",
+                    "error": error,
+                },
+            }
 
     def run_generation(
         self,
@@ -1224,6 +1364,15 @@ class P0DemoPipeline:
                 artifact_refs=list(context.artifact_refs),
             )
 
+        if revise_context is not None and is_revise_generation(generation_root):
+            from app.pipelines.revise_patch_executor import apply_fork_packaging_scene_patches
+
+            plan = apply_fork_packaging_scene_patches(plan, generation_root)
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
         if should_skip_generation_stage("building_timeline", checkpoint, generation_root, resume=resume):
             emit(
                 status="running",
@@ -1472,6 +1621,7 @@ class P0DemoPipeline:
             emit=emit,
             resume=True,
             variant=resolved_variant,
+            human_review_mode=False,
         )
         if result.get("ok"):
             result["intents"] = parsed_intents
@@ -1538,7 +1688,11 @@ class P0DemoPipeline:
                 )
                 intents = list(parsed.get("intents") or [])
                 if intents:
-                    planner_output = build_planner_output_from_intents(intents, instruction)
+                    planner_output = build_planner_output_from_intents(
+                        intents,
+                        instruction,
+                        source_plan=source_plan,
+                    )
             except Exception:
                 planner_output = None
 

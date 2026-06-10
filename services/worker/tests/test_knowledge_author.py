@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.agents.knowledge_author import run_knowledge_author
 from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
+from app.gateway.providers.base import GatewayError
 from app.observability.sink import build_observability_sink
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -35,3 +37,35 @@ def test_run_knowledge_author_fixture(tmp_path: Path) -> None:
     )
     assert output["frontmatter"]["title"]
     assert "## 适用场景" in output["markdown"]
+
+
+def test_run_knowledge_author_retries_invalid_json(tmp_path: Path) -> None:
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True, fixtures=fixtures),
+        prompt_loader=PromptLoader(),
+        observability_sink=build_observability_sink(tmp_path),
+        model_name="fixture",
+    )
+    context = TaskContext(project_id="p1", task_id="t1", storage_root=tmp_path)
+    calls = {"count": 0}
+    original_run = runner.run
+
+    def flaky_run(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise GatewayError(code="invalid_json", message="truncated json", retryable=False)
+        return original_run(*args, **kwargs)
+
+    runner.run = MagicMock(side_effect=flaky_run)  # type: ignore[method-assign]
+
+    output = run_knowledge_author(
+        runner,
+        structure=_structure(),
+        sample_analysis={"metadata": {"durationSec": 30}},
+        context=context,
+    )
+    assert calls["count"] == 2
+    assert output["frontmatter"]["title"]
+    second_inputs = runner.run.call_args_list[1].kwargs["inputs"]
+    assert "jsonRepairHint" in second_inputs
