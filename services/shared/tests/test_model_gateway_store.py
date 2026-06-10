@@ -128,6 +128,24 @@ def test_video_configured_with_base_url(store: ModelGatewayStore) -> None:
     assert status["providers"]["video"]["model"] == "video-model"
 
 
+def test_video_ark_normalizes_driver_and_wan_model(store: ModelGatewayStore) -> None:
+    store.update_providers(
+        {
+            "video": {
+                "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+                "model": "wan2.7-t2v",
+                "driver": "generic_job",
+            }
+        }
+    )
+    status = store.get_status()
+    assert status["providers"]["video"]["driver"] == "volcengine_seeddance"
+    assert status["providers"]["video"]["model"] == "doubao-seedance-2-0-260128"
+    creds = store.get_credentials()
+    assert creds["video"].driver == "volcengine_seeddance"
+    assert creds["video"].model == "doubao-seedance-2-0-260128"
+
+
 def test_video_dashscope_normalizes_driver_and_image_model(store: ModelGatewayStore) -> None:
     store.update_providers(
         {
