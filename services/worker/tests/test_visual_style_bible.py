@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app.pipelines.visual_style_bible import (
+    DEFAULT_VISUAL_AVOID,
     augment_slot_generation_prompt,
     derive_visual_style_bible_from_structure,
     normalize_visual_style_bible,
@@ -11,6 +12,23 @@ from app.pipelines.visual_style_bible import (
 from app.providers.image_generation_provider import _prompt_for_slot
 from app.providers.material_types import MaterialContext
 from app.runtime.video_gen_quota import VideoGenQuota
+
+
+def test_derive_visual_style_bible_includes_default_avoid() -> None:
+    bible = derive_visual_style_bible_from_structure({"slots": [], "metadata": {"width": 1080, "height": 1920}})
+    assert bible["avoid"][: len(DEFAULT_VISUAL_AVOID)] == list(DEFAULT_VISUAL_AVOID)
+
+
+def test_normalize_visual_style_bible_merges_custom_avoid() -> None:
+    bible = normalize_visual_style_bible(
+        {
+            "summary": "冷色科技风",
+            "avoid": ["霓虹描边"],
+        },
+        structure={"id": "vs-3", "slots": []},
+    )
+    assert "霓虹描边" in bible["avoid"]
+    assert "紫粉或蓝紫对角渐变背景" in bible["avoid"]
 
 
 def test_derive_visual_style_bible_from_structure_uses_slot_color_mood() -> None:
@@ -37,10 +55,30 @@ def test_normalize_visual_style_bible_falls_back_when_summary_missing() -> None:
 
 
 def test_augment_slot_generation_prompt_prefixes_bible() -> None:
-    bible = {"summary": "暖色自然光；竖屏9:16", "palette": ["暖白"]}
+    bible = {
+        "summary": "暖色自然光；竖屏9:16",
+        "palette": ["暖白"],
+        "avoid": ["紫粉或蓝紫对角渐变背景"],
+    }
     prompt = augment_slot_generation_prompt("产品特写", bible)
     assert prompt.startswith("Global visual style bible:")
     assert "Slot direction: 产品特写" in prompt
+    assert "Layout quality:" in prompt
+    assert "Avoid: 紫粉" not in prompt
+
+
+def test_normalize_visual_style_bible_preserves_summary_on_extra_fields() -> None:
+    bible = normalize_visual_style_bible(
+        {
+            "summary": "用户定制的电影感暖调",
+            "palette": ["暖白"],
+            "unexpectedField": "drop-me",
+        },
+        structure={"id": "vs-4", "slots": []},
+    )
+    assert bible["summary"] == "用户定制的电影感暖调"
+    assert bible["palette"] == ["暖白"]
+    assert "unexpectedField" not in bible
 
 
 def test_image_generation_prompt_for_slot_includes_bible(tmp_path: Path) -> None:

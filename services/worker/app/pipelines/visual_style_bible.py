@@ -4,6 +4,62 @@ from typing import Any
 
 from app.validation.schema_loader import validate_contract
 
+VISUAL_BIBLE_ALLOWED_KEYS: frozenset[str] = frozenset(
+    {"summary", "palette", "lighting", "cameraGrammar", "mood", "avoid", "derivedFrom"}
+)
+
+DEFAULT_VISUAL_AVOID: tuple[str, ...] = (
+    "紫粉或蓝紫对角渐变背景",
+    "圆角卡片配彩色左边框",
+    "emoji 图标",
+    "假数据与假 logo",
+    "全场相同 fade/blur 入场",
+)
+
+
+def _merge_default_avoid(existing: list[str] | None) -> list[str]:
+    merged = list(DEFAULT_VISUAL_AVOID)
+    for item in existing or []:
+        text = str(item).strip()
+        if text and text not in merged:
+            merged.append(text)
+    return merged[:8]
+
+
+def _sanitize_visual_style_bible(bible: dict[str, Any]) -> dict[str, Any]:
+    cleaned: dict[str, Any] = {}
+    for key in VISUAL_BIBLE_ALLOWED_KEYS:
+        if key not in bible:
+            continue
+        value = bible[key]
+        if key == "summary":
+            text = str(value or "").strip()
+            if text:
+                cleaned["summary"] = text[:800]
+        elif key in {"lighting", "cameraGrammar", "mood"}:
+            text = str(value or "").strip()
+            if text:
+                cleaned[key] = text[:200]
+        elif key == "palette":
+            items = _string_list(value)
+            if items:
+                cleaned["palette"] = items
+        elif key == "avoid":
+            cleaned["avoid"] = _merge_default_avoid(_string_list(value))
+        elif key == "derivedFrom" and isinstance(value, dict):
+            derived = {
+                k: str(v)
+                for k, v in value.items()
+                if k in {"structureId", "knowledgeEntryId"} and str(v).strip()
+            }
+            if derived:
+                cleaned["derivedFrom"] = derived
+    if "summary" not in cleaned:
+        return cleaned
+    if "avoid" not in cleaned:
+        cleaned["avoid"] = _merge_default_avoid(None)
+    return cleaned
+
 
 def _string_list(value: Any, *, max_items: int = 8) -> list[str] | None:
     if isinstance(value, str) and value.strip():
@@ -65,6 +121,7 @@ def derive_visual_style_bible_from_structure(
         derived["knowledgeEntryId"] = knowledge_entry_id
     if derived:
         bible["derivedFrom"] = derived
+    bible["avoid"] = _merge_default_avoid(None)
     return bible
 
 
@@ -82,41 +139,39 @@ def normalize_visual_style_bible(
             knowledge_entry_id=knowledge_entry_id,
         )
 
-    bible: dict[str, Any] = {"summary": summary[:800]}
-    for key in ("palette", "avoid"):
-        items = _string_list(raw.get(key))
-        if items:
-            bible[key] = items
-    for key in ("lighting", "cameraGrammar", "mood"):
-        text = str(raw.get(key) or "").strip()
-        if text:
-            bible[key] = text[:200]
-    derived = raw.get("derivedFrom")
-    if isinstance(derived, dict) and derived:
-        cleaned = {
-            k: str(v)
-            for k, v in derived.items()
-            if k in {"structureId", "knowledgeEntryId"} and str(v).strip()
-        }
-        if cleaned:
-            bible["derivedFrom"] = cleaned
-    elif structure and structure.get("id"):
-        bible.setdefault(
-            "derivedFrom",
-            {"structureId": str(structure["id"])},
-        )
+    bible = _sanitize_visual_style_bible({**raw, "summary": summary})
+    if structure and structure.get("id"):
+        bible.setdefault("derivedFrom", {"structureId": str(structure["id"])})
     if knowledge_entry_id:
         derived_from = dict(bible.get("derivedFrom") or {})
         derived_from["knowledgeEntryId"] = knowledge_entry_id
         bible["derivedFrom"] = derived_from
 
     validation = validate_contract("visual-style-bible", bible)
-    if not validation.valid:
-        return derive_visual_style_bible_from_structure(
-            structure,
-            knowledge_entry_id=knowledge_entry_id,
-        )
-    return bible
+    if validation.valid:
+        return bible
+
+    fallback = derive_visual_style_bible_from_structure(
+        structure,
+        knowledge_entry_id=knowledge_entry_id,
+    )
+    fallback["summary"] = summary[:800]
+    if bible.get("palette"):
+        fallback["palette"] = bible["palette"]
+    if bible.get("lighting"):
+        fallback["lighting"] = bible["lighting"]
+    if bible.get("cameraGrammar"):
+        fallback["cameraGrammar"] = bible["cameraGrammar"]
+    if bible.get("mood"):
+        fallback["mood"] = bible["mood"]
+    fallback["avoid"] = bible.get("avoid") or _merge_default_avoid(None)
+    fallback_validation = validate_contract("visual-style-bible", fallback)
+    if fallback_validation.valid:
+        return fallback
+    return derive_visual_style_bible_from_structure(
+        structure,
+        knowledge_entry_id=knowledge_entry_id,
+    )
 
 
 def knowledge_entry_id_from_context(knowledge_context: dict[str, Any] | None) -> str | None:
@@ -128,7 +183,18 @@ def knowledge_entry_id_from_context(knowledge_context: dict[str, Any] | None) ->
     return None
 
 
-def format_visual_style_bible_for_prompt(bible: dict[str, Any] | None) -> str:
+def _aigc_layout_avoid_hint() -> str:
+    return (
+        "Layout quality: avoid generic AI slide tropes (purple-pink diagonal gradient backgrounds, "
+        "left-border accent cards, emoji icons). Brand accent colors from the palette are OK when used sparingly."
+    )
+
+
+def format_visual_style_bible_for_prompt(
+    bible: dict[str, Any] | None,
+    *,
+    for_aigc: bool = False,
+) -> str:
     if not isinstance(bible, dict) or not str(bible.get("summary") or "").strip():
         return ""
     lines = [f"Global visual style bible: {str(bible['summary']).strip()}"]
@@ -140,14 +206,16 @@ def format_visual_style_bible_for_prompt(bible: dict[str, Any] | None) -> str:
         lines.append(f"Camera: {bible['cameraGrammar']}")
     if bible.get("mood"):
         lines.append(f"Mood: {bible['mood']}")
-    if bible.get("avoid"):
+    if for_aigc:
+        lines.append(_aigc_layout_avoid_hint())
+    elif bible.get("avoid"):
         lines.append(f"Avoid: {', '.join(str(x) for x in bible['avoid'])}")
     lines.append("Keep this look consistent across all generated visuals unless the scene explicitly requires a deliberate shift.")
     return "\n".join(lines)
 
 
 def augment_slot_generation_prompt(base: str, bible: dict[str, Any] | None) -> str:
-    prefix = format_visual_style_bible_for_prompt(bible)
+    prefix = format_visual_style_bible_for_prompt(bible, for_aigc=True)
     body = str(base or "").strip()
     if not prefix:
         return body or "Generate visual content for this slot."

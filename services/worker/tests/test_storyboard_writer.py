@@ -58,6 +58,20 @@ def test_run_storyboard_writer_rejects_deprecated_full_phase() -> None:
         )
 
 
+def test_assert_master_only_merges_default_avoid() -> None:
+    from app.pipelines.visual_style_bible import DEFAULT_VISUAL_AVOID
+
+    structure = {"slots": []}
+    payload = _assert_master_only(
+        {
+            "masterNarration": "夏天出门怕晒黑？",
+            "visualStyleBible": {"summary": "清爽生活感"},
+        },
+        structure=structure,
+    )
+    assert payload["visualStyleBible"]["avoid"][: len(DEFAULT_VISUAL_AVOID)] == list(DEFAULT_VISUAL_AVOID)
+
+
 def test_assert_master_only_preserves_narration_vo_profile() -> None:
     structure = {"slots": []}
     payload = _assert_master_only(
