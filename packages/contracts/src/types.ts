@@ -27,6 +27,8 @@ export type TaskStage =
   | "mapping_slots"
   | "drafting_master_script"
   | "awaiting_master_review"
+  | "synthesizing_narration_preview"
+  | "aligning_narration_timing"
   | "drafting_storyboard"
   | "awaiting_storyboard_review"
   | "producing_media"
@@ -817,6 +819,7 @@ export type GenerationPlan = {
   aspectRatio?: AspectRatio;
   ttsMode?: "global";
   narrationDurationSec?: number;
+  narrationPreviewDurationSec?: number;
   masterNarration: string;
   narrationVoProfile?: VoDirective;
   visualStyleBible?: VisualStyleBible;
@@ -838,6 +841,7 @@ export type ScriptDraft = {
   storyboardStatus: ScriptReviewStatus;
   generationStrategy?: GenerationStrategy;
   durationTargetSec?: number;
+  narrationPreviewDurationSec?: number;
   masterApprovedAt?: string;
   storyboardApprovedAt?: string;
   approvedBy?: string;

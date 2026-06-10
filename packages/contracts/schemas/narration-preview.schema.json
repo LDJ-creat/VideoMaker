@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/narration-preview.schema.json",
+  "title": "NarrationPreview",
+  "type": "object",
+  "required": [
+    "contentHash",
+    "durationSec",
+    "wavUri",
+    "alignmentMethod",
+    "sceneTiming",
+    "warnings"
+  ],
+  "properties": {
+    "contentHash": { "type": "string", "minLength": 1 },
+    "durationSec": { "type": "number", "minimum": 0 },
+    "wavUri": { "type": "string", "minLength": 1 },
+    "alignmentMethod": {
+      "type": "string",
+      "enum": ["whisper", "proportional_fallback", "structure_estimate"]
+    },
+    "ttsOptionsKey": { "type": "string", "minLength": 1 },
+    "synthesisSkipped": { "type": "boolean" },
+    "sceneTiming": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "startSec", "endSec"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

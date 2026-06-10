@@ -25,6 +25,7 @@
       "enum": ["global"]
     },
     "narrationDurationSec": { "type": "number", "minimum": 0 },
+    "narrationPreviewDurationSec": { "type": "number", "minimum": 0 },
     "masterNarration": { "type": "string" },
     "narrationVoProfile": { "$ref": "vo-directive.schema.json" },
     "visualStyleBible": { "$ref": "visual-style-bible.schema.json" },

@@ -56,6 +56,7 @@
       "enum": ["short_form_direct", "long_form_composed"]
     },
     "durationTargetSec": { "type": "number", "minimum": 1 },
+    "narrationPreviewDurationSec": { "type": "number", "minimum": 0 },
     "masterApprovedAt": { "type": "string", "format": "date-time" },
     "storyboardApprovedAt": { "type": "string", "format": "date-time" },
     "approvedBy": { "type": "string" }

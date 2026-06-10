@@ -32,6 +32,8 @@
         "mapping_slots",
         "drafting_master_script",
         "awaiting_master_review",
+        "synthesizing_narration_preview",
+        "aligning_narration_timing",
         "drafting_storyboard",
         "awaiting_storyboard_review",
         "producing_media",
