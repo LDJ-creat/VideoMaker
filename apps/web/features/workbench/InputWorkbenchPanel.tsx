@@ -1,6 +1,15 @@
 "use client";
 
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,13 +29,16 @@ import {
 } from "@/features/project-input/InputWizardLayout";
 import { SampleInputPanel } from "@/features/project-input/SampleInputPanel";
 import { SampleSelectionPanel } from "@/features/project-input/SampleSelectionPanel";
-import { KnowledgeSelectionPanel } from "@/features/knowledge/KnowledgeSelectionPanel";
+import {
+  KnowledgeSelectionPanel,
+  type KnowledgeSelectionPanelHandle,
+} from "@/features/knowledge/KnowledgeSelectionPanel";
 import type {
   ActiveSampleSummary,
   ProjectAsset,
   UserBriefRequest,
 } from "@/lib/apiClient";
-import { listKnowledgeEntries, saveBrief } from "@/lib/apiClient";
+import { listKnowledgeEntries } from "@/lib/apiClient";
 import type { DurationTarget } from "@videomaker/contracts";
 
 type InputWorkbenchPanelProps = {
@@ -38,7 +50,10 @@ type InputWorkbenchPanelProps = {
   savedBrief?: UserBriefRequest | null;
   selectedVariantIds: string[];
   busy?: boolean;
-  onSavedBrief: (brief: UserBriefRequest) => void;
+  briefSaving?: boolean;
+  knowledgeRefreshKey?: number;
+  knowledgePanelRef?: RefObject<KnowledgeSelectionPanelHandle | null>;
+  onPersistBrief: (brief: UserBriefRequest) => Promise<void>;
   onVariantChange: (variantIds: string[]) => void;
   onTaskStarted: (taskId: string, sampleId: string) => void;
   onBatchAnalysisStarted: (
@@ -57,6 +72,8 @@ export type InputWorkbenchPanelHandle = {
   getBrief: () => UserBriefRequest;
   getDurationTarget: () => DurationTarget | undefined;
   getAspectRatio: () => UserBriefRequest["aspectRatio"];
+  /** Persists Brief and awaits knowledge recommendation refresh. */
+  saveBrief: () => Promise<UserBriefRequest | null>;
 };
 
 function step3StorageKey(projectId: string): string {
@@ -76,7 +93,10 @@ export const InputWorkbenchPanel = forwardRef<
   savedBrief,
   selectedVariantIds,
   busy = false,
-  onSavedBrief,
+  briefSaving = false,
+  knowledgeRefreshKey = 0,
+  knowledgePanelRef,
+  onPersistBrief,
   onVariantChange,
   onTaskStarted,
   onBatchAnalysisStarted,
@@ -124,19 +144,9 @@ export const InputWorkbenchPanel = forwardRef<
     };
   }, []);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      getBrief: () => briefEditorRef.current?.getBrief() ?? { sellingPoints: [], mustMention: [], avoidMention: [] },
-      getDurationTarget: () => generationConfigRef.current?.getDurationTarget(),
-      getAspectRatio: () => generationConfigRef.current?.getAspectRatio(),
-    }),
-    [],
-  );
-
-  const handleSaveBrief = async () => {
+  const buildBriefForSave = (): UserBriefRequest | null => {
     const brief = briefEditorRef.current?.getBrief();
-    if (!brief) return;
+    if (!brief) return null;
     const durationTarget = generationConfigRef.current?.getDurationTarget();
     if (durationTarget) {
       brief.durationTarget = durationTarget;
@@ -145,15 +155,32 @@ export const InputWorkbenchPanel = forwardRef<
     if (aspectRatio) {
       brief.aspectRatio = aspectRatio;
     }
-    await saveBrief(projectId, brief);
-    onSavedBrief(brief);
+    return brief;
+  };
+
+  const persistBriefFromEditor = useCallback(async (): Promise<UserBriefRequest | null> => {
+    const brief = buildBriefForSave();
+    if (!brief) return null;
+    await onPersistBrief(brief);
     try {
       localStorage.setItem(step3StorageKey(projectId), "true");
       setStep3Open(true);
     } catch {
       /* ignore */
     }
-  };
+    return brief;
+  }, [onPersistBrief, projectId]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getBrief: () => briefEditorRef.current?.getBrief() ?? { sellingPoints: [], mustMention: [], avoidMention: [] },
+      getDurationTarget: () => generationConfigRef.current?.getDurationTarget(),
+      getAspectRatio: () => generationConfigRef.current?.getAspectRatio(),
+      saveBrief: persistBriefFromEditor,
+    }),
+    [persistBriefFromEditor],
+  );
 
   return (
     <InputWizardLayout>
@@ -184,8 +211,13 @@ export const InputWorkbenchPanel = forwardRef<
           description="描述创作意图与约束；系统会结合样例结构统一理解。"
           className="h-full"
           actionSlot={
-            <Button type="button" size="sm" onClick={() => void handleSaveBrief()}>
-              保存 Brief
+            <Button
+              type="button"
+              size="sm"
+              disabled={briefSaving || busy}
+              onClick={() => void persistBriefFromEditor()}
+            >
+              {briefSaving ? "保存中…" : "保存 Brief"}
             </Button>
           }
         >
@@ -196,7 +228,7 @@ export const InputWorkbenchPanel = forwardRef<
             projectId={projectId}
             initialBrief={savedBrief}
             getDurationTarget={() => generationConfigRef.current?.getDurationTarget()}
-            onSaved={onSavedBrief}
+            onSaved={(brief) => void onPersistBrief(brief)}
           />
         </InputWizardSection>
       </InputWizardPrimaryGrid>
@@ -239,7 +271,9 @@ export const InputWorkbenchPanel = forwardRef<
         >
           {hasPublishedKnowledge ? (
             <KnowledgeSelectionPanel
+              ref={knowledgePanelRef}
               projectId={projectId}
+              refreshKey={knowledgeRefreshKey}
               onApplied={onKnowledgeApplied}
             />
           ) : (

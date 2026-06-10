@@ -301,6 +301,7 @@ describe("ProjectWorkbench", () => {
     expect(planReviseSpy).toHaveBeenCalledWith(
       fixtureGenerationPlan.id,
       "开头更抓人，减少字幕",
+      { newSession: false },
     );
     expect(screen.getByTestId("revise-plan-card")).toBeInTheDocument();
 
@@ -509,6 +510,67 @@ describe("ProjectWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "提交改片" }));
 
     expect(screen.getByTestId("revise-plan-card")).toBeInTheDocument();
+  });
+
+  it("starts generation from brief only without sample analysis", async () => {
+    vi.spyOn(apiClient, "getBrief").mockResolvedValue({
+      data: {
+        brief: {
+          topic: "效率提升",
+          sellingPoints: ["多创作"],
+          mustMention: [],
+          avoidMention: [],
+        },
+      },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listProjectSamples").mockResolvedValue({
+      data: { samples: [] },
+      meta: { dataSource: "api" },
+    });
+    vi.spyOn(apiClient, "listKnowledgeEntries").mockResolvedValue({
+      data: {
+        entries: [
+          {
+            id: "entry-1",
+            title: "知识模板",
+            category: "教育",
+            style: "标准",
+            summary: "测试",
+            status: "published",
+            slotPattern: "hook→cta",
+            skillMdUri: "knowledge/edu/entry-1/structure-skill.md",
+            structureJsonUri: "knowledge/edu/entry-1/video-structure.json",
+            version: 1,
+            createdAt: "2026-06-01T00:00:00Z",
+            updatedAt: "2026-06-01T00:00:00Z",
+          },
+        ],
+      },
+      meta: { dataSource: "api" },
+    });
+    const saveBriefSpy = vi.spyOn(apiClient, "saveBrief").mockResolvedValue({
+      data: { ok: true },
+      meta: { dataSource: "api" },
+    });
+    const createPlanSpy = vi.spyOn(apiClient, "createGenerationPlan").mockResolvedValue({
+      data: { generations: fixtureMultiVariantGenerations },
+      meta: { dataSource: "api" },
+    });
+
+    const user = userEvent.setup();
+    render(<ProjectWorkbench projectId="proj-test" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "开始生成视频" })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "开始生成视频" }));
+
+    await waitFor(() => expect(saveBriefSpy).toHaveBeenCalled());
+    await waitFor(() => expect(createPlanSpy).toHaveBeenCalled());
+    const planBody = createPlanSpy.mock.calls[0]?.[1];
+    expect(planBody).toBeDefined();
+    expect(planBody).not.toHaveProperty("sampleSelection");
   });
 
   it("loads agent runs from result panel", async () => {

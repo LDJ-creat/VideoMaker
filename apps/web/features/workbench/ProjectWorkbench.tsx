@@ -21,11 +21,23 @@ import {
 } from "react";
 
 import { DataSourceBanner } from "@/components/data-source-banner";
+import { WorkbenchToast } from "@/components/workbench/WorkbenchToast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  GENERATION_KNOWLEDGE_ONLY_HINT,
+  GENERATION_KNOWLEDGE_ONLY_NO_LIBRARY,
+  GENERATION_REQUIRES_BRIEF_OR_SAMPLE,
+} from "@/features/knowledge/knowledgeMessages";
+import {
+  canStartGeneration,
+  hasAnalyzedRealSample,
+  hasMeaningfulBrief,
+} from "@/features/knowledge/knowledgeReadiness";
+import {
   KnowledgeLibraryView,
   KnowledgeSelectionPanel,
+  type KnowledgeSelectionPanelHandle,
 } from "@/features/knowledge/KnowledgeSelectionPanel";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { CompositionPatternPromotePanel } from "@/features/knowledge/CompositionPatternPromotePanel";
@@ -94,6 +106,7 @@ import {
   getSampleStructure,
   getTask,
   getVariantLabel,
+  listKnowledgeEntries,
   listProjectAssets,
   listProjectSamples,
   cancelRevisePlan,
@@ -279,6 +292,8 @@ function buildGenerationSettlementKey(
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const inputWorkbenchRef = useRef<InputWorkbenchPanelHandle>(null);
+  const inputKnowledgePanelRef = useRef<KnowledgeSelectionPanelHandle>(null);
+  const tabKnowledgePanelRef = useRef<KnowledgeSelectionPanelHandle>(null);
   const generationSettlementKeyRef = useRef<string | null>(null);
   const activeRunGenerationsRef = useRef<ActiveGeneration[]>([]);
   /** When false, generation terminal handlers hydrate data but do not auto-switch panels. */
@@ -315,6 +330,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     Record<string, TaskEvent>
   >({});
   const [busy, setBusy] = useState(false);
+  const [briefSaving, setBriefSaving] = useState(false);
+  const [briefSavedToast, setBriefSavedToast] = useState<string | null>(null);
+  const [knowledgeRefreshKey, setKnowledgeRefreshKey] = useState(0);
 
   const [savedBrief, setSavedBrief] = useState<UserBriefRequest | null | undefined>(
     undefined,
@@ -464,6 +482,41 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       }
     },
     [projectId],
+  );
+
+  const refreshKnowledgePanels = useCallback(async () => {
+    await Promise.all([
+      inputKnowledgePanelRef.current?.refresh(),
+      tabKnowledgePanelRef.current?.refresh(),
+    ]);
+  }, []);
+
+  const bumpKnowledgeRefreshKey = useCallback(() => {
+    setKnowledgeRefreshKey((key) => key + 1);
+  }, []);
+
+  const scheduleKnowledgeRefresh = useCallback(() => {
+    bumpKnowledgeRefreshKey();
+    void refreshKnowledgePanels();
+  }, [bumpKnowledgeRefreshKey, refreshKnowledgePanels]);
+
+  const dismissBriefSavedToast = useCallback(() => {
+    setBriefSavedToast(null);
+  }, []);
+
+  const persistBrief = useCallback(
+    async (brief: UserBriefRequest) => {
+      setBriefSaving(true);
+      try {
+        await saveBrief(projectId, brief);
+        setSavedBrief(brief);
+        setBriefSavedToast("Brief 已保存");
+        scheduleKnowledgeRefresh();
+      } finally {
+        setBriefSaving(false);
+      }
+    },
+    [projectId, scheduleKnowledgeRefresh],
   );
 
   const loadProjectInput = useCallback(async () => {
@@ -1186,39 +1239,63 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
     setLastAction("generation");
     try {
-      const brief = inputWorkbenchRef.current?.getBrief() ?? emptyBrief();
-      const durationTarget = inputWorkbenchRef.current?.getDurationTarget();
-      if (durationTarget) {
-        brief.durationTarget = durationTarget;
-      }
-      const aspectRatio = inputWorkbenchRef.current?.getAspectRatio();
-      if (aspectRatio) {
-        brief.aspectRatio = aspectRatio;
-      }
-      await saveBrief(projectId, brief);
-      setSavedBrief(brief);
+      const brief =
+        (await inputWorkbenchRef.current?.saveBrief()) ?? emptyBrief();
 
-      const { data: selectionData } = await getSampleSelection(projectId);
-      const primaryId = selectionData.selection?.primarySampleId;
-      if (!primaryId) {
-        setDataError("请先上传样例并设置主样例。");
-        return;
-      }
       const { data: samplesData } = await listProjectSamples(projectId);
-      const primarySample = samplesData.samples.find(
-        (sample) => sample.id === primaryId,
-      );
-      if (!primarySample?.hasStructure) {
-        setDataError("请先对主样例视频完成分析，成功后再生成计划。");
+      const hasRealSample = hasAnalyzedRealSample(samplesData.samples);
+
+      if (
+        !canStartGeneration({
+          hasMeaningfulBrief: hasMeaningfulBrief(brief),
+          hasAnalyzedRealSample: hasRealSample,
+        })
+      ) {
+        setDataError(GENERATION_REQUIRES_BRIEF_OR_SAMPLE);
         return;
       }
+
+      let sampleSelection:
+        | { primarySampleId: string; referenceSampleIds: string[] }
+        | undefined;
+
+      if (hasRealSample) {
+        const { data: selectionData } = await getSampleSelection(projectId);
+        const primaryId = selectionData.selection?.primarySampleId;
+        const fallbackSample = samplesData.samples.find(
+          (sample) =>
+            sample.hasStructure &&
+            sample.sourceKind !== "knowledge" &&
+            sample.status === "analyzed",
+        );
+        const resolvedPrimaryId = primaryId ?? fallbackSample?.id;
+        if (!resolvedPrimaryId) {
+          setDataError("请先上传样例并设置主样例。");
+          return;
+        }
+        const primarySample = samplesData.samples.find(
+          (sample) => sample.id === resolvedPrimaryId,
+        );
+        if (!primarySample?.hasStructure || primarySample.sourceKind === "knowledge") {
+          setDataError("请先对主样例视频完成分析，成功后再生成计划。");
+          return;
+        }
+        sampleSelection = {
+          primarySampleId: resolvedPrimaryId,
+          referenceSampleIds: selectionData.selection?.referenceSampleIds ?? [],
+        };
+      } else {
+        const { data: knowledgeData } = await listKnowledgeEntries();
+        if (knowledgeData.entries.length === 0) {
+          setDataError(GENERATION_KNOWLEDGE_ONLY_NO_LIBRARY);
+          return;
+        }
+      }
+
       const { data } = await createGenerationPlan(projectId, {
         brief,
         variants: selectedVariantIds,
-        sampleSelection: {
-          primarySampleId: primaryId,
-          referenceSampleIds: selectionData.selection?.referenceSampleIds ?? [],
-        },
+        ...(sampleSelection ? { sampleSelection } : {}),
       });
       if (data.generationRunId) {
         setActiveGenerationRunId(data.generationRunId);
@@ -1605,10 +1682,29 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [activeGenerations, generationId, lastAction, projectId, structure, taskId],
   );
 
-  const hasAnalyzedSample = useMemo(
-    () => projectSamples.some((sample) => sample.hasStructure && sample.status === "analyzed"),
+  const hasRealAnalyzedSample = useMemo(
+    () => hasAnalyzedRealSample(projectSamples),
     [projectSamples],
   );
+
+  const generationReady = useMemo(
+    () =>
+      canStartGeneration({
+        hasMeaningfulBrief: hasMeaningfulBrief(savedBrief ?? undefined),
+        hasAnalyzedRealSample: hasRealAnalyzedSample,
+      }),
+    [hasRealAnalyzedSample, savedBrief],
+  );
+
+  const generationButtonTitle = useMemo(() => {
+    if (generationReady && !hasRealAnalyzedSample) {
+      return GENERATION_KNOWLEDGE_ONLY_HINT;
+    }
+    if (!generationReady) {
+      return GENERATION_REQUIRES_BRIEF_OR_SAMPLE;
+    }
+    return undefined;
+  }, [generationReady, hasRealAnalyzedSample]);
 
   const hasActiveTask = Boolean(
     taskId || watchGenerationTasks || isBatchAnalysisProgress,
@@ -1624,12 +1720,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const phaseState = useMemo(
     () =>
       computeWorkbenchPhaseState({
-        hasAnalyzedSample,
+        hasAnalyzedSample: hasRealAnalyzedSample,
         hasActiveTask,
         hasGenerationPlan: hasLoadedGenerationResults,
         panel,
       }),
-    [hasActiveTask, hasAnalyzedSample, hasLoadedGenerationResults, panel],
+    [hasActiveTask, hasRealAnalyzedSample, hasLoadedGenerationResults, panel],
   );
 
   const taskInProgress =
@@ -1691,7 +1787,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             <Button type="button" onClick={() => setPanel("progress")}>
               查看进度
             </Button>
-          ) : hasAnalyzedSample ? (
+          ) : (
             <>
               <Button
                 type="button"
@@ -1703,22 +1799,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               </Button>
               <Button
                 type="button"
-                disabled={busy}
+                disabled={busy || briefSaving || !generationReady}
+                title={generationButtonTitle}
                 onClick={() => void handleStartGeneration()}
               >
-                开始生成视频
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                disabled={busy || !sampleId}
-                onClick={() => void handleStartAnalysis()}
-              >
-                开始样例分析
-              </Button>
-              <Button type="button" disabled title="请先完成样例分析">
                 开始生成视频
               </Button>
             </>
@@ -1774,7 +1858,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               savedBrief={savedBrief}
               selectedVariantIds={selectedVariantIds}
               busy={busy}
-              onSavedBrief={(brief) => setSavedBrief(brief)}
+              briefSaving={briefSaving}
+              knowledgeRefreshKey={knowledgeRefreshKey}
+              knowledgePanelRef={inputKnowledgePanelRef}
+              onPersistBrief={persistBrief}
               onVariantChange={setSelectedVariantIds}
               onTaskStarted={handleTaskStarted}
               onBatchAnalysisStarted={(tasks, maxConcurrent) => {
@@ -2064,7 +2151,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         {panel === "knowledge" && (
           <div className="lg:col-span-2 space-y-4">
             <KnowledgeSelectionPanel
+              ref={tabKnowledgePanelRef}
               projectId={projectId}
+              refreshKey={knowledgeRefreshKey}
               onApplied={() => void loadProjectInput()}
             />
             <KnowledgeLibraryView
@@ -2078,6 +2167,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           </div>
         )}
       </div>
+
+      <WorkbenchToast message={briefSavedToast} onDismiss={dismissBriefSavedToast} />
     </div>
   );
 }
