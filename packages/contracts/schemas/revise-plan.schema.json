@@ -62,7 +62,8 @@
               "change_packaging_style",
               "adjust_cta",
               "subtitle_patch",
-              "timeline_scene_patch"
+              "timeline_scene_patch",
+              "packaging_scene_patch"
             ]
           },
           "params": { "type": "object" },
@@ -91,6 +92,7 @@
             "enum": [
               "subtitle_patch",
               "timeline_scene_patch",
+              "packaging_scene_patch",
               "script_revise",
               "packaging_agent",
               "storyboard_agent",
@@ -117,6 +119,10 @@
       }
     },
     "affectedSceneIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "affectedSlotIds": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },

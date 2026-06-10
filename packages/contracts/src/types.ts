@@ -96,7 +96,8 @@ export type EditIntentOperation =
   | "change_packaging_style"
   | "adjust_cta"
   | "subtitle_patch"
-  | "timeline_scene_patch";
+  | "timeline_scene_patch"
+  | "packaging_scene_patch";
 
 export type EditIntentScope =
   | "global"
@@ -109,6 +110,7 @@ export type EditIntentScope =
 export type EditExecutionTool =
   | "subtitle_patch"
   | "timeline_scene_patch"
+  | "packaging_scene_patch"
   | "script_revise"
   | "packaging_agent"
   | "storyboard_agent"
@@ -156,6 +158,7 @@ export type RevisePlannerOutput = {
   intents: EditIntentItem[];
   executionSteps: ReviseExecutionStep[];
   affectedSceneIds?: string[];
+  affectedSlotIds?: string[];
   conversationSummary?: string;
 };
 
@@ -170,6 +173,7 @@ export type RevisePlan = RevisePlannerOutput & {
   executedAt?: string;
   resultGenerationId?: string;
   resultTaskId?: string;
+  affectedSlotIds?: string[];
 };
 
 export type ReviseSessionTurnStatus =
@@ -770,11 +774,20 @@ export type StoryboardScene = {
   voDirective?: VoDirective;
 };
 
+export type PackagingSceneOverlay = {
+  sceneId: string;
+  slotId: string;
+  backgroundPreset?: string;
+  titleCardPreset?: string;
+  styleRef?: string;
+};
+
 export type PackagingPlan = {
   styleSummary: string;
   subtitle: LooseStyleObject;
   titleCards: LooseStyleObject[];
   transitions: LooseStyleObject[];
+  sceneOverlays?: PackagingSceneOverlay[];
 };
 
 export type CompletionAction = {

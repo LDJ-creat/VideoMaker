@@ -55,7 +55,22 @@
         "styleSummary": { "type": "string" },
         "subtitle": { "type": "object", "additionalProperties": true },
         "titleCards": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-        "transitions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        "transitions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "sceneOverlays": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sceneId", "slotId"],
+            "properties": {
+              "sceneId": { "type": "string", "minLength": 1 },
+              "slotId": { "type": "string", "minLength": 1 },
+              "backgroundPreset": { "type": "string" },
+              "titleCardPreset": { "type": "string" },
+              "styleRef": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },
