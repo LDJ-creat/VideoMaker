@@ -131,6 +131,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
+| `2026-06-10-volcengine-seeddance-video-plan.md` | 火山方舟 SeedDance 2.0 生视频 driver `volcengine_seeddance`（t2v/i2v） | 本计划 § E2E |
 | `2026-06-09-llm-vo-directive-tts-plan.md` | LLM `narrationVoProfile` / 分镜 `voDirective` → 四层 merge → global `master.wav`（快路径/分段拼接）；冻结 per_scene | `docs/demos/narration-alignment-e2e-checklist.md` § VO directive |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
@@ -213,7 +214,7 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 
 **TTS (worker):** Provider driver 支持 `openai_compatible`（OpenAI `/audio/speech`、DashScope CosyVoice 等）与 **`volcengine_tts`**（豆包语音 openspeech V3 单向流式，`seed-tts-2.0`）。豆包 **API Key 来自豆包语音控制台**，与方舟 Ark Key 不同；Base URL 默认 `https://openspeech.bytedance.com/api/v3/tts/unidirectional`。生成时 `build_tts_synthesis_options()` 合并工作台 `ttsPreferences` 与样本 `structure.audio.voProfile`（pace/energy/persona/WPM）为 `context_texts` / `speech_rate` 等 per-call options。
 
-**Video generation (worker):** Configure a `video` provider in the workbench (DashScope: `baseUrl` e.g. `https://dashscope.aliyuncs.com/compatible-mode/v1`, models such as `wan2.6-i2v-flash` / `wan2.1-t2v-plus`). When `baseUrl` contains `dashscope`, the worker uses the `dashscope_wan` driver (`video-synthesis` + task poll). Otherwise set `VIDEO_DRIVER=generic_job` for a custom `POST /videos` job API.
+**Video generation (worker):** Configure a `video` provider in the workbench. Drivers: **`dashscope_wan`** (百炼 Wan: `baseUrl` e.g. `https://dashscope.aliyuncs.com/compatible-mode/v1`, models such as `wan2.6-i2v-flash` / `wan2.7-t2v`; auto when `baseUrl` contains `dashscope`), **`volcengine_seeddance`** (火山方舟 SeedDance 2.0: `baseUrl` `https://ark.cn-beijing.volces.com/api/v3`, model `doubao-seedance-2-0-260128` or `doubao-seedance-2-0-fast-260128`; auto when `baseUrl` contains `volces.com`), **`generic_job`** (custom `POST /videos` job API). Ark API Key 与豆包语音 Key 不同。
 
 | Env (worker) | Meaning | Default |
 |--------------|---------|---------|
@@ -234,7 +235,7 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_ASSET_UNDERSTANDING_MAX_MEDIA_COUNT` | Max video/image attachments per direct multimodal asset call | `6` |
 | `VIDEOMAKER_ASSET_UNDERSTANDING_MAX_TOTAL_MB` | Max total video/image MB per direct multimodal asset call | `80` |
 | `VIDEOMAKER_ASSET_TEXT_MAX_CHARS` | Max UTF-8 chars read from text assets during understanding | `8000` |
-| `VIDEO_DRIVER` | `dashscope_wan` or `generic_job` | auto from `baseUrl` |
+| `VIDEO_DRIVER` | `dashscope_wan`, `volcengine_seeddance`, or `generic_job` | auto from `baseUrl` |
 | `VIDEO_MAX_POLL_SEC` | Async video task poll timeout | `600` |
 | `VIDEOMAKER_DURATION_TARGET_MAX_SEC` | Max user-configurable target duration (seconds) | `600` |
 | `VIDEOMAKER_HUMAN_REVIEW_MODE` | Pause generation for master/storyboard approval (API default `true`; set `false` for CI/fixture one-shot) | `true` |

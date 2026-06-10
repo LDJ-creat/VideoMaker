@@ -32,3 +32,6 @@ services/api/storage/*
 Thumbs.db
 .idea/
 .vscode/
+
+services/worker/tests/_debug_out/
+
