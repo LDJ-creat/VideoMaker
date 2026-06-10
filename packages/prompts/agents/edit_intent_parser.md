@@ -34,10 +34,12 @@ Output: `{ "intents": [ ... ] }` only.
 | 字幕多一点 / more subtitles | `generation_plan.packaging` | `increase_subtitles` | `subtitle_patch` | `{}` | `track_subtitle` |
 | 第N镜字幕去掉 | `generation_plan.packaging` | `reduce_subtitles` | `subtitle_patch` | `{ "sceneId": "<id>" }` | `scene` + `sceneIds` |
 | 第N镜缩短/延长 (timing only) | `render_timeline` | `timeline_scene_patch` | `timeline_scene_patch` | `{ "sceneId", "deltaSec" }` | `scene` + `sceneIds` |
+| 第N镜字幕/标题卡/转场/overlay | `generation_plan.packaging` | `packaging_scene_patch` | `packaging_scene_patch` | `{ "sceneId", "backgroundPreset"? }` | `scene` + `sceneIds` |
+| 第N镜画面/HF/合成背景 | `generation_plan.storyboard` | `change_packaging_style` | `material_regen` | `{ "sceneId", "requiresMaterialRegen": true }` | `scene` + `sceneIds` |
 | 节奏快一点 / faster pace | `generation_plan.storyboard` | `change_pace` | `storyboard_agent` | `{ "direction": "faster" }` | `global` |
 | 节奏慢一点 | `generation_plan.storyboard` | `change_pace` | `storyboard_agent` | `{ "direction": "slower" }` | `global` |
 | 卖点顺序 / reorder selling points | `generation_plan.storyboard` | `reorder_selling_points` | `storyboard_agent` | `{}` | `global` |
-| 包装风格 / packaging style | `generation_plan.packaging` | `change_packaging_style` | `packaging_agent` | `{}` | `packaging` |
+| 全片包装风格 / packaging style | `generation_plan.packaging` | `change_packaging_style` | `packaging_agent` | `{ "style"? }` | `packaging` |
 | CTA / 行动号召 | `generation_plan.storyboard` | `adjust_cta` | `storyboard_agent` | `{ "strength": "high" }` | `global` |
 | 改旁白/文案 (scene) | `generation_plan.storyboard` | `change_pace` | `script_revise` | `{ "sceneId": "<id>" }` | `scene` + `sceneIds` |
 | 换画面 / 重生成素材 | `generation_plan.storyboard` | `adjust_hook` | `material_regen` | `{ "sceneId"?: "<id>" }` | `scene` or `global` |

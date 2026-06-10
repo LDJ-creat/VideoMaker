@@ -53,7 +53,9 @@ Map user language → **`target` + `operation` + `executionTool` + typical `para
 | CTA 更强 / 行动号召 | `generation_plan.storyboard` | `adjust_cta` | `storyboard_agent` | `{ "strength": "high" }` |
 | 改旁白/分镜文案 (single scene) | `generation_plan.storyboard` | `adjust_hook` or `change_pace` | `script_revise` | `{ "sceneId": "<id>" }` + `scope=scene`, `sceneIds` |
 | 改旁白/分镜文案 (global) | `generation_plan.storyboard` | `change_pace` | `script_revise` | `{ "scope": "global" }` |
-| 包装风格 / 标题卡 / 字幕样式 | `generation_plan.packaging` | `change_packaging_style` | `packaging_agent` | `{}` |
+| 第 N 镜字幕/标题卡/转场/overlay/包装样式 | `generation_plan.packaging` | `packaging_scene_patch` | `packaging_scene_patch` | `{ "sceneId": "<id>", "backgroundPreset"?: string }` + `scope=scene`, `sceneIds` |
+| 第 N 镜画面/HF/合成/换镜头素材 | `generation_plan.storyboard` | `change_packaging_style` | `material_regen` | `{ "sceneId": "<id>", "requiresMaterialRegen": true }` + `sceneIds` |
+| 全片包装风格 | `generation_plan.packaging` | `change_packaging_style` | `packaging_agent` | `{ "style"?: string }` |
 | 换画面 / 重生成素材 / 镜头换成… | `generation_plan.storyboard` | `adjust_hook` | `material_regen` | `{ "sceneId"?: "<id>", "slotId"?: "<slotId>" }` |
 | hook+卖点+CTA 大改 / 整体重写 | `generation_plan.storyboard` | `adjust_hook` | `full_pipeline` | `{ "strength": "high" }` |
 
@@ -75,9 +77,12 @@ Resolve "第N镜" as the N-th scene in `storyboardScenes` order (1-based). If am
 ```
 requiresFullRender = true   # subtitle/timeline patches still re-encode MP4; always true for patch tools today
 
-IF every intent.executionTool ∈ { subtitle_patch, timeline_scene_patch }
+IF every intent.executionTool ∈ { subtitle_patch, timeline_scene_patch, packaging_scene_patch }
    AND no intent requires storyboard/packaging/material/full_pipeline work
 THEN executionMode = in_place, costTier = low
+
+ELSE IF any executionTool = material_regen AND scoped sceneIds/slotIds
+THEN executionMode = fork, costTier = medium
 
 ELSE IF any executionTool ∈ { material_regen, full_pipeline }
 THEN executionMode = fork, costTier = high
@@ -86,13 +91,13 @@ ELSE
 THEN executionMode = fork, costTier = medium
 ```
 
-**Hard rule:** `executionMode=in_place` ONLY when **all** `executionTool` values are `subtitle_patch` or `timeline_scene_patch`. Any `storyboard_agent`, `packaging_agent`, `script_revise`, `material_regen`, or `full_pipeline` → **`executionMode` MUST be `fork`**.
+**Hard rule:** `executionMode=in_place` ONLY when **all** `executionTool` values are `subtitle_patch`, `timeline_scene_patch`, or `packaging_scene_patch`. Any `storyboard_agent`, `packaging_agent`, `script_revise`, `material_regen`, or `full_pipeline` → **`executionMode` MUST be `fork`** (except `material_regen` alone for a single scene is still fork but medium cost).
 
 # executionSteps
 
 - Min 1 step; order matters.
 - Each step: `{ "tool": "<executionTool>", "description": "<short Chinese>" }`.
-- `tool` MUST be one of: `subtitle_patch`, `timeline_scene_patch`, `script_revise`, `packaging_agent`, `storyboard_agent`, `material_regen`, `full_pipeline`.
+- `tool` MUST be one of: `subtitle_patch`, `timeline_scene_patch`, `packaging_scene_patch`, `script_revise`, `packaging_agent`, `storyboard_agent`, `material_regen`, `full_pipeline`.
 - Deduplicate tools when multiple intents share the same `executionTool` (one step per unique tool, unless user explicitly needs sequential passes — rare).
 
 # Multi-intent requests
