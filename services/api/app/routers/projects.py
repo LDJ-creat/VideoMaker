@@ -158,6 +158,7 @@ class SampleSummaryResponse(BaseModel):
     previewUrl: str | None = None
     posterUrl: str | None = Field(default=None, alias="posterUrl")
     uploadBatchId: str | None = Field(default=None, alias="uploadBatchId")
+    taskId: str | None = Field(default=None, alias="taskId")
 
     model_config = {"populate_by_name": True}
 

@@ -8,7 +8,10 @@ from pydantic import BaseModel, Field
 
 from app.services.knowledge_recommender import KnowledgeRecommender
 from app.services.knowledge_store import KnowledgeStore, KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_MESSAGE
+from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
+from app.services.sample_analysis import load_sample_structure_artifact
+from app.services.task_events import TaskEventService
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -45,6 +48,14 @@ def _knowledge_store(request: Request) -> KnowledgeStore:
 
 def _project_store(request: Request) -> ProjectStore:
     return ProjectStore(request.app.state.db)
+
+
+def _task_events(request: Request) -> TaskEventService:
+    return TaskEventService(request.app.state.db)
+
+
+def _pipeline_runner(request: Request) -> PipelineRunner:
+    return request.app.state.pipeline_runner
 
 
 def _recommender(request: Request) -> KnowledgeRecommender:
@@ -120,6 +131,50 @@ def get_knowledge_draft(project_id: str, sample_id: str, request: Request) -> di
     if draft is None:
         raise HTTPException(status_code=404, detail="Knowledge draft not found")
     return draft
+
+
+@project_router.post("/{project_id}/samples/{sample_id}/knowledge/render-draft")
+def render_knowledge_draft(project_id: str, sample_id: str, request: Request) -> dict[str, str]:
+    project_store = _project_store(request)
+    if project_store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    sample = project_store.get_sample(sample_id)
+    if sample is None or sample.get("projectId") != project_id:
+        raise HTTPException(status_code=404, detail="Sample not found")
+
+    structure = sample.get("structure")
+    if structure is None:
+        structure = load_sample_structure_artifact(
+            request.app.state.storage_root,
+            project_id=project_id,
+            sample_id=sample_id,
+        )
+    if structure is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Sample has no video structure. Complete sample analysis before rendering a knowledge draft.",
+        )
+
+    if sample.get("taskId"):
+        existing_task = _task_events(request).get_task(str(sample["taskId"]))
+        if existing_task and existing_task.get("status") in ("running", "retrying"):
+            raise HTTPException(
+                status_code=409,
+                detail="A task is already running for this sample. Wait for it to finish.",
+            )
+
+    task = _task_events(request).create_task(
+        project_id,
+        stage="rendering_knowledge_draft",
+        message="Queued knowledge draft render",
+    )
+    _pipeline_runner(request).start_knowledge_draft_render(
+        project_id=project_id,
+        sample_id=sample_id,
+        task_id=task["taskId"],
+    )
+    project_store.update_sample(sample_id, task_id=task["taskId"])
+    return {"taskId": task["taskId"]}
 
 
 @project_router.post("/{project_id}/samples/{sample_id}/knowledge/promote")

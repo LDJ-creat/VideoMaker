@@ -13,6 +13,7 @@ class FakeDemoPipeline:
     last_resume: bool = False
     last_retry_task_id: str | None = None
     last_variant: str = "default"
+    last_render_draft: dict[str, str] | None = None
 
     def analyze_sample(
         self,
@@ -62,6 +63,33 @@ class FakeDemoPipeline:
             message="fake analysis done",
         )
         return {"ok": True, "structure": structure}
+
+    def render_knowledge_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        sample_id: str,
+        emit: Any,
+    ) -> dict[str, Any]:
+        FakeDemoPipeline.last_render_draft = {
+            "project_id": project_id,
+            "sample_id": sample_id,
+            "task_id": task_id,
+        }
+        emit(
+            status="running",
+            stage="rendering_knowledge_draft",
+            progress=50,
+            message="fake knowledge draft render",
+        )
+        emit(
+            status="succeeded",
+            stage="completed",
+            progress=100,
+            message="fake knowledge draft done",
+        )
+        return {"ok": True, "knowledgeDraft": {"uris": {}}}
 
     def run_generation(
         self,

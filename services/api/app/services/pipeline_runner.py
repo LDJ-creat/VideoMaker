@@ -324,6 +324,23 @@ class SubprocessDemoPipeline:
             payload["cookiesPath"] = str(cookies_path)
         return self._invoke(payload)
 
+    def render_knowledge_draft(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        sample_id: str,
+        emit: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            **self._payload_base(),
+            "mode": "render_knowledge_draft",
+            "taskId": task_id,
+            "projectId": project_id,
+            "sampleId": sample_id,
+        }
+        return self._invoke(payload)
+
     def run_generation(
         self,
         *,
@@ -770,6 +787,51 @@ class PipelineRunner:
             from_queue=False,
         )
 
+    def start_knowledge_draft_render(
+        self,
+        *,
+        project_id: str,
+        sample_id: str,
+        task_id: str,
+    ) -> None:
+        def job() -> None:
+            try:
+                result = self._get_pipeline().render_knowledge_draft(
+                    project_id=project_id,
+                    task_id=task_id,
+                    sample_id=sample_id,
+                    emit=self._make_emit(task_id),
+                )
+                if not result.get("ok"):
+                    self._ensure_task_failed(
+                        task_id,
+                        result=result,
+                        default_stage="rendering_knowledge_draft",
+                        default_code="knowledge_draft_failed",
+                    )
+            except Exception as exc:  # pragma: no cover
+                logger.exception(
+                    "Knowledge draft render failed task_id=%s sample_id=%s",
+                    task_id,
+                    sample_id,
+                )
+                latest = self.task_events.get_task(task_id)
+                if latest is None or latest.get("status") != "failed":
+                    self._emit(
+                        task_id,
+                        status="failed",
+                        stage="rendering_knowledge_draft",
+                        progress=0,
+                        message="Knowledge draft render failed",
+                        error={
+                            "code": "knowledge_draft_failed",
+                            "message": str(exc),
+                            "retryable": True,
+                        },
+                    )
+
+        self._run_task(task_id, job)
+
     def _refresh_upload_batch_for_sample(self, sample_id: str) -> None:
         sample = self.project_store.get_sample(sample_id)
         if sample is None:
@@ -824,6 +886,18 @@ class PipelineRunner:
                         sample_id,
                         status="analyzed",
                         structure=result["structure"],
+                    )
+                elif result.get("structure") is not None:
+                    self.project_store.update_sample(
+                        sample_id,
+                        status="analyzed",
+                        structure=result["structure"],
+                    )
+                    self._ensure_task_failed(
+                        task_id,
+                        result=result,
+                        default_stage="rendering_knowledge_draft",
+                        default_code="knowledge_draft_failed",
                     )
                 else:
                     self.project_store.update_sample(sample_id, status="failed")
@@ -1250,14 +1324,18 @@ class PipelineRunner:
                     variant=variant,
                     resume=resume,
                 )
+                if result.get("paused"):
+                    self.project_store.update_generation(generation_id, status="awaiting_review")
+                    return
                 if result.get("ok"):
+                    inventory = result.get("inventory") if isinstance(result.get("inventory"), dict) else {}
                     self.project_store.update_generation(
                         generation_id,
                         status="succeeded",
                         structure_id=structure.get("id"),
-                        inventory_id=result["inventory"]["id"],
-                        gap_report=result["gapReport"],
-                        plan=result["plan"],
+                        inventory_id=inventory.get("id"),
+                        gap_report=result.get("gapReport"),
+                        plan=result.get("plan"),
                     )
                     if finalize_plan_id:
                         mark_plan_executed(

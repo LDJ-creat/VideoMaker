@@ -580,3 +580,59 @@ slotPattern: hook→problem→solution→cta
     assert body["title"] == "问题-解决方案短视频结构"
     assert body["category"] == "通用短视频"
     assert "????" not in body["summary"]
+
+
+def test_render_knowledge_draft_requires_structure(client: TestClient) -> None:
+    project_id = _create_project(client)
+    store = ProjectStore(client.app.state.db)
+    sample = store.create_sample(project_id=project_id, source_kind="local", status="analyzed")
+
+    response = client.post(
+        f"/api/projects/{project_id}/samples/{sample['id']}/knowledge/render-draft",
+    )
+    assert response.status_code == 422
+
+
+def test_render_knowledge_draft_returns_task_id(tmp_path: Path) -> None:
+    from app.db.session import Database, initialize_database
+    from app.main import create_app
+    from app.services.pipeline_runner import PipelineRunner
+    from app.services.project_store import ProjectStore
+    from app.services.task_events import TaskEventService
+    from tests.test_p0_flow_routes import FakeDemoPipeline
+
+    db_path = tmp_path / "render-draft.sqlite3"
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir(parents=True, exist_ok=True)
+    database = Database(db_path)
+    initialize_database(database, storage_root=storage_root)
+    task_events = TaskEventService(database)
+    project_store = ProjectStore(database)
+    FakeDemoPipeline.last_render_draft = None
+    runner = PipelineRunner(
+        database=database,
+        storage_root=storage_root,
+        task_events=task_events,
+        project_store=project_store,
+        sync=True,
+        pipeline=FakeDemoPipeline(),
+    )
+    app = create_app(database_path=db_path, storage_root=storage_root, pipeline_runner=runner)
+    client = TestClient(app)
+
+    project_id = _create_project(client)
+    sample = project_store.create_sample(project_id=project_id, source_kind="local", status="analyzed")
+    structure = _sample_structure(project_id, sample["id"], marker="draft-render")
+    project_store.update_sample(sample["id"], structure=structure, status="analyzed")
+
+    response = client.post(
+        f"/api/projects/{project_id}/samples/{sample['id']}/knowledge/render-draft",
+    )
+    assert response.status_code == 200, response.text
+    task_id = response.json()["taskId"]
+    assert FakeDemoPipeline.last_render_draft is not None
+    assert FakeDemoPipeline.last_render_draft["sample_id"] == sample["id"]
+
+    task = task_events.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "succeeded"
