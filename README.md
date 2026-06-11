@@ -4,8 +4,6 @@
 
 本项目为剪映 AI 创作竞赛课题实现：**不复制样例内容，而是迁移「创作方法」**——脚本段落、镜头节奏、包装样式等可复用结构，并在素材不足时通过补全策略完成成片。
 
-本文档面向**首次了解项目的读者**（含评审）：优先用中文说明业务能力；代码标识、契约名与 API 路径在需要精确引用时保留英文。更完整的开发上下文、模块状态与 API 索引见 `[AGENTS.md](./AGENTS.md)`；架构规格见 `[docs/superpowers/specs/2026-05-27-videomaker-design.md](./docs/superpowers/specs/2026-05-27-videomaker-design.md)`。
-
 ---
 
 ## 目录
@@ -120,7 +118,7 @@
 - 样例视频本地上传、链接导入（yt-dlp + 全局 Cookie）、批量上传与分析
 - **算法感知 + AI 结构分析**：本地工具先提取元数据、镜头、转写、音频特征等事实，再进入 **直连多模态结构分析**（侧车 JSON + 体积/时长门禁 + 整段视频理解，非裸传视频）。竞赛演示要求配置「视频理解」Provider 并保持工作台直连开关开启（直连失败 fail-fast，不自动降级）
 - **标准化结构输出**：上下文 / 口播 / 画面 / 音频四轨 + 槽位列表 + 证据链，工作台提供结构证据与四轨可视化
-- **可选知识沉淀**：从样例生成「结构技能」草稿，用户审核后可 promote 至全局知识库供后续项目复用
+- **可选知识沉淀**：从样例生成「结构技能」草稿，用户审核后可 promote 至全局知识库供后续项目复用（见「知识库设计」）
 
 ### 新内容与素材输入
 
@@ -171,8 +169,91 @@
 1. **可解释迁移**：结构证据、槽位映射、缺口说明、进度面板全程可见。
 2. **缺口不是黑盒**：AI 提议 + 规则引擎对齐，补全链有序且可审计。
 3. **人机协同**：生成可在分镜阶段暂停；支持改稿或成片后局部重跑。
-4. **知识复用**：样例结构技能与 HyperFrames 包装模式可入库、推荐、绑定到新项目。
+4. **知识复用**：样例结构技能与 HyperFrames 包装模式可入库、推荐、绑定到新项目（设计见下节「知识库设计」）。
 5. **渲染双轨**：FFmpeg 保证稳定 MP4；HyperFrames 承载 HTML 包装与 Agent 创作片段。
+
+---
+
+## 知识库设计
+
+知识库模块借鉴 **Karpathy 提出的 LLM Wiki / Skill 库思路**：把「从爆款样例里学到的可迁移创作方法」写成 **人类可读、Agent 可检索的 Markdown 技能文档**，而不是只把 JSON 结构塞进 Prompt。机器侧仍以 `VideoStructure` 为权威契约；Wiki 层负责解释「这类结构为什么有效、如何迁移到新选题」。
+
+### 设计原则：双层存储 + 渐进披露
+
+| 层级 | 载体 | 作用 |
+|------|------|------|
+| **机器层** | `video-structure.json`（`VideoStructure` p1-v3） | 槽位、叙事段、证据链；生成与校验的唯一结构真相 |
+| **Wiki 层** | `structure-skill.md` / `composition-skill.md` | 面向人的结构经验 / 包装模式说明，注入生成 Agent 作参考上下文 |
+| **索引层** | SQLite `knowledge_entries` | 标题、品类、节奏、hook 类型、槽位模式等字段，供浏览、推荐、绑定 |
+| **选型层** | SQLite `project_knowledge_selection` | 每个项目 1 条主参考 + 最多 2 条辅助参考 |
+
+**渐进披露（Progressive Disclosure）** 控制注入 Prompt 的 token 成本：默认只给 L1 摘要；迁移困难时再展开全文。
+
+| 级别 | 内容 | 何时使用 |
+|------|------|----------|
+| L0 | 索引卡片（title、summary、slotPattern 等） | 首页模板货架、知识库浏览 |
+| L1 | 解析 Markdown 各 `##` 章节后的摘要（默认） | 槽位匹配、缺口规划、分镜写作 |
+| L2 | 完整 `structure-skill.md` + 结构 hints | 弱槽位 ≥ 2 时自动升级（`context_resolver`） |
+
+实现见 `services/shared/knowledge/skill_sections.py`、`services/worker/app/knowledge/context_resolver.py`。
+
+### 两类知识条目
+
+| `entryKind` | 来源 | 典型文件 | 用途 |
+|-------------|------|----------|------|
+| `structure` | 样例分析完成后 `knowledge_author` 生成草稿，用户 **promote** | `structure-skill.md` + `video-structure.json` | 爆款**叙事结构**迁移（hook→证明→CTA 等） |
+| `composition_pattern` | 成片结果区 HyperFrames 包装片段 **入库** | `composition-skill.md` + `spec.template.json` | 可复用的**画面包装模式**（字幕条、贴纸动效等） |
+
+结构技能 Markdown 由 Agent 按固定章节撰写（适用场景、结构要点、口播手法、画面语言、包装清单、节奏与音频、槽位模板表、迁移示例与注意），抽象修辞与槽位角色，**不抄样例原文**（Prompt：`packages/prompts/agents/knowledge_author.md`）。
+
+### 生命周期：沉淀 → 审核 → 发布 → 复用
+
+```text
+样例分析完成
+  → knowledge_author 生成结构技能
+  → 写入项目草稿 storage/projects/{projectId}/knowledge/drafts/{sampleId}/
+       （structure-skill.md + video-structure.json + entry-meta.json）
+  → 工作台预览草稿，用户确认 promote
+  → 复制到全球库 storage/knowledge/{categorySlug}/{entryId}/
+  → SQLite 索引 status=published，可按 category 聚合为「结构模板」
+
+保存 Brief / 发起 generation-plan 时
+  → ensure_selection：结构化打分 Top-1 为主参考，#2–#3 为辅助参考
+  → 若项目尚无已分析样例，可将主条目结构 apply 为项目主结构（source_kind=knowledge）
+  → 生成链路中 slot_mapper / gap_planner / storyboard_writer 等接收 knowledgeContext
+```
+
+包装模式另有一条 **成片后入库** 路径：Result 区选定 HyperFrames 分镜 → `composition_pattern_author` 泛化 MaterialSpec → lint 通过后 publish（`POST .../knowledge/composition/promote`）。
+
+### 推荐与绑定
+
+推荐分三阶段（`services/shared/knowledge/recommender.py` + `KnowledgeRecommender`）：
+
+1. **结构化打分（始终执行）**：Brief 主题词、节奏气质、槽位模式与条目 metadata 重叠度；同源项目降权。
+2. **LLM 重排（可选）**：`knowledge_selector` 对 Top 候选 rerank（fixture 模式或网关不可用时跳过）。
+3. **自动绑定**：主条目 + 最多 2 条参考写入 `project_knowledge_selection`；用户可在工作台 **知识库** 面板改选（`user_override` 后不再被自动覆盖）。
+
+首页 **结构模板货架**（`/templates/{categorySlug}`）按 `categorySlug` 聚合已发布条目，支持选 **1 主 + 0–2 参考** 一键建项并 import 关联样例，再进入既有 Brief → 生成流程。
+
+### 与生成管线的衔接
+
+知识库**不替代**当前项目的 `VideoStructure` 分析结果（已有样例时条目仅作参考经验）；**无样例时**可将主条目结构注入项目作为迁移起点。
+
+生成阶段在槽位匹配前解析 `resolve_knowledge_context`，将 L1/L2 内容传入 `slot_mapper`、`gap_planner`、`storyboard_writer`、`structure_synthesizer` 等 Agent 的 `knowledgeContext` 字段；弱槽位较多时自动升到 L2，给 Agent 更完整的迁移说明。
+
+### 存储布局（摘要）
+
+```text
+storage/
+├── projects/{projectId}/knowledge/drafts/{sampleId}/   # 待 promote 草稿
+└── knowledge/{categorySlug}/{entryId}/                 # 已发布全球库
+    ├── structure-skill.md 或 composition-skill.md
+    ├── video-structure.json（结构类）
+    ├── spec.template.json / spec.instance.json（包装类）
+    └── entry-meta.json
+```
+
+路径安全：`services/shared/knowledge/paths.py` 对所有 ID 做 segment 校验。详细 E2E 见 `docs/demos/knowledge-deposition-e2e-checklist.md`、`docs/demos/knowledge-category-template-e2e-checklist.md`。
 
 ---
 
@@ -434,7 +515,7 @@ Worker 按注册表调度画面类补全（素材复用、图库检索、HyperFr
 - **Python** ≥ 3.11
 - **FFmpeg** 在 PATH 上
 - **根目录 `npm install`**：成片渲染与 HyperFrames 包装片段需要（仅浏览工作台可不装）
-- **模型 API Key**：Live 演示必需，在工作台 **模型服务** 配置（见下方「模型配置」）；Fixture 模式可跳过
+- **模型与素材 API**：Live 演示须在工作台配置模型网关（见「模型配置」）与 Pexels API Key；Fixture 模式可跳过
 
 ### 安装
 
@@ -484,49 +565,43 @@ Web 通过 BFF 代理访问 API，服务端环境变量 `VIDEOMAKER_API_URL` 默
 
 ### 模型配置
 
-系统依赖 **Model Gateway** 统一管理 LLM / 多模态 / 生图 / TTS / 生视频等 Provider。凭据保存在 **`{storage_root}/videomaker.sqlite3`**，API Key 经 **`global/model-gateway.key`** 加密；`GET /api/settings/model-gateway` **不返回** secret。
+Live 演示须在工作台 **设置** 页完成配置（凭据写入 `{storage_root}/videomaker.sqlite3`，API Key 经 `global/model-gateway.key` 加密存储）。`GET /api/settings/model-gateway` 与 `GET /api/settings/stock-media` **不返回** Key 明文。
 
-| 模式 | 适用 | API 终端环境变量 | 模型 Key |
-| --- | --- | --- | --- |
-| **Live** | 竞赛演示、真实样例分析与生成 | `VIDEOMAKER_FIXTURE_MODE=false`（或未设置且不为 `true`） | 工作台 **设置 → 模型服务** 配置 |
-| **Fixture** | 无 Key 冒烟、CI、仅测 UI / 任务流 | `VIDEOMAKER_FIXTURE_MODE=true` | 无需填写 |
 
-**Live 演示最小配置（工作台 UI）**
+| 模式          | API 终端                                       | 是否需填 Key           |
+| ----------- | -------------------------------------------- | ------------------ |
+| **Live**    | `VIDEOMAKER_FIXTURE_MODE=false`（或未设为 `true`） | **必须**按下方清单配置      |
+| **Fixture** | `VIDEOMAKER_FIXTURE_MODE=true`               | 无需配置，用于 UI / 任务流冒烟 |
 
-1. 启动后打开 `/projects` 进入项目，在 **模型服务** 面板配置并保存：
-   - **文本**（生成 / 改片等 Agent 必需）
-   - **生图**（缺口 AIGC 补图时需要）
-2. **样例分析（直连多模态）**：额外配置 **视频理解** Provider，并保持 **「启用直连多模态样例分析」** 为开启（设置页可预览当前将使用的分析路线）。
-3. 按需配置 **视觉**、**配音（TTS）**、**生视频**；豆包语音 Key 与火山方舟 Key 为不同凭据，须分别填写。
 
-也可通过 API 写入：`PUT /api/settings/model-gateway`（详见 `docs/demos/p1-manual-test-guide.md` §1.3）。
+#### 必配项
 
-**启动预检**
 
-```powershell
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/api/settings/model-gateway
-```
+| 配置项                | 工作台位置               | 用途                            |
+| ------------------ | ------------------- | ----------------------------- |
+| **文本**             | 设置 → 模型服务 → 文本      | 结构迁移、分镜 / 改片等 Agent 推理        |
+| **视觉**             | 设置 → 模型服务 → 视觉      | 样例关键帧与素材的视觉理解、结构证据            |
+| **视频理解**           | 设置 → 模型服务 → 视频理解    | 样例 **直连多模态**结构分析；用户素材多模态理解    |
+| **配音（TTS）**        | 设置 → 模型服务 → 配音      | 全片口播 `master.wav` 合成          |
+| **Pexels API Key** | 设置 → **Pexels 素材库** | 缺口补全时的图库检索（优先于 AIGC 生图 / 生视频） |
 
-期望：`health` 返回 `{"ok":true}`；gateway 返回各 Provider 就绪状态，**不含** API Key 明文。
 
-**可选环境变量（API 终端，Live 演示常用）**
+**文本、视觉、视频理解** 三项 **必须分别填写**，但 **可以指向同一套 Base URL、Model 与 API Key**（例如同一个多模态 Chat 模型兼做文本推理、关键帧视觉与整段视频理解）。样例分析还需保持 **「启用直连多模态样例分析」** 为开启。
 
-```powershell
-$env:VIDEOMAKER_FIXTURE_MODE = "false"
-$env:VIDEOMAKER_DEFAULT_VARIANTS = "high_click,high_conversion"
-```
+**配音** 若使用豆包语音，须使用 **豆包语音控制台** 的 Key（与火山方舟等其它 Provider Key 不同）。
 
-完整 E2E 与模型相关验收见 `docs/demos/p1-manual-test-guide.md`、`docs/demos/direct-multimodal-analysis-e2e-checklist.md`。
+#### 可选项（AIGC，权重较低）
 
-### 常用验证
 
-```powershell
-cd packages/contracts && npm run check && npm run validate:schemas
-cd services/api && python -m pytest
-cd services/worker && python -m pytest
-cd apps/web && npm run typecheck && npm run test
-```
+| 配置项     | 说明                                                         |
+| ------- | ---------------------------------------------------------- |
+| **生图**  | 仅在 Pexels / 用户素材 / HyperFrames 仍无法覆盖缺口时可能触发                |
+| **生视频** | 同上；单次生成有配额上限，默认优先 **Pexels → HyperFrames 包装片段 → 生图 / 生视频** |
+
+
+缺口补全的默认策略是：**复用用户素材 → Pexels 检索 → HyperFrames HTML 包装 →（最后才考虑）AI 生图 / 生视频**。因此 Live 演示 **不配置生图 / 生视频也可跑通主流程**，但 **不能省略** 上表五项必配。
+
+
 
 ---
 
