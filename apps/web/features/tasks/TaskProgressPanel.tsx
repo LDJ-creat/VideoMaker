@@ -25,6 +25,7 @@ import {
 } from "@/lib/assetUnderstandingRouteLabels";
 import { formatTaskError } from "@/lib/formatTaskError";
 import { formatTaskMessage } from "@/lib/taskMessageLabels";
+import { scriptReviewGateLabel } from "@/lib/durationTargetLabels";
 import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 import {
   getTaskStatusBadgeVariant,
@@ -99,7 +100,10 @@ export function TaskProgressPanel({
     );
   }
 
-  const stageLabel = getTaskStageLabel(event.stage);
+  const stageLabel =
+    event.status === "awaiting_review"
+      ? scriptReviewGateLabel(event.stage)
+      : getTaskStageLabel(event.stage);
   const statusLabel = getTaskStatusLabel(event.status);
   const message = formatTaskMessage(event.message);
   const showPollingNotice = sseFailureCount > 0 && mode === "polling";

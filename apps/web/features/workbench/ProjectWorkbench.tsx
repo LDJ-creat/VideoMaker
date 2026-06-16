@@ -69,6 +69,19 @@ import {
 } from "@/features/workbench/workbenchTypes";
 import { SampleAnalysisPanel } from "@/features/sample-analysis/SampleAnalysisPanel";
 import { sampleDisplayName } from "@/features/project-input/SampleVideoCard";
+import {
+  applyNavIntent,
+  anyGenerationAwaitingReviewFromEvents,
+  buildGenerationSettlementKey,
+  computeAnalysisCompletionIntent,
+  computeGenerationMilestoneIntent,
+  computeGenerationSettlementIntent,
+  mergeGenerationEventsWithOverrides,
+  OUTPUT_RESULT_PANELS,
+} from "@/features/workbench/usePipelineNavigation";
+import {
+  applyTaskStatusOverride,
+} from "@/lib/taskMilestones";
 import { buildRecentSampleAnalysisTasks, buildRetryableSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
 import { MultiTaskProgressPanel } from "@/features/tasks/MultiTaskProgressPanel";
@@ -274,22 +287,8 @@ function clearGenerationResultCache(setters: {
 
 export type { WorkbenchPanel } from "@/features/workbench/workbenchTypes";
 
-const OUTPUT_RESULT_PANELS: WorkbenchPanel[] = [
-  "narration",
-  "result",
-];
-
 /** 暂时隐藏「包装动效入库」；改回 true 即可恢复展示。 */
 const SHOW_COMPOSITION_PATTERN_PROMOTE = false;
-
-function buildGenerationSettlementKey(
-  events: Record<string, TaskEvent>,
-): string {
-  return Object.entries(events)
-    .map(([taskId, entry]) => `${taskId}:${entry.status}:${entry.stage ?? ""}`)
-    .sort()
-    .join("|");
-}
 
 export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const inputWorkbenchRef = useRef<InputWorkbenchPanelHandle>(null);
@@ -297,10 +296,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const tabKnowledgePanelRef = useRef<KnowledgeSelectionPanelHandle>(null);
   const generationSettlementKeyRef = useRef<string | null>(null);
   const activeRunGenerationsRef = useRef<ActiveGeneration[]>([]);
-  /** When false, generation terminal handlers hydrate data but do not auto-switch panels. */
-  const generationAutoNavRef = useRef(false);
-  /** When false, analysis terminal handlers hydrate data but do not auto-switch panels. */
-  const analysisAutoNavRef = useRef(false);
+  const [autoNavEnabled, setAutoNavEnabled] = useState(false);
+  const autoNavEnabledRef = useRef(false);
   const panelRef = useRef<WorkbenchPanel>("input");
   const [panel, setPanelState] = useState<WorkbenchPanel>("input");
   const setPanel = useCallback((next: WorkbenchPanel, reason?: string) => {
@@ -308,11 +305,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       console.info("[Workbench] panel", panelRef.current, "->", next, {
         reason,
         lastAction: lastActionRef.current,
+        autoNavEnabled: autoNavEnabledRef.current,
       });
     }
     panelRef.current = next;
     setPanelState(next);
   }, []);
+  const enableAutoNav = useCallback(() => {
+    autoNavEnabledRef.current = true;
+    setAutoNavEnabled(true);
+  }, []);
+  const disableAutoNav = useCallback(() => {
+    autoNavEnabledRef.current = false;
+    setAutoNavEnabled(false);
+  }, []);
+  useEffect(() => {
+    autoNavEnabledRef.current = autoNavEnabled;
+  }, [autoNavEnabled]);
   const sessionPersistReadyRef = useRef(false);
   const lastActionRef = useRef<LastPipelineAction>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -331,6 +340,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [generationStatusOverrides, setGenerationStatusOverrides] = useState<
     Record<string, TaskStatus>
   >({});
+  const generationStatusOverridesRef = useRef(generationStatusOverrides);
+  generationStatusOverridesRef.current = generationStatusOverrides;
   const [settledGenerationEvents, setSettledGenerationEvents] = useState<
     Record<string, TaskEvent>
   >({});
@@ -604,17 +615,17 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setLastAction("generation");
       }
       if (hasActiveGeneration) {
-        generationAutoNavRef.current = true;
+        enableAutoNav();
         if (hasAwaitingReview) {
           setPanel("script-review", "hydrate:awaiting-review");
         } else if (hasRunning) {
           setPanel("progress", "hydrate:running");
         }
       } else if (hasRenderIncomplete) {
-        generationAutoNavRef.current = true;
+        enableAutoNav();
         setPanel("progress", "hydrate:render-incomplete");
       } else {
-        generationAutoNavRef.current = false;
+        disableAutoNav();
       }
       setDataSource(meta.dataSource);
       return data;
@@ -622,7 +633,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       /* no completed generation yet */
       return null;
     }
-  }, [projectId]);
+  }, [projectId, disableAutoNav, enableAutoNav, setPanel]);
 
   useEffect(() => {
     if (!sessionPersistReadyRef.current) return;
@@ -638,6 +649,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       reviseSessionId: reviseSession?.sessionId ?? null,
       preReviseGenerationId: preRevisePlan?.id ?? null,
       analysisBatch,
+      autoNavEnabled,
     });
   }, [
     projectId,
@@ -652,6 +664,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     reviseSession,
     preRevisePlan,
     analysisBatch,
+    autoNavEnabled,
   ]);
 
   const refreshRenderVideoUrls = useCallback(async (generationIds: string[]) => {
@@ -773,6 +786,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     if (saved?.analysisBatch?.tasks?.length) {
       setAnalysisBatch(saved.analysisBatch);
     }
+    if (saved?.autoNavEnabled === true) {
+      enableAutoNav();
+    } else if (saved?.autoNavEnabled === false) {
+      disableAutoNav();
+    }
     if (saved?.taskId || saved?.analysisBatch?.tasks?.length) {
       setPanel("progress");
     }
@@ -801,6 +819,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     loadProjectResults,
     loadGenerationRunView,
     loadGenerationRunProvenance,
+    enableAutoNav,
+    disableAutoNav,
   ]);
 
   useEffect(() => {
@@ -892,28 +912,52 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
 
   const navigateToAnalysisResults = useCallback(
     (targetSampleId: string, reason: string) => {
-      if (!analysisAutoNavRef.current) return;
-      analysisAutoNavRef.current = false;
+      if (!autoNavEnabledRef.current) return;
+      disableAutoNav();
       setAnalysisSampleId(targetSampleId);
       void loadAnalysisResults(targetSampleId);
-      if (panelRef.current === "progress") {
+      if (!OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
         setPanel("analysis", reason);
       }
     },
-    [loadAnalysisResults, setPanel],
+    [disableAutoNav, loadAnalysisResults, setPanel],
   );
 
   const handleAnalysisTerminal = useCallback(
     (event: TaskEvent) => {
-      if (!analysisAutoNavRef.current) return;
+      if (!autoNavEnabledRef.current) return;
       if (event.status === "failed" || event.status === "cancelled") {
-        analysisAutoNavRef.current = false;
+        disableAutoNav();
         return;
       }
       if (event.status !== "succeeded" || !sampleId) return;
       navigateToAnalysisResults(sampleId, "analysis-terminal:succeeded");
     },
-    [navigateToAnalysisResults, sampleId],
+    [disableAutoNav, navigateToAnalysisResults, sampleId],
+  );
+
+  const handleGenerationMilestone = useCallback(
+    (event: TaskEvent) => {
+      const override = generationStatusOverridesRef.current[event.taskId];
+      const effectiveEvent = applyTaskStatusOverride(event, override);
+      const intent = computeGenerationMilestoneIntent(effectiveEvent, {
+        lastAction,
+        panel: panelRef.current,
+        autoNavEnabled: autoNavEnabledRef.current,
+      });
+      if (intent) {
+        if (intent.type === "go_script_review") {
+          const match = activeGenerations.find(
+            (entry) => entry.taskId === event.taskId,
+          );
+          if (match) {
+            void loadGenerationIntoVariants(match.generationId);
+          }
+        }
+        applyNavIntent(intent, setPanel);
+      }
+    },
+    [activeGenerations, lastAction, loadGenerationIntoVariants, setPanel],
   );
 
   const handleGenerationTaskTerminal = useCallback(
@@ -923,28 +967,11 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         return next ?? previous;
       });
       const match = activeGenerations.find((entry) => entry.taskId === event.taskId);
-      if (
-        match &&
-        (event.status === "succeeded" || event.status === "awaiting_review")
-      ) {
+      if (match && event.status === "succeeded") {
         void loadGenerationIntoVariants(match.generationId);
       }
-      if (!generationAutoNavRef.current) return;
-
-      if (event.status === "awaiting_review") {
-        if (!OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
-          setPanel("script-review", "generation-task-terminal:awaiting-review");
-        }
-        return;
-      }
-      if (event.status !== "succeeded") {
-        if (!OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
-          setPanel("progress", "generation-task-terminal:not-succeeded");
-        }
-        return;
-      }
     },
-    [activeGenerations, loadGenerationIntoVariants, setPanel],
+    [activeGenerations, loadGenerationIntoVariants],
   );
 
   const handleAllGenerationTerminal = useCallback(
@@ -955,98 +982,109 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       }
       generationSettlementKeyRef.current = settlementKey;
 
-      const hasFailedTask = Object.values(events).some(
-        (entry) => entry.status === "failed" || entry.status === "cancelled",
+      const taskIds = activeRunGenerationsRef.current
+        .map((entry) => entry.taskId)
+        .filter((id) => id.length > 0);
+      const statusOverrides = generationStatusOverridesRef.current;
+      const effectiveEvents = mergeGenerationEventsWithOverrides(
+        events,
+        statusOverrides,
       );
-
-      const autoNavigate = generationAutoNavRef.current;
+      const hasFailedTask = taskIds.some((taskId) => {
+        const status = effectiveEvents[taskId]?.status;
+        return status === "failed" || status === "cancelled";
+      });
 
       void (async () => {
         const runEntries = activeRunGenerationsRef.current;
+        let reloadSucceeded = false;
         if (
           !hasFailedTask &&
           runEntries.length > 0 &&
-          runEntries.every((entry) => {
-            const event = events[entry.taskId];
-            return event?.status === "succeeded";
-          })
+          runEntries.every((entry) => events[entry.taskId]?.status === "succeeded")
         ) {
-          const reloaded = await reloadActiveGenerationResults(runEntries);
+          reloadSucceeded = await reloadActiveGenerationResults(runEntries);
           if (activeGenerationRunId) {
             void loadGenerationRunProvenance(activeGenerationRunId);
           }
-          if (
-            autoNavigate &&
-            reloaded &&
-            !OUTPUT_RESULT_PANELS.includes(panelRef.current)
-          ) {
-            setPanel("result", "generation-settlement:reloaded");
-            generationAutoNavRef.current = false;
-            return;
+        }
+
+        let hydrateAwaitingReview = false;
+        let hydrateRunning = false;
+        let hydrateAllSucceeded = false;
+
+        if (!reloadSucceeded || hasFailedTask) {
+          const latest = await loadProjectResults();
+          if (activeGenerationRunId) {
+            void loadGenerationRunProvenance(activeGenerationRunId);
           }
-          if (reloaded) {
-            generationAutoNavRef.current = false;
-            return;
+          if (latest) {
+            const generations = latest.generations;
+            hydrateAwaitingReview = generations.some(
+              (entry) => entry.status === "awaiting_review",
+            );
+            hydrateRunning = generations.some((entry) => entry.status === "running");
+            hydrateAllSucceeded =
+              generations.length > 0 &&
+              generations.every((entry) => entry.status === "succeeded");
+            if (hydrateAllSucceeded && runEntries.length > 0) {
+              reloadSucceeded = await reloadActiveGenerationResults(runEntries);
+            }
           }
         }
 
-        const latest = await loadProjectResults();
-        if (activeGenerationRunId) {
-          void loadGenerationRunProvenance(activeGenerationRunId);
-        }
-        if (!latest) {
-          generationAutoNavRef.current = false;
-          return;
-        }
-        const generations = latest.generations;
-        if (
-          hasFailedTask ||
-          generations.some(
-            (entry) => entry.status === "failed" || entry.status === "cancelled",
-          )
-        ) {
-          setLastAction("generation");
-          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
-            setPanel("progress", "generation-settlement:failed");
+        const allSucceeded =
+          runEntries.length > 0 &&
+          runEntries.every(
+            (entry) => effectiveEvents[entry.taskId]?.status === "succeeded",
+          );
+
+        const intent = computeGenerationSettlementIntent({
+          lastAction,
+          panel: panelRef.current,
+          autoNavEnabled: autoNavEnabledRef.current,
+          displayGenerationEvents: effectiveEvents,
+          activeGenerationTaskIds: taskIds,
+          allGenerationTasksSucceeded: allSucceeded,
+          anyGenerationTaskFailed: hasFailedTask,
+          anyGenerationAwaitingReview: anyGenerationAwaitingReviewFromEvents(
+            effectiveEvents,
+            taskIds,
+            statusOverrides,
+          ),
+          singleTaskEvent: null,
+          sampleId: null,
+          isBatchAnalysis: false,
+          reloadSucceeded,
+          hydrateAwaitingReview,
+          hydrateRunning,
+          hydrateAllSucceeded,
+        });
+
+        if (intent) {
+          if (hasFailedTask) {
+            setLastAction("generation");
           }
-          generationAutoNavRef.current = false;
-          return;
-        }
-        if (
-          generations.some(
-            (entry) =>
-              entry.status === "awaiting_review" ||
-              entry.status === "running",
-          )
-        ) {
-          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
-            if (generations.some((entry) => entry.status === "awaiting_review")) {
-              setPanel("script-review", "generation-settlement:awaiting-review");
-            } else {
-              setPanel("progress", "generation-settlement:running");
-            }
+          applyNavIntent(intent, setPanel);
+          if (
+            intent.type === "go_result" ||
+            intent.type === "go_progress"
+          ) {
+            disableAutoNav();
           }
-          return;
-        }
-        if (
-          generations.length > 0 &&
-          generations.every((entry) => entry.status === "succeeded")
-        ) {
-          if (runEntries.length > 0) {
-            await reloadActiveGenerationResults(runEntries);
-          }
-          if (autoNavigate && !OUTPUT_RESULT_PANELS.includes(panelRef.current)) {
-            setPanel("result", "generation-settlement:all-succeeded");
-          }
-          generationAutoNavRef.current = false;
+        } else if (!autoNavEnabledRef.current) {
+          disableAutoNav();
         }
       })();
     },
     [
       activeGenerationRunId,
+      disableAutoNav,
+      lastAction,
       loadGenerationRunProvenance,
       loadProjectResults,
       reloadActiveGenerationResults,
+      setLastAction,
       setPanel,
     ],
   );
@@ -1065,9 +1103,22 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         }
         return;
       }
+      if (lastAction === "analysis") {
+        if (event.status === "failed" || event.status === "cancelled") {
+          disableAutoNav();
+        }
+        return;
+      }
       handleAnalysisTerminal(event);
     },
-    [generationId, handleAnalysisTerminal, lastAction, loadGenerationResults],
+    [
+      disableAutoNav,
+      generationId,
+      handleAnalysisTerminal,
+      lastAction,
+      loadGenerationResults,
+      setPanel,
+    ],
   );
 
   const [taskWatchKeys, setTaskWatchKeys] = useState<Record<string, number>>({});
@@ -1132,6 +1183,28 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const isBatchAnalysisProgress =
     progressAnalysisBatch != null && progressAnalysisBatch.tasks.length > 0;
 
+  const handleAnalysisMilestone = useCallback(
+    (next: TaskEvent) => {
+      const intent = computeAnalysisCompletionIntent({
+        lastAction,
+        panel: panelRef.current,
+        autoNavEnabled: autoNavEnabledRef.current,
+        sampleId,
+        isBatchAnalysis: isBatchAnalysisProgress,
+        eventStatus: next.status,
+      });
+      if (intent?.type === "go_analysis") {
+        navigateToAnalysisResults(intent.sampleId, intent.reason);
+      }
+    },
+    [
+      isBatchAnalysisProgress,
+      lastAction,
+      navigateToAnalysisResults,
+      sampleId,
+    ],
+  );
+
   const showMultiVariantGenerationProgress =
     lastAction === "generation" && activeGenerations.length > 0;
 
@@ -1159,6 +1232,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       ? (taskWatchKeys[singleProgressTaskId] ?? 0)
       : 0,
     onTerminal: handleTerminal,
+    onMilestone: handleAnalysisMilestone,
   });
 
   const {
@@ -1171,6 +1245,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     enabled: showMultiVariantGenerationProgress,
     taskWatchKeys,
     onTaskTerminal: handleGenerationTaskTerminal,
+    onTaskMilestone: handleGenerationMilestone,
     onAllTerminal: handleAllGenerationTerminal,
   });
 
@@ -1184,8 +1259,27 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     for (const [taskId, taskEvent] of Object.entries(displayGenerationEvents)) {
       fromEvents[taskId] = taskEvent.status;
     }
-    return { ...generationStatusOverrides, ...fromEvents };
+    return { ...fromEvents, ...generationStatusOverrides };
   }, [displayGenerationEvents, generationStatusOverrides]);
+
+  useEffect(() => {
+    setGenerationStatusOverrides((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const taskId of Object.keys(previous)) {
+        const live = displayGenerationEvents[taskId]?.status;
+        if (
+          live &&
+          live !== "awaiting_review" &&
+          previous[taskId] === "retrying"
+        ) {
+          delete next[taskId];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [displayGenerationEvents]);
 
   const generationStatusByTaskId = useMemo(
     () =>
@@ -1259,16 +1353,24 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   ]);
 
   useEffect(() => {
-    if (!generationAutoNavRef.current) return;
-    if (!watchGenerationTasks || lastAction !== "generation") return;
-    if (OUTPUT_RESULT_PANELS.includes(panelRef.current)) return;
-    const awaiting = Object.values(generationEvents).some(
-      (entry) => entry?.status === "awaiting_review",
+    if (!autoNavEnabled || lastAction !== "generation") return;
+    if (!showMultiVariantGenerationProgress) return;
+    if (OUTPUT_RESULT_PANELS.includes(panel)) return;
+    if (panel === "script-review") return;
+    const awaiting = Object.values(generationStatusByTaskId).some(
+      (status) => status === "awaiting_review",
     );
     if (awaiting) {
-      setPanel("script-review", "generation-events:awaiting-review");
+      setPanel("script-review", "hydrate:awaiting-review");
     }
-  }, [generationEvents, lastAction, setPanel, watchGenerationTasks]);
+  }, [
+    autoNavEnabled,
+    generationStatusByTaskId,
+    lastAction,
+    panel,
+    setPanel,
+    showMultiVariantGenerationProgress,
+  ]);
 
   const allGenerationTasksSucceeded = useMemo(() => {
     if (activeGenerations.length === 0) return false;
@@ -1279,32 +1381,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   }, [activeGenerations, displayGenerationEvents]);
 
   useEffect(() => {
-    if (!analysisAutoNavRef.current) return;
-    if (panel !== "progress" || lastAction !== "analysis") return;
-    if (isBatchAnalysisProgress) return;
-    if (event?.status !== "succeeded" || !sampleId) return;
-    navigateToAnalysisResults(sampleId, "auto-nav:analysis-succeeded");
-  }, [
-    event,
-    isBatchAnalysisProgress,
-    lastAction,
-    navigateToAnalysisResults,
-    panel,
-    sampleId,
-  ]);
-
-  useEffect(() => {
-    if (!generationAutoNavRef.current) return;
-    if (panel !== "progress" || lastAction !== "generation") return;
+    if (!autoNavEnabled || lastAction !== "generation") return;
     if (!showMultiVariantGenerationProgress) return;
     if (!allGenerationTasksSucceeded) return;
     handleAllGenerationTerminal(displayGenerationEvents);
   }, [
     allGenerationTasksSucceeded,
+    autoNavEnabled,
     displayGenerationEvents,
     handleAllGenerationTerminal,
     lastAction,
-    panel,
     showMultiVariantGenerationProgress,
   ]);
 
@@ -1328,7 +1414,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       setLastAction("analysis");
       setActiveGenerations([]);
       setAnalysisBatch(null);
-      analysisAutoNavRef.current = true;
+      enableAutoNav();
       setTaskId(nextTaskId);
       setSampleId(nextSampleId);
       setPanel("progress");
@@ -1341,7 +1427,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     setDataError(null);
     setLastAction("analysis");
     setActiveGenerations([]);
-    analysisAutoNavRef.current = true;
+    enableAutoNav();
     try {
       const targetSampleId =
         sampleId ?? (await getActiveSample(projectId)).data.id;
@@ -1430,7 +1516,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         label: entry.label ?? getVariantLabel(entry.variant),
       }));
       generationSettlementKeyRef.current = null;
-      generationAutoNavRef.current = true;
+      enableAutoNav();
       clearGenerationResultCache({
         setVariantPlans,
         setGenerationPlan,
@@ -1857,6 +1943,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [activeGenerations, displayGenerationEvents],
   );
 
+  const handleSelectPanel = useCallback(
+    (next: WorkbenchPanel) => {
+      disableAutoNav();
+      setPanel(next, "manual:stepper");
+    },
+    [disableAutoNav, setPanel],
+  );
+
   return (
     <div className="space-y-6">
       <DataSourceBanner />
@@ -1921,7 +2015,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         phaseState={phaseState}
         panel={panel}
         panelLabels={PANEL_LABELS}
-        onSelectPanel={setPanel}
+        onSelectPanel={handleSelectPanel}
         taskBadge={
           <>
             {taskId && !showMultiVariantGenerationProgress && !isBatchAnalysisProgress && (
@@ -1965,7 +2059,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               onBatchAnalysisStarted={(tasks, maxConcurrent) => {
                 setAnalysisBatch({ tasks, maxConcurrent });
                 setLastAction("analysis");
-                analysisAutoNavRef.current = true;
+                enableAutoNav();
                 setPanel("progress");
               }}
               onSampleReady={(id) => {
@@ -2005,7 +2099,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   const targetSampleId =
                     sampleId ?? progressAnalysisBatch.tasks[0]?.sampleId ?? null;
                   if (targetSampleId) {
-                    if (analysisAutoNavRef.current) {
+                    if (autoNavEnabledRef.current) {
                       navigateToAnalysisResults(
                         targetSampleId,
                         "batch-analysis:all-complete",
@@ -2093,12 +2187,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               projectId={projectId}
               variants={scriptReviewVariants}
               onApproved={() => {
-                bumpTaskWatchKeys(
-                  activeGenerations
-                    .map((entry) => entry.taskId)
-                    .filter((id) => id.length > 0),
-                );
-                setPanel("progress");
+                const approvedTaskIds = activeGenerations
+                  .map((entry) => entry.taskId)
+                  .filter((id) => id.length > 0);
+                setGenerationStatusOverrides((previous) => {
+                  const next = { ...previous };
+                  for (const id of approvedTaskIds) {
+                    next[id] = "retrying";
+                  }
+                  return next;
+                });
+                bumpTaskWatchKeys(approvedTaskIds);
+                setPanel("progress", "script-review:approved");
               }}
             />
           </div>
