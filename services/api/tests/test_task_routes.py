@@ -59,3 +59,42 @@ def test_sse_stream_returns_task_events(client):
     assert response.status_code == 200
     assert "event: task" in body
     assert f'"taskId":"{created["taskId"]}"' in body
+    assert '"eventId":' in body
+    assert ": close" in body
+
+
+def test_sse_stream_after_id_returns_incremental_events(client):
+    created = client.post(
+        "/api/tasks",
+        json={"projectId": "project-1", "stage": "uploading", "message": "Queued"},
+    ).json()
+    task_id = created["taskId"]
+
+    with client.stream("GET", f"/api/tasks/{task_id}/events?once=true") as response:
+        first_body = response.read().decode("utf-8")
+
+    assert "event: task" in first_body
+    import json as json_module
+
+    data_line = next(line for line in first_body.splitlines() if line.startswith("data: "))
+    first_event = json_module.loads(data_line.removeprefix("data: "))
+    first_id = first_event["eventId"]
+
+    client.post(
+        f"/api/tasks/{task_id}/events",
+        json={
+            "status": "running",
+            "stage": "extracting_metadata",
+            "progress": 25,
+            "message": "Running",
+        },
+    )
+
+    with client.stream(
+        "GET",
+        f"/api/tasks/{task_id}/events?once=true&after_id={first_id}",
+    ) as response:
+        second_body = response.read().decode("utf-8")
+
+    assert "Running" in second_body
+    assert "Queued" not in second_body

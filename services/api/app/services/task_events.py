@@ -137,10 +137,13 @@ class TaskEventService:
         return event
 
     def list_events(self, task_id: str, after_id: int = 0) -> list[dict[str, Any]]:
+        return [record["event"] for record in self.list_event_records(task_id, after_id=after_id)]
+
+    def list_event_records(self, task_id: str, after_id: int = 0) -> list[dict[str, Any]]:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT event_json
+                SELECT id, event_json
                 FROM task_events
                 WHERE task_id = ? AND id > ?
                 ORDER BY id ASC
@@ -148,7 +151,11 @@ class TaskEventService:
                 (task_id, after_id),
             ).fetchall()
 
-        return [json.loads(row["event_json"]) for row in rows]
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            event = json.loads(row["event_json"])
+            records.append({"eventId": row["id"], "event": event})
+        return records
 
     def is_terminal(self, status: str) -> bool:
         return status in TERMINAL_STATUSES
