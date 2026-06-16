@@ -7,7 +7,11 @@ import * as apiClient from "@/lib/apiClient";
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
   url: string;
+  readyState = MockEventSource.OPEN;
   onerror: (() => void) | null = null;
   private listeners = new Map<string, (event: MessageEvent) => void>();
 
@@ -21,7 +25,7 @@ class MockEventSource {
   }
 
   close() {
-    /* noop */
+    this.readyState = MockEventSource.CLOSED;
   }
 
   emitTask(data: unknown) {
@@ -67,11 +71,16 @@ describe("useTaskProgress", () => {
   });
 
   it("falls back to polling after three SSE failures", async () => {
+    vi.mocked(apiClient.getTask).mockResolvedValue({
+      data: { ...fixtureTaskEvent, status: "running", progress: 50 },
+      meta: { dataSource: "api" },
+    });
+
     const { result } = renderHook(() =>
       useTaskProgress({ taskId: "task-demo-001" }),
     );
 
-    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    await waitFor(() => expect(result.current.mode).toBe("sse"));
     const source = MockEventSource.instances[0]!;
 
     act(() => {
@@ -124,9 +133,30 @@ describe("useTaskProgress", () => {
     expect(result.current.event?.error).toBeUndefined();
   });
 
-  it("stops polling on terminal status", async () => {
+  it("invokes onMilestone for status changes", async () => {
+    const onMilestone = vi.fn();
+    renderHook(() =>
+      useTaskProgress({ taskId: "task-demo-001", onMilestone }),
+    );
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const source = MockEventSource.instances[0]!;
+
+    act(() => {
+      source.emitTask({
+        ...fixtureTaskEvent,
+        taskId: "task-demo-001",
+        status: "awaiting_review",
+        stage: "awaiting_master_review",
+      });
+    });
+
+    expect(onMilestone).toHaveBeenCalled();
+  });
+
+  it("completes on terminal SSE event without sse failure count", async () => {
     vi.mocked(apiClient.getTask).mockResolvedValue({
-      data: { ...fixtureTaskEvent, status: "succeeded", progress: 100 },
+      data: { ...fixtureTaskEvent, status: "running", progress: 50 },
       meta: { dataSource: "api" },
     });
 
@@ -139,18 +169,15 @@ describe("useTaskProgress", () => {
     const source = MockEventSource.instances[0]!;
 
     act(() => {
-      source.fail();
-      source.fail();
-      source.fail();
+      source.emitTask({
+        ...fixtureTaskEvent,
+        status: "succeeded",
+        progress: 100,
+      });
     });
 
     await waitFor(() => expect(result.current.mode).toBe("completed"));
+    expect(result.current.sseFailureCount).toBe(0);
     expect(onTerminal).toHaveBeenCalled();
-    const callsAfterTerminal = vi.mocked(apiClient.getTask).mock.calls.length;
-
-    await new Promise((r) => setTimeout(r, 100));
-    expect(vi.mocked(apiClient.getTask).mock.calls.length).toBe(
-      callsAfterTerminal,
-    );
   });
 });

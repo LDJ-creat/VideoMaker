@@ -794,8 +794,12 @@ export async function getSampleKeyframes(
   return apiFetch(`/api/samples/${sampleId}/keyframes`);
 }
 
-export function getTaskEventsUrl(taskId: string): string {
-  return `/api/tasks/${taskId}/events`;
+export function getTaskEventsUrl(taskId: string, afterId?: number): string {
+  const base = `/api/tasks/${taskId}/events`;
+  if (afterId != null && afterId > 0) {
+    return `${base}?after_id=${afterId}`;
+  }
+  return base;
 }
 
 export { artifactDisplayUrl } from "@/lib/artifactUrl";

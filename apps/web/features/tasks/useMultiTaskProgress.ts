@@ -3,17 +3,12 @@
 import type { TaskEvent } from "@videomaker/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getTask, getTaskEventsUrl } from "@/lib/apiClient";
-import { recordDevProgressMetric } from "@/lib/devProgressMetrics";
 import { preferTaskError, shouldAcceptTaskEventUpdate, taskEventEquals } from "@/lib/taskEventMerge";
+import { extractEventId, isTaskMilestone } from "@/lib/taskMilestones";
 import { isTaskTerminalStatus } from "@/lib/taskStatusLabels";
 
+import { startTaskWatch } from "@/features/tasks/startTaskWatch";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
-
-const SSE_FAILURE_THRESHOLD = 3;
-const POLL_INTERVAL_MS = 3000;
-/** Poll alongside SSE so terminal status appears without waiting for stream events. */
-const SSE_ACTIVE_POLL_INTERVAL_MS = 3000;
 
 export type MultiTaskSpec = {
   taskId: string;
@@ -27,6 +22,7 @@ export type UseMultiTaskProgressOptions = {
   watchKey?: number;
   taskWatchKeys?: Record<string, number>;
   onTaskTerminal?: (event: TaskEvent) => void;
+  onTaskMilestone?: (event: TaskEvent, previous: TaskEvent | null) => void;
   onAllTerminal?: (events: Record<string, TaskEvent>) => void;
 };
 
@@ -64,118 +60,13 @@ function resolveTaskWatchKey(
   return taskWatchKeys?.[taskId] ?? globalWatchKey;
 }
 
-function startTaskWatch(
-  taskId: string,
-  applyEvent: (event: TaskEvent) => void,
-  setModes: React.Dispatch<React.SetStateAction<Record<string, TaskProgressMode>>>,
-  setSseFailureCounts: React.Dispatch<
-    React.SetStateAction<Record<string, number>>
-  >,
-  setError: React.Dispatch<React.SetStateAction<string | null>>,
-  isDisposed: () => boolean,
-): () => void {
-  let source: EventSource | undefined;
-  let failures = 0;
-  let pollTimer: ReturnType<typeof setInterval> | undefined;
-  let fallbackPollTimer: ReturnType<typeof setInterval> | undefined;
-  let taskStopped = false;
-
-  const stopTaskWatch = () => {
-    if (taskStopped) return;
-    taskStopped = true;
-    source?.close();
-    source = undefined;
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = undefined;
-    }
-    if (fallbackPollTimer) {
-      clearInterval(fallbackPollTimer);
-      fallbackPollTimer = undefined;
-    }
-    setModes((prev) => ({ ...prev, [taskId]: "completed" }));
-  };
-
-  const pollOnce = async () => {
-    if (isDisposed() || taskStopped) return;
-    recordDevProgressMetric("taskPoll");
-    try {
-      const { data } = await getTask(taskId);
-      applyEvent(data);
-      if (isTaskTerminalStatus(data.status)) {
-        stopTaskWatch();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "轮询任务失败");
-    }
-  };
-
-  const switchToPolling = () => {
-    if (isDisposed() || taskStopped) return;
-    source?.close();
-    source = undefined;
-    if (fallbackPollTimer) {
-      clearInterval(fallbackPollTimer);
-      fallbackPollTimer = undefined;
-    }
-    setModes((prev) => ({ ...prev, [taskId]: "polling" }));
-    void pollOnce();
-    pollTimer = setInterval(() => {
-      void pollOnce();
-    }, POLL_INTERVAL_MS);
-  };
-
-  const registerSseFailure = () => {
-    if (taskStopped) return;
-    failures += 1;
-    recordDevProgressMetric("sseReconnect");
-    setSseFailureCounts((prev) => ({
-      ...prev,
-      [taskId]: (prev[taskId] ?? 0) + 1,
-    }));
-    if (failures >= SSE_FAILURE_THRESHOLD) {
-      switchToPolling();
-    }
-  };
-
-  setModes((prev) => ({ ...prev, [taskId]: "sse" }));
-
-  void (async () => {
-    await pollOnce();
-    if (isDisposed() || taskStopped) return;
-
-    source = new EventSource(getTaskEventsUrl(taskId));
-    source.addEventListener("task", (message: MessageEvent) => {
-      if (taskStopped) return;
-      try {
-        const parsed = JSON.parse(message.data as string) as TaskEvent;
-        applyEvent(parsed);
-        failures = 0;
-        if (isTaskTerminalStatus(parsed.status)) {
-          stopTaskWatch();
-        }
-      } catch {
-        registerSseFailure();
-      }
-    });
-    source.onerror = () => {
-      registerSseFailure();
-    };
-
-    fallbackPollTimer = setInterval(() => {
-      void pollOnce();
-    }, SSE_ACTIVE_POLL_INTERVAL_MS);
-  })();
-
-  return stopTaskWatch;
-}
-
 export function useMultiTaskProgress({
   tasks,
   enabled = true,
   watchKey = 0,
   taskWatchKeys,
   onTaskTerminal,
+  onTaskMilestone,
   onAllTerminal,
 }: UseMultiTaskProgressOptions): UseMultiTaskProgressResult {
   const [events, setEvents] = useState<Record<string, TaskEvent>>({});
@@ -190,11 +81,14 @@ export function useMultiTaskProgress({
   tasksRef.current = tasks;
 
   const onTaskTerminalRef = useRef(onTaskTerminal);
+  const onTaskMilestoneRef = useRef(onTaskMilestone);
   const onAllTerminalRef = useRef(onAllTerminal);
   onTaskTerminalRef.current = onTaskTerminal;
+  onTaskMilestoneRef.current = onTaskMilestone;
   onAllTerminalRef.current = onAllTerminal;
 
   const eventsRef = useRef<Record<string, TaskEvent>>({});
+  const lastEventIdByTaskRef = useRef<Record<string, number>>({});
   const notifiedTerminalRef = useRef<Set<string>>(new Set());
   const allTerminalNotifiedRef = useRef(false);
   const cleanupByTaskRef = useRef<Record<string, () => void>>({});
@@ -214,6 +108,18 @@ export function useMultiTaskProgress({
     eventsRef.current = merged;
     setEvents(merged);
     setError(null);
+
+    const eventId = extractEventId(mergedEvent);
+    if (eventId != null) {
+      lastEventIdByTaskRef.current[next.taskId] = Math.max(
+        lastEventIdByTaskRef.current[next.taskId] ?? 0,
+        eventId,
+      );
+    }
+
+    if (isTaskMilestone(previous, mergedEvent)) {
+      onTaskMilestoneRef.current?.(mergedEvent, previous);
+    }
 
     if (
       isTaskTerminalStatus(next.status) &&
@@ -316,21 +222,21 @@ export function useMultiTaskProgress({
       cleanupByTaskRef.current[taskId]?.();
       const previousWatchKey = watchKeysByTaskRef.current[taskId];
       if (previousWatchKey !== undefined && previousWatchKey !== watchKeyForTask) {
-        const { [taskId]: _removed, ...rest } = eventsRef.current;
-        eventsRef.current = rest;
-        setEvents({ ...rest });
         notifiedTerminalRef.current.delete(taskId);
         allTerminalNotifiedRef.current = false;
       }
       watchKeysByTaskRef.current[taskId] = watchKeyForTask;
-      cleanupByTaskRef.current[taskId] = startTaskWatch(
+      cleanupByTaskRef.current[taskId] = startTaskWatch({
         taskId,
         applyEvent,
-        setModes,
-        setSseFailureCounts,
+        setMode: () => {},
+        setSseFailureCount: () => {},
         setError,
         isDisposed,
-      );
+        setModes,
+        setSseFailureCounts,
+        initialAfterId: lastEventIdByTaskRef.current[taskId] ?? 0,
+      });
     }
 
     return () => {
