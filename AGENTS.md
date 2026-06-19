@@ -133,6 +133,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
 | `2026-06-10-volcengine-seeddance-video-plan.md` | 火山方舟 SeedDance 2.0 生视频 driver `volcengine_seeddance`（t2v/i2v） | 本计划 § E2E |
+| `2026-06-16-composition-author-brief-plan.md` | Storyboard `compositionAuthorBrief` → finishBrief → material_author 主 HF 规格 | `docs/demos/composition-author-brief-e2e-checklist.md` |
 | `2026-06-09-llm-vo-directive-tts-plan.md` | LLM `narrationVoProfile` / 分镜 `voDirective` → 四层 merge → global `master.wav`（快路径/分段拼接）；冻结 per_scene | `docs/demos/narration-alignment-e2e-checklist.md` § VO directive |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
