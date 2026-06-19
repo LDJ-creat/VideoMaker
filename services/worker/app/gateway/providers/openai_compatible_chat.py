@@ -26,6 +26,7 @@ class OpenAICompatibleChatProvider:
         self._client = client
         self._timeout_sec = timeout_sec
         self.last_latency_ms: int | None = None
+        self.last_token_usage: dict[str, int] | None = None
 
     def _get_client(self) -> httpx.Client:
         if self._client is not None:
@@ -107,6 +108,14 @@ class OpenAICompatibleChatProvider:
                 try:
                     payload = response.json()
                     message = payload["choices"][0]["message"]
+                    usage = payload.get("usage")
+                    if isinstance(usage, dict):
+                        self.last_token_usage = {
+                            "prompt": int(usage.get("prompt_tokens") or 0),
+                            "completion": int(usage.get("completion_tokens") or 0),
+                        }
+                    else:
+                        self.last_token_usage = None
                 except (KeyError, IndexError, json.JSONDecodeError) as exc:
                     raise GatewayError(
                         code="invalid_response",
