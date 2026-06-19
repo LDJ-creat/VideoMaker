@@ -74,7 +74,8 @@ from app.render.backend import RenderOptions
 from app.render.resolve_render_backend import build_render_backend
 from app.tools.ffmpeg_tool import build_fixture_ffmpeg_tool
 from app.tools.hyperframes_tool import build_fixture_hyperframes_tool
-from app.observability.sink import build_observability_sink
+from app.observability.sink import ObservabilitySink, build_observability_sink
+from app.observability.gateway_context import attach_gateway_observability, resolve_profile_model
 from app.runtime.checkpoint import (
     AnalysisCheckpoint,
     GenerationCheckpoint,
@@ -173,6 +174,10 @@ class P0DemoPipeline:
         self._database_path = Path(database_path) if database_path is not None else None
         self._sample_pipeline = SampleAnalysisPipeline(self._storage_root)
         self._llm = llm if llm is not None else self._resolve_llm()
+        self._observability_sink: ObservabilitySink = build_observability_sink(self._storage_root)
+
+    def flush_observability(self) -> None:
+        self._observability_sink.flush()
 
     def _resolve_llm(self) -> LLMTool:
         if is_fixture_mode():
@@ -185,12 +190,29 @@ class P0DemoPipeline:
         gateway = ModelGateway.from_store(store)
         return LLMTool(fixture_mode=False, gateway=gateway)
 
-    def _build_runner(self) -> AgentRunner:
+    def _build_runner(
+        self,
+        *,
+        context: TaskContext | None = None,
+        generation_id: str | None = None,
+    ) -> AgentRunner:
+        sink = self._observability_sink
+        model_name = "fixture" if self._llm.fixture_mode else "live"
+        if self._llm.gateway is not None and context is not None:
+            attach_gateway_observability(
+                self._llm.gateway,
+                sink=sink,
+                project_id=context.project_id,
+                task_id=context.task_id,
+                generation_id=generation_id,
+            )
+            if not self._llm.fixture_mode:
+                model_name = resolve_profile_model(self._llm.gateway, "text")
         return AgentRunner(
             llm=self._llm,
             prompt_loader=PromptLoader(),
-            observability_sink=build_observability_sink(self._storage_root),
-            model_name="fixture" if self._llm.fixture_mode else "live",
+            observability_sink=sink,
+            model_name=model_name,
         )
 
     def _build_material_gateway(self) -> ModelGateway | FixtureMaterialGateway:
@@ -330,7 +352,7 @@ class P0DemoPipeline:
             task_id=task_id,
             storage_root=self._storage_root,
         )
-        runner = self._build_runner()
+        runner = self._build_runner(context=context)
 
         sample_analysis = _load_sample_analysis(self._storage_root, project_id, sample_id)
 
@@ -669,7 +691,7 @@ class P0DemoPipeline:
             task_id=task_id,
             storage_root=self._storage_root,
         )
-        runner = self._build_runner()
+        runner = self._build_runner(context=context)
 
         if "rendering_knowledge_draft" in checkpoint.completedStages:
             checkpoint.completedStages = [
@@ -817,7 +839,7 @@ class P0DemoPipeline:
             task_id=task_id,
             storage_root=self._storage_root,
         )
-        runner = self._build_runner()
+        runner = self._build_runner(context=context, generation_id=generation_id)
         revise_context = load_revise_context(generation_root) if resume else None
 
         sample_analysis_for_gen = (
@@ -1562,7 +1584,7 @@ class P0DemoPipeline:
                 task_id=task_id,
                 storage_root=self._storage_root,
             )
-            runner = self._build_runner()
+            runner = self._build_runner(context=context, generation_id=generation_id)
 
             emit(
                 status="running",
@@ -1655,7 +1677,7 @@ class P0DemoPipeline:
             task_id=task_id,
             storage_root=self._storage_root,
         )
-        runner = self._build_runner()
+        runner = self._build_runner(context=context, generation_id=generation_id)
         source_summary = build_source_summary(source_plan)
         session_turns = build_session_turns_for_planner(session)
         conversation_summary = (
