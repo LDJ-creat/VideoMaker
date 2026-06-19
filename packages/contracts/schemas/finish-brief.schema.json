@@ -9,6 +9,7 @@
       "enum": ["source_only", "source_then_polish", "hf_native", "packaging_only"]
     },
     "finishIntent": { "type": "string" },
+    "compositionAuthorBrief": { "$ref": "composition-author-brief.schema.json" },
     "creativeBrief": {
       "type": "object",
       "properties": {

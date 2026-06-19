@@ -603,9 +603,32 @@ export type CompletionMode =
   | "hf_native"
   | "packaging_only";
 
+export type CompositionAuthorBriefMode =
+  | "hf_native"
+  | "source_then_polish"
+  | "polish_only"
+  | "packaging_only";
+
+export type CompositionTemplatePreference =
+  | "composition"
+  | "benefit-card"
+  | "title-lower-third"
+  | "ken-burns";
+
+export type CompositionAuthorBrief = {
+  mode: CompositionAuthorBriefMode;
+  authorPrompt: string;
+  templatePreference?: CompositionTemplatePreference;
+  displayCopyPolicy?: {
+    allowed?: string[];
+    forbidden?: string[];
+  };
+};
+
 export type FinishBrief = {
   completionMode?: CompletionMode;
   finishIntent?: string;
+  compositionAuthorBrief?: CompositionAuthorBrief;
   creativeBrief?: {
     visualDirection?: string;
     narrativeGoal?: string;
@@ -787,6 +810,7 @@ export type StoryboardScene = {
     | "asset_reuse"
     | "generated";
   voDirective?: VoDirective;
+  compositionAuthorBrief?: CompositionAuthorBrief;
 };
 
 export type PackagingSceneOverlay = {

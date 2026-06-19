@@ -42,7 +42,8 @@
           "visual": { "type": "string" },
           "script": { "type": "string" },
           "source": { "type": "string", "enum": ["user_asset", "text_completion", "packaging_completion", "asset_reuse", "generated"] },
-          "voDirective": { "$ref": "vo-directive.schema.json" }
+          "voDirective": { "$ref": "vo-directive.schema.json" },
+          "compositionAuthorBrief": { "$ref": "composition-author-brief.schema.json" }
         },
         "additionalProperties": false
       }

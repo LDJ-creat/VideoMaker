@@ -45,7 +45,8 @@
               "generated"
             ]
           },
-          "voDirective": { "$ref": "vo-directive.schema.json" }
+          "voDirective": { "$ref": "vo-directive.schema.json" },
+          "compositionAuthorBrief": { "$ref": "composition-author-brief.schema.json" }
         },
         "additionalProperties": false
       }
