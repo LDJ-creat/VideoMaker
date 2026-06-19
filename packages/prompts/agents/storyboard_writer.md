@@ -167,7 +167,7 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 **Output**:
 
 ```json
-{ "storyboard": [ { "id", "slotId", "startSec", "endSec", "visual", "script", "source", "voDirective?" } ] }
+{ "storyboard": [ { "id", "slotId", "startSec", "endSec", "visual", "script", "source", "voDirective?", "compositionAuthorBrief?" } ] }
 ```
 
 - Do **not** rewrite `masterNarration` or `visualStyleBible`.
@@ -196,7 +196,65 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 
 ## `revise_storyboard`
 
-**Output**: `{ "storyboard": […], "summary": "…" }` — do not rewrite master or `visualStyleBible`; preserve scene count and slot timing; scripts stay contiguous substrings of locked master. Preserve **visual consistency** with locked `visualStyleBible` across scenes unless the user instruction targets a specific shot.
+**Output**: `{ "storyboard": […], "summary": "…" }` — do not rewrite master or `visualStyleBible`; preserve scene count and slot timing; scripts stay contiguous substrings of locked master. Preserve **visual consistency** with locked `visualStyleBible` across scenes unless the user instruction targets a specific shot. When editing HF packaging intent, update **`compositionAuthorBrief`** on affected scenes.
+
+# Composition author brief (`compositionAuthorBrief`)
+
+For scenes that will use **HyperFrames material** (`material_author`), emit **`compositionAuthorBrief`** alongside `visual` and `source`.
+
+## When required (any rule matches)
+
+- `source` = `packaging_completion`
+- slot `role` is a packaging role (`hook_text`, `benefit_card`, `comparison`, `proof`, `transition`, `cta`)
+- slot has non-empty `packagingRequirements`
+- matching gap item has `completionMode` in `hf_native`, `packaging_only`, `source_then_polish`
+- matching gap item `suggestedFixes` includes `hyperframes_material`
+
+Non-HF scenes (pure `generated` video/image with no HF polish) **omit** `compositionAuthorBrief`.
+
+## Field 分工
+
+| Field | Purpose |
+|-------|---------|
+| `visual` | AIGC / stock / B-roll — what to shoot or generate |
+| `compositionAuthorBrief` | HF clip execution — layers, motion, overlays inside the composition |
+
+## v1 schema
+
+**Required on HF scenes:**
+
+| Field | Notes |
+|-------|-------|
+| `mode` | `hf_native` \| `source_then_polish` \| `polish_only` \| `packaging_only` |
+| `authorPrompt` | ≤600 字中文：布局、层、动效、禁止项 |
+
+**Optional:** `templatePreference`, `displayCopyPolicy.allowed[]`
+
+## Hard rules
+
+- Stay inside locked **`visualStyleBible`**.
+- **Never** put VO/script text in `authorPrompt` — subtitles burn on timeline globally.
+- **Never** paste `packagingRequirements` tokens as visible copy.
+
+## Good (`benefit_card`)
+
+```json
+"compositionAuthorBrief": {
+  "mode": "hf_native",
+  "templatePreference": "composition",
+  "authorPrompt": "竖屏卖点卡：暖白 solid 背景，三行利益点 stagger 揭示；无 emoji；末帧 hold。",
+  "displayCopyPolicy": { "allowed": ["SPF50+"] }
+}
+```
+
+## Good (`source_then_polish`)
+
+```json
+"compositionAuthorBrief": {
+  "mode": "source_then_polish",
+  "authorPrompt": "保留全屏 B-roll；仅加无字 lower third 条，0.3s 滑入，不挡人脸。"
+}
+```
 
 # Storyboard scene schema
 
@@ -211,6 +269,7 @@ Each scene object:
 | `script` | string | VO substring of master (may be `""`) |
 | `source` | enum | See Source rules |
 | `voDirective` | object | Optional per-scene TTS tone/pace override |
+| `compositionAuthorBrief` | object | **Required on HF scenes** — see Composition author brief section |
 
 # Source rules (storyboard phases)
 

@@ -65,7 +65,14 @@ When the user payload includes **`visualStyleBible`**, treat it as the **locked 
 
 # Creative brief vs rendered copy
 
-User payload strings are **implementation specs**, not on-screen copy — unless explicitly listed in **`renderPolicy.allowedDisplayCopy`**.
+When the user payload includes **`compositionAuthorBrief`**, treat it as the **primary HF authoring spec** (above `finishIntent`, `creativeBrief.visualDirection`, and `storyboardScene.visual`):
+
+- Implement **`authorPrompt`** as layout/motion instructions — never paste it verbatim into DOM or `params`.
+- Honor **`mode`** (`hf_native`, `source_then_polish`, `polish_only`, `packaging_only`) for base-layer vs overlay behavior.
+- **`displayCopyPolicy.allowed`** (and merged `renderPolicy.allowedDisplayCopy`) is the only whitelist for readable on-screen text inside HF.
+- Prefer **`templatePreference`** when choosing between legacy templates and `template=composition`.
+
+User payload strings are **implementation specs**, not on-screen copy — unless explicitly listed in **`renderPolicy.allowedDisplayCopy`** or **`compositionAuthorBrief.displayCopyPolicy.allowed`**.
 
 **Never render verbatim:**
 

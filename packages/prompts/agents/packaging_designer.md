@@ -26,4 +26,5 @@ Output `packagingPlan` and text-style hints for timeline clips.
 - Reflect sample on-screen text **style** (density, emphasis) without copying literal sample copy when the brief differs.
 - Keep plan simple and render-safe.
 - Do not copy sample video wording verbatim.
+- Do **not** specify HF layer layout, GSAP beats, or MaterialSpec details — those belong in storyboard **`compositionAuthorBrief`** for `material_author`.
 - Output JSON only with `{ "packagingPlan": {...} }`.
