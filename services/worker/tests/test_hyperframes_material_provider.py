@@ -571,3 +571,44 @@ def test_material_context_resolves_storage_root_from_render_root(tmp_path: Path)
         register_artifact=lambda artifact_type, path: {"type": artifact_type, "uri": str(path)},
     )
     assert ctx.storage_root == storage_root
+
+
+def test_hyperframes_provider_uses_acp_author_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND", "acp")
+    structure = _load_structure_fixture()
+    slot_id = "seg-2-benefit_card-1"
+    spec = _load_material_spec_fixture()
+
+    def _fake_acp_author(*_args, **_kwargs):
+        return dict(spec)
+
+    monkeypatch.setattr(
+        "app.composition.acp.author.author_material_spec_via_acp",
+        _fake_acp_author,
+    )
+
+    ctx = _make_hf_ctx(tmp_path, structure=structure, runner=MagicMock(), task_context=MagicMock(task_id="task-acp"))
+    ctx.storyboard = [
+        {"slotId": slot_id, "startSec": 0.0, "endSec": 3.0},
+    ]
+    ctx.aspect_ratio = "9:16"
+    register_default_providers(ctx)
+    ctx.providers["hyperframes_material"] = HyperFramesMaterialProvider(
+        HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    )
+
+    action = {
+        "id": "action-benefit-card",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "reason": "needs card",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+    }
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+    assert result["ok"] is True
+    assert (ctx.generated_root / "action-benefit-card.mp4").exists()

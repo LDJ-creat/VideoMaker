@@ -13,6 +13,8 @@ _tmp_*.py
 .next/
 dist/
 build/
+!services/composition/composition/build/
+!services/composition/composition/build/**
 *.egg-info/
 
 # Local runtime artifacts

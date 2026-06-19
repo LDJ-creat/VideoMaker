@@ -135,6 +135,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
 | `2026-06-10-volcengine-seeddance-video-plan.md` | 火山方舟 SeedDance 2.0 生视频 driver `volcengine_seeddance`（t2v/i2v） | 本计划 § E2E |
 | `2026-06-16-composition-author-brief-plan.md` | Storyboard `compositionAuthorBrief` → finishBrief → material_author 主 HF 规格 | `docs/demos/composition-author-brief-e2e-checklist.md` |
+| `2026-06-19-composition-acp-author-plan.md` | ACP 外部 agent（Claude/Codex/Cursor）可选 material author；Python MCP 工具桥；render 路径不变 | `docs/demos/composition-acp-author-e2e-checklist.md` |
 | `2026-06-09-llm-vo-directive-tts-plan.md` | LLM `narrationVoProfile` / 分镜 `voDirective` → 四层 merge → global `master.wav`（快路径/分段拼接）；冻结 per_scene | `docs/demos/narration-alignment-e2e-checklist.md` § VO directive |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
@@ -318,7 +319,12 @@ HyperFrames slot material env (worker):
 | Env | Meaning | Default |
 |-----|---------|---------|
 | `VIDEOMAKER_COMPOSITION_MODE` | `hybrid` (CompositionEngine) or `legacy` (old scaffold-only author) | `hybrid` |
-| `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` (tool loop), `single_shot`, or `legacy` | `react` |
+| `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND` | `react` (internal ReAct) or `acp` (external agent via ACP) | `react` |
+| `VIDEOMAKER_COMPOSITION_ACP_AGENT` | `claude`, `codex`, or `cursor` when `AUTHOR_BACKEND=acp` | `claude` |
+| `VIDEOMAKER_COMPOSITION_ACP_AGENT_COMMAND` | JSON array override for ACP agent spawn | empty |
+| `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | ACP author timeout per slot (seconds) | `600` |
+| `VIDEOMAKER_COMPOSITION_ACP_AUTO_APPROVE` | Auto-approve ACP tool/terminal prompts in headless worker | `true` |
+| `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` (tool loop), `single_shot`, or `legacy` (when `AUTHOR_BACKEND=react`) | `react` |
 | `VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS` | Max ReAct turns for material author | `5` |
 | `VIDEOMAKER_COMPOSITION_SKIP_LINT` | Skip hyperframes lint before render | unset |
 | `VIDEOMAKER_SKILL_VIEW_TOKEN_CAP` | Cumulative skill_view token cap per generation | `6000` |
