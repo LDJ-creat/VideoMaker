@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.services.model_calls import list_model_calls_for_task
 from app.services.task_events import TaskEventService
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -53,6 +54,35 @@ def get_task(task_id: str, request: Request) -> dict[str, Any]:
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.get("/{task_id}/model-calls")
+def get_task_model_calls(
+    task_id: str,
+    request: Request,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    task_service = service(request)
+    task = task_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    with task_service.database.connect() as connection:
+        row = connection.execute(
+            "SELECT project_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    if row is None or not row["project_id"]:
+        raise HTTPException(status_code=404, detail="Task project not found")
+
+    storage_root = request.app.state.storage_root
+    calls = list_model_calls_for_task(
+        storage_root,
+        project_id=str(row["project_id"]),
+        task_id=task_id,
+        kind=kind,
+    )
+    return {"calls": calls}
 
 
 @router.post("/{task_id}/events")

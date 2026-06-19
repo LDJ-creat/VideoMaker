@@ -9,6 +9,7 @@ from knowledge.paths import validate_storage_segment
 from pydantic import BaseModel, Field
 
 from app.services.agent_runs import list_agent_runs_for_generation
+from app.services.model_calls import list_model_calls_for_generation
 from app.services.generation_responses import build_generation_plan_response
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -176,6 +177,26 @@ def get_generation_agent_runs(generation_id: str, request: Request) -> dict[str,
         generation_id=generation_id,
     )
     return {"runs": runs}
+
+
+@router.get("/{generation_id}/model-calls")
+def get_generation_model_calls(
+    generation_id: str,
+    request: Request,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    record = _project_store(request).get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    calls = list_model_calls_for_generation(
+        storage_root,
+        project_id=str(record["projectId"]),
+        generation_id=generation_id,
+        kind=kind,
+    )
+    return {"calls": calls}
 
 
 @router.get("/{generation_id}/composition-patterns")
