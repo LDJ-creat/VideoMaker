@@ -30,7 +30,9 @@
 | Env | 含义 | 默认 |
 |-----|------|------|
 | `VIDEOMAKER_COMPOSITION_MODE` | `hybrid` 或 `legacy` | `hybrid` |
-| `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` / `single_shot` / `legacy` | `react` |
+| `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND` | `react` 或 `acp` | `react` |
+| `VIDEOMAKER_COMPOSITION_ACP_AGENT` | `claude` / `codex` / `cursor` | `claude` |
+| `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` / `single_shot` / `legacy`（`AUTHOR_BACKEND=react` 时） | `react` |
 | `VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS` | ReAct 最大轮数 | `5` |
 | `VIDEOMAKER_FIXTURE_MODE` | 测试/CI 确定性 LLM 输出 | `false` |
 | `VIDEOMAKER_HUMAN_REVIEW_MODE` | generation 人工审批门 | API 默认 `true` |
@@ -115,6 +117,15 @@ python -m pytest tests/test_composition_engine.py::test_build_composition_templa
 4. 验证 `generated/{actionId}/composition/index.html` 与 slot clip MP4。
 
 **通过标准：** lint 通过 + MP4 可播放；Agent run 无 schema 校验失败。
+
+### C4. ACP external agent backend（可选）
+
+1. `$env:VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND="acp"`
+2. 选择 agent：`$env:VIDEOMAKER_COMPOSITION_ACP_AGENT="claude"`（或 `codex` / `cursor`）
+3. 运行 `services/worker/scripts/smoke_composition_acp.py` 或 generation 内 HF material。
+4. 确认 scratch `material-spec.json`、ACP trace（`logs/composition-author/acp/`）、render 路径与 ReAct 一致。
+
+详见 `docs/demos/composition-acp-author-e2e-checklist.md`。
 
 ---
 
