@@ -250,6 +250,37 @@ export type AgentRunLog = {
   createdAt: string;
 };
 
+export type ModelCallKind =
+  | "chat_json"
+  | "chat_text"
+  | "chat_tools"
+  | "image"
+  | "video_submit"
+  | "video_poll"
+  | "tts";
+
+export type ModelCallLog = {
+  id: string;
+  callKind: ModelCallKind;
+  profile: string;
+  model: string;
+  driver: string;
+  taskId?: string;
+  projectId?: string;
+  generationId?: string;
+  slotId?: string;
+  agentName?: string;
+  turn?: number;
+  jobId?: string;
+  input?: unknown;
+  output?: unknown;
+  outputValid: boolean;
+  latencyMs: number;
+  tokenUsage?: { prompt: number; completion: number };
+  error?: { code?: string; message?: string; retryable?: boolean };
+  createdAt: string;
+};
+
 export type VideoMetadata = {
   durationSec: number;
   width?: number;
