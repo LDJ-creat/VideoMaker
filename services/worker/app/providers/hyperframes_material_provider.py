@@ -118,6 +118,10 @@ def expected_hyperframes_output(action: dict[str, Any], generated_root: Path) ->
     return generated_root / f"{action_id}.mp4"
 
 
+def _author_backend() -> str:
+    return os.getenv("VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND", "react").strip().lower()
+
+
 def _composition_mode() -> str:
     return os.getenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid").strip().lower()
 
@@ -142,11 +146,19 @@ def _record_material_author_run(
         "compositionMode": _composition_mode(),
         "slotRole": slot.get("role"),
     }
+    backend = _author_backend()
+    if backend == "acp":
+        summary["backend"] = "acp"
+        from app.composition.acp.author import resolve_acp_agent_label
+
+        summary["acpAgent"] = resolve_acp_agent_label()
     if trace_dir:
-        summary["reactTraceDir"] = trace_dir
+        key = "acpTraceDir" if backend == "acp" else "reactTraceDir"
+        summary[key] = trace_dir
+    prompt_version = "composition-acp-v1" if backend == "acp" else "composition-react-bootstrap"
     payload = AgentRunLog(
         agent_name="material_author",
-        prompt_version="composition-react-bootstrap",
+        prompt_version=prompt_version,
         model=ctx.runner.model_name,
         task="material_author",
         input_summary=json.dumps(summary, ensure_ascii=False)[:500],
@@ -194,42 +206,90 @@ def _author_spec(
                 target_duration,
             )
         else:
-            from composition.author.react_trace import FileReactTraceRecorder
-
-            react_trace = None
-            if ctx.task_context is not None and ctx.project_id:
-                react_trace = FileReactTraceRecorder.create(
-                    ctx.storage_root,
-                    project_id=ctx.project_id,
-                    task_id=ctx.task_context.task_id,
-                    generation_id=ctx.generation_id,
-                    model=ctx.runner.model_name if ctx.runner is not None else None,
+            backend = _author_backend()
+            if backend == "acp":
+                from app.composition.acp.author import (
+                    AcpAuthorUnavailableError,
+                    author_material_spec_via_acp,
+                    ensure_acp_dependencies,
+                    resolve_acp_agent_label,
                 )
-                trace_dir = str(react_trace.trace_dir)
-            engine = create_composition_engine(
-                gateway=ModelGatewayToolAdapter(ctx.gateway),
-                storage_root=ctx.storage_root,
-                emit_progress=ctx.emit_progress,
-            )
-            spec = _enforce_spec_duration(
-                engine.author_material_spec(
-                    AuthorRequest(
+                from app.composition.acp.trace import AcpAuthorTraceRecorder
+
+                try:
+                    ensure_acp_dependencies()
+                except AcpAuthorUnavailableError as exc:
+                    raise RuntimeError(str(exc)) from exc
+
+                acp_trace = None
+                if ctx.task_context is not None and ctx.project_id:
+                    acp_trace = AcpAuthorTraceRecorder.create(
+                        ctx.storage_root,
                         project_id=ctx.project_id,
-                        slot=author_slot,
-                        brand_colors=ctx.brand_colors,
-                        variant_overrides=ctx.variant_overrides,
-                        asset_refs=asset_refs,
-                        aspect_ratio=ctx.aspect_ratio,
-                        slot_timing=slot_timing,
-                        visual_style_bible=ctx.visual_style_bible,
-                        finish_brief=finish_brief,
-                        task_id=ctx.task_context.task_id if ctx.task_context else None,
+                        acp_agent=resolve_acp_agent_label(),
+                        task_id=ctx.task_context.task_id,
                         generation_id=ctx.generation_id,
-                        react_trace=react_trace,
                     )
-                ),
-                target_duration,
-            )
+                    trace_dir = str(acp_trace.trace_dir)
+                spec = _enforce_spec_duration(
+                    author_material_spec_via_acp(
+                        AuthorRequest(
+                            project_id=ctx.project_id,
+                            slot=author_slot,
+                            brand_colors=ctx.brand_colors,
+                            variant_overrides=ctx.variant_overrides,
+                            asset_refs=asset_refs,
+                            aspect_ratio=ctx.aspect_ratio,
+                            slot_timing=slot_timing,
+                            visual_style_bible=ctx.visual_style_bible,
+                            finish_brief=finish_brief,
+                            task_id=ctx.task_context.task_id if ctx.task_context else None,
+                            generation_id=ctx.generation_id,
+                        ),
+                        storage_root=ctx.storage_root,
+                        generated_root=ctx.generated_root,
+                        slot_id=str(slot.get("id", "")),
+                        trace=acp_trace,
+                    ),
+                    target_duration,
+                )
+            else:
+                from composition.author.react_trace import FileReactTraceRecorder
+
+                react_trace = None
+                if ctx.task_context is not None and ctx.project_id:
+                    react_trace = FileReactTraceRecorder.create(
+                        ctx.storage_root,
+                        project_id=ctx.project_id,
+                        task_id=ctx.task_context.task_id,
+                        generation_id=ctx.generation_id,
+                        model=ctx.runner.model_name if ctx.runner is not None else None,
+                    )
+                    trace_dir = str(react_trace.trace_dir)
+                engine = create_composition_engine(
+                    gateway=ModelGatewayToolAdapter(ctx.gateway),
+                    storage_root=ctx.storage_root,
+                    emit_progress=ctx.emit_progress,
+                )
+                spec = _enforce_spec_duration(
+                    engine.author_material_spec(
+                        AuthorRequest(
+                            project_id=ctx.project_id,
+                            slot=author_slot,
+                            brand_colors=ctx.brand_colors,
+                            variant_overrides=ctx.variant_overrides,
+                            asset_refs=asset_refs,
+                            aspect_ratio=ctx.aspect_ratio,
+                            slot_timing=slot_timing,
+                            visual_style_bible=ctx.visual_style_bible,
+                            finish_brief=finish_brief,
+                            task_id=ctx.task_context.task_id if ctx.task_context else None,
+                            generation_id=ctx.generation_id,
+                            react_trace=react_trace,
+                        )
+                    ),
+                    target_duration,
+                )
         _record_material_author_run(
             ctx,
             slot=slot,
