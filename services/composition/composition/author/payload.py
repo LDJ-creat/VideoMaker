@@ -49,6 +49,9 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
     }
     if isinstance(request.finish_brief, dict):
         payload["finishBrief"] = request.finish_brief
+        composition_brief = request.finish_brief.get("compositionAuthorBrief")
+        if isinstance(composition_brief, dict):
+            payload["compositionAuthorBrief"] = composition_brief
     payload["renderPolicy"] = _resolve_render_policy(request.finish_brief)
     if (
         isinstance(request.visual_style_bible, dict)

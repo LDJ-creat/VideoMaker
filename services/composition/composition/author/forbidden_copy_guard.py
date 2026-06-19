@@ -40,6 +40,9 @@ def normalize_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
 
 FIELD_SEMANTICS: dict[str, str] = {
     "slot.creativeDirection": "Creative brief for layout/motion — never render verbatim on screen.",
+    "compositionAuthorBrief": "Primary HF authoring spec — implement layout/motion; never render authorPrompt verbatim.",
+    "compositionAuthorBrief.authorPrompt": "HF execution instructions — guides HTML/GSAP, not on-screen copy.",
+    "finishBrief.compositionAuthorBrief": "Primary HF authoring spec copied from storyboard — same rules as compositionAuthorBrief.",
     "finishBrief.creativeBrief": "Implementation spec — guides polish tasks, not visible copy.",
     "finishBrief.finishIntent": "Polish task description — implement as motion/UI, not as text nodes.",
     "finishBrief.voiceoverContext.line": "VO timing/emotion reference only — subtitles burn via timeline track.",
@@ -72,6 +75,9 @@ def collect_forbidden_copy_phrases(payload: dict[str, Any]) -> list[str]:
     if isinstance(finish, dict):
         _append_phrase(phrases, seen, str(finish.get("finishIntent") or ""))
         _append_phrase(phrases, seen, str(finish.get("packagingHint") or ""))
+        composition_brief = finish.get("compositionAuthorBrief")
+        if isinstance(composition_brief, dict):
+            _append_phrase(phrases, seen, str(composition_brief.get("authorPrompt") or ""))
         creative_brief = finish.get("creativeBrief")
         if isinstance(creative_brief, dict):
             _append_phrase(phrases, seen, str(creative_brief.get("visualDirection") or ""))
@@ -86,10 +92,23 @@ def collect_forbidden_copy_phrases(payload: dict[str, Any]) -> list[str]:
         for req in finish.get("packagingRequirements") or []:
             _append_phrase(phrases, seen, str(req or ""))
 
+    composition_brief = payload.get("compositionAuthorBrief")
+    if isinstance(composition_brief, dict):
+        _append_phrase(phrases, seen, str(composition_brief.get("authorPrompt") or ""))
+
     return phrases
 
 
 def _allowed_display_copy(payload: dict[str, Any]) -> list[str]:
+    composition_brief = payload.get("compositionAuthorBrief")
+    if isinstance(composition_brief, dict):
+        policy = composition_brief.get("displayCopyPolicy")
+        if isinstance(policy, dict):
+            allowed = policy.get("allowed")
+            if isinstance(allowed, list):
+                cleaned = [str(item).strip() for item in allowed if str(item).strip()]
+                if cleaned:
+                    return cleaned
     render_policy = payload.get("renderPolicy")
     if isinstance(render_policy, dict):
         allowed = render_policy.get("allowedDisplayCopy")
