@@ -300,18 +300,16 @@ class HyperFramesMaterialProvider:
         if asset_refs and base_media:
             asset_refs = [_relative_asset_ref(ref, ctx.generated_root) for ref in asset_refs]
 
-        finish_brief: dict[str, Any] | None = None
-        if finish_action or isinstance(action.get("finishBrief"), dict):
-            finish_brief = build_finish_brief_for_action(
-                action=action,
-                slot=slot,
-                storyboard=list(ctx.storyboard),
-                gap_item=None,
-                base_media=_relative_asset_ref(base_media, ctx.generated_root) if base_media else None,
-                packaging_plan=ctx.packaging_plan,
-                source_provider=str(action.get("sourceProvider") or ""),
-                duration_sec=_duration_for_slot(ctx, slot_id),
-            )
+        finish_brief = build_finish_brief_for_action(
+            action=action,
+            slot=slot,
+            storyboard=list(ctx.storyboard),
+            gap_item=None,
+            base_media=_relative_asset_ref(base_media, ctx.generated_root) if base_media else None,
+            packaging_plan=ctx.packaging_plan,
+            source_provider=str(action.get("sourceProvider") or ""),
+            duration_sec=_duration_for_slot(ctx, slot_id),
+        )
 
         spec = action.get("materialSpec")
         if spec is None:

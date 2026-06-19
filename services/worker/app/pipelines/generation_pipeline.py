@@ -48,6 +48,10 @@ from app.pipelines.tts_synthesis import synthesize_master_wav
 from app.tools.tts_tool import TTSTool
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.pipelines.run_slot_matches_store import resolve_slot_matches_for_run
+from app.pipelines.composition_brief import (
+    apply_composition_briefs_to_storyboard,
+    report_composition_brief_warnings,
+)
 from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
@@ -847,6 +851,18 @@ def run_planning_from_script_draft(
         storyboard=storyboard,
         structure=structure,
     )
+    brief_resync_warnings: list[str] = []
+
+    def _emit_brief_resync_warning(message: str) -> None:
+        brief_resync_warnings.append(message)
+
+    storyboard = apply_composition_briefs_to_storyboard(
+        [dict(scene) for scene in storyboard if isinstance(scene, dict)],
+        structure=structure,
+        gap_report=gap_report,
+        emit_warning=_emit_brief_resync_warning,
+    )
+    report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
 
     plan = assemble_generation_plan(
         structure=structure,
@@ -947,6 +963,18 @@ def run_planning_completion(
         storyboard=storyboard,
         structure=structure,
     )
+    brief_resync_warnings: list[str] = []
+
+    def _emit_brief_resync_warning(message: str) -> None:
+        brief_resync_warnings.append(message)
+
+    storyboard = apply_composition_briefs_to_storyboard(
+        [dict(scene) for scene in storyboard if isinstance(scene, dict)],
+        structure=structure,
+        gap_report=gap_report,
+        emit_warning=_emit_brief_resync_warning,
+    )
+    report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
 
     plan = assemble_generation_plan(
         structure=structure,

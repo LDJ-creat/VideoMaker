@@ -4,6 +4,10 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_agent_overrides
+from app.pipelines.composition_brief import (
+    apply_composition_briefs_to_storyboard,
+    report_composition_brief_warnings,
+)
 from app.pipelines.master_narration import apply_master_narration_to_storyboard
 from app.pipelines.narration_scene_timing import apply_narration_timing_to_storyboard
 from app.pipelines.narration_script import is_creative_direction_text
@@ -142,6 +146,9 @@ def _normalize_storyboard_scenes(
             vo_warnings.extend(directive_warnings)
         if vo_directive:
             scene_payload["voDirective"] = vo_directive
+        raw_brief = item.get("compositionAuthorBrief")
+        if isinstance(raw_brief, dict):
+            scene_payload["compositionAuthorBrief"] = dict(raw_brief)
         normalized.append(scene_payload)
     return normalized
 
@@ -194,8 +201,10 @@ def _assert_storyboard_from_master(
     *,
     structure: dict[str, Any],
     master_narration: str,
+    gap_report: dict[str, Any] | None = None,
     narration_timing: dict[str, Any] | None = None,
     vo_warnings: list[str] | None = None,
+    brief_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     storyboard = payload.get("storyboard")
     if not isinstance(storyboard, list):
@@ -222,6 +231,17 @@ def _assert_storyboard_from_master(
     )
     if scene_timing:
         aligned = apply_narration_timing_to_storyboard(aligned, scene_timing)
+
+    def _emit_brief_warning(message: str) -> None:
+        if brief_warnings is not None:
+            brief_warnings.append(message)
+
+    aligned = apply_composition_briefs_to_storyboard(
+        aligned,
+        structure=structure,
+        gap_report=gap_report,
+        emit_warning=_emit_brief_warning,
+    )
     return {"storyboard": aligned, **_optional_summary(payload)}
 
 
@@ -306,6 +326,7 @@ def run_storyboard_writer(
         inputs["knowledgeContext"] = knowledge_context
 
     vo_warnings: list[str] = []
+    brief_warnings: list[str] = []
     if normalized_phase in {"master_only", "revise_master"}:
         post_validate = lambda payload: _assert_master_only(
             payload,
@@ -325,8 +346,10 @@ def run_storyboard_writer(
             payload,
             structure=structure,
             master_narration=approved_master,
+            gap_report=gap_report,
             narration_timing=narration_timing,
             vo_warnings=vo_warnings,
+            brief_warnings=brief_warnings,
         )
 
     output = runner.run(
@@ -340,4 +363,5 @@ def run_storyboard_writer(
         post_validate=post_validate,
     )
     report_vo_directive_warnings(vo_warnings, emit_event=context.emit_event)
+    report_composition_brief_warnings(brief_warnings, emit_event=context.emit_event)
     return output

@@ -161,6 +161,45 @@ def test_assert_storyboard_from_master_preserves_vo_directive() -> None:
     }
 
 
+def test_assert_storyboard_from_master_preserves_composition_author_brief() -> None:
+    structure = {
+        "slots": [
+            {
+                "id": "slot-card",
+                "role": "benefit_card",
+                "startSec": 0.0,
+                "endSec": 3.0,
+                "packagingRequirements": ["lower_third"],
+            }
+        ]
+    }
+    payload = _assert_storyboard_from_master(
+        {
+            "storyboard": [
+                {
+                    "slotId": "slot-card",
+                    "startSec": 0.0,
+                    "endSec": 3.0,
+                    "visual": "卖点卡动效",
+                    "script": "第一句。",
+                    "source": "packaging_completion",
+                    "compositionAuthorBrief": {
+                        "mode": "hf_native",
+                        "authorPrompt": "竖屏卖点卡，三行 stagger 揭示，无口播文字。",
+                    },
+                }
+            ],
+        },
+        structure=structure,
+        master_narration="第一句。",
+        gap_report={},
+    )
+    brief = payload["storyboard"][0]["compositionAuthorBrief"]
+    assert brief["mode"] == "hf_native"
+    assert brief["templatePreference"] == "benefit-card"
+    assert "竖屏卖点卡" in brief["authorPrompt"]
+
+
 def test_assert_storyboard_fills_missing_scene_id() -> None:
     structure = {
         "slots": [
