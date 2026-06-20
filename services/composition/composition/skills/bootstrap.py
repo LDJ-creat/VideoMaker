@@ -6,10 +6,18 @@ from composition.skills.catalog import SkillCatalog, SkillEntry
 from composition.skills.usage_requirements import visual_craft_bootstrap_section
 
 
+_ACP_EXECUTION_BLOCK = """\
+# ACP execution
+One pass: required skill_view → draft spec → lint → write_material_spec.
+Forbidden: exploring repo source, schemas, CLI/MCP internals, other scratch dirs, or example specs.
+Use only videomaker-composition MCP tools + terminal lint-spec; no search/shell/node_repl unless repair cites a file."""
+
+
 def build_bootstrap_system_prompt(
     *,
     repo_root: Path | None = None,
     pattern_l0: list[dict] | None = None,
+    acp_author: bool = False,
 ) -> str:
     catalog = SkillCatalog(repo_root=repo_root)
     extra: list[SkillEntry] = []
@@ -30,8 +38,13 @@ def build_bootstrap_system_prompt(
         "",
         catalog.render_available_skills_xml(extra=extra or None),
         "",
-        catalog.skill_usage_rule_xml(),
+        catalog.skill_usage_rule_xml(acp_author=acp_author),
         "",
+    ]
+    if acp_author:
+        parts.extend([_ACP_EXECUTION_BLOCK, ""])
+    parts.extend(
+        [
         visual_craft_bootstrap_section(),
         "",
         "# Output",
@@ -41,5 +54,6 @@ def build_bootstrap_system_prompt(
         "# Pattern reuse",
         "When a composition_pattern skill is listed, read composition-skill.md first, then spec.template.json.",
         "Fill placeholders from the current slot; never copy unrelated product copy from the pattern.",
-    ]
+        ]
+    )
     return "\n".join(parts)

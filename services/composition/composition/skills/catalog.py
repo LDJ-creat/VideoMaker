@@ -115,7 +115,7 @@ class SkillCatalog:
         return "\n".join(lines)
 
     @staticmethod
-    def skill_usage_rule_xml() -> str:
+    def skill_usage_rule_xml(*, acp_author: bool = False) -> str:
         from composition.skills.usage_requirements import (
             REQUIRED_PRIVATE_SKILL_PATHS,
             REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS,
@@ -123,13 +123,29 @@ class SkillCatalog:
         )
 
         required_reads = list(REQUIRED_PRIVATE_SKILL_PATHS) + list(REQUIRED_VISUAL_CRAFT_REFERENCE_PATHS)
+        if acp_author:
+            optional_reads = (
+                "Optional: other entries in <available_skills> only when the slot needs that stack "
+                "(e.g. lottie, three, css-animations, hyperframes-registry)."
+            )
+            outside_rule = (
+                "Do not skill_view paths outside <available_skills> "
+                "(no client/plugin skills, no repo source files)."
+            )
+        else:
+            optional_reads = (
+                "Optional: skills/public/hyperframes/SKILL.md + skills/public/gsap/SKILL.md when authoring HTML/timelineScript; "
+                "skills/public/hyperframes-registry/SKILL.md only if registryBlocks is non-empty."
+            )
+            outside_rule = "Also skill_view plausibly-relevant public skills (hyperframes, gsap, registry)."
         return "\n".join(
             [
                 "<skill_usage_rule>",
-                "Before submit_material_spec, skill_view ALL required paths (enforced):",
+                "Before write_material_spec, skill_view ALL required paths:",
                 *[f"- {path}" for path in required_reads],
                 f"- {VISUAL_BIBLE_EXTRA_READ_PATHS[0]} when visualStyleBible is in the user payload",
-                "Also skill_view plausibly-relevant public skills (hyperframes, gsap, registry).",
+                optional_reads,
+                outside_rule,
                 "</skill_usage_rule>",
             ]
         )
