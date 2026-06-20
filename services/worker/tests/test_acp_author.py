@@ -4,6 +4,8 @@ import json
 import time
 from pathlib import Path
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.composition.acp.agent_registry import fake_agent_command
@@ -16,6 +18,9 @@ from app.composition.acp.author import (
 )
 from app.composition.acp.fs_bridge import FsBridge, PathConfinementError
 from app.composition.acp.trace import AcpAuthorTraceRecorder
+from app.observability.acp_author_recorder import AcpAuthorObservabilityContext
+from app.observability.sink import LocalFileSink
+from app.runtime.agent_run_store import AgentRunStore
 from composition.paths import detect_repo_root
 from composition.types import AuthorRequest
 
@@ -143,6 +148,64 @@ def test_author_material_spec_via_acp_fake_agent(
     assert outcome["backend"] == "acp"
 
 
+def test_author_material_spec_via_acp_records_observability_tool_runs(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC", "120")
+    monkeypatch.setenv("VM_ACP_FIXTURE_LINT", "1")
+    scratch = tmp_path / "scratch"
+    storage_root = tmp_path / "storage"
+    sink = LocalFileSink(AgentRunStore(storage_root))
+    trace = AcpAuthorTraceRecorder.create(
+        storage_root,
+        project_id="proj-acp",
+        acp_agent="fake",
+        task_id="task-1",
+        generation_id="gen-1",
+    )
+    observability = AcpAuthorObservabilityContext.from_trace(
+        sink=sink,
+        trace_dir=trace.trace_dir,
+        project_id="proj-acp",
+        task_id="task-1",
+        generation_id="gen-1",
+        slot_id="slot-benefit",
+        acp_agent="fake",
+    )
+    request = AuthorRequest(
+        project_id="proj-acp",
+        generation_id="gen-1",
+        task_id="task-1",
+        slot={
+            "role": "benefit_card",
+            "scriptIntent": "show benefits",
+            "visualIntent": "card motion",
+        },
+        aspect_ratio="9:16",
+    )
+    author_material_spec_via_acp(
+        request,
+        repo_root=repo_root,
+        scratch_dir=scratch,
+        agent_command=fake_agent_command(),
+        trace=trace,
+        observability=observability,
+    )
+
+    tool_dir = storage_root / "projects" / "proj-acp" / "logs" / "tool-runs"
+    tool_names = {
+        json.loads(path.read_text(encoding="utf-8"))["toolName"]
+        for path in tool_dir.glob("acp-*.json")
+    }
+    assert "acp_session_start" in tool_names
+    assert "acp_lint_gate" in tool_names
+    assert "acp_session_end" in tool_names
+    session_payload = json.loads((trace.trace_dir / "session.json").read_text(encoding="utf-8"))
+    assert session_payload.get("observabilityRunId") == trace.run_id
+
+
 def test_acp_lint_repair_retries_after_post_turn_failure(
     tmp_path: Path,
     repo_root: Path,
@@ -185,6 +248,24 @@ def test_acp_lint_repair_retries_after_post_turn_failure(
     monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
     monkeypatch.setattr(author_module, "_lint_spec_after_turn", fake_lint_after_turn)
 
+    storage_root = tmp_path / "storage"
+    sink = LocalFileSink(AgentRunStore(storage_root))
+    trace = AcpAuthorTraceRecorder.create(
+        storage_root,
+        project_id="proj-acp",
+        acp_agent="fake",
+        generation_id="gen-1",
+    )
+    observability = AcpAuthorObservabilityContext.from_trace(
+        sink=sink,
+        trace_dir=trace.trace_dir,
+        project_id="proj-acp",
+        task_id=None,
+        generation_id="gen-1",
+        slot_id="slot-1",
+        acp_agent="fake",
+    )
+
     spec = author_material_spec_via_acp(
         AuthorRequest(
             project_id="proj-acp",
@@ -195,6 +276,14 @@ def test_acp_lint_repair_retries_after_post_turn_failure(
         repo_root=repo_root,
         scratch_dir=scratch,
         agent_command=fake_agent_command(),
+        observability=observability,
     )
     assert spec["params"]["title"] == "Retry"
     assert len(session_calls) == 2
+
+    payloads = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (storage_root / "projects" / "proj-acp" / "logs" / "tool-runs").glob("*.json")
+    ]
+    end_payload = next(item for item in payloads if item["toolName"] == "acp_session_end")
+    assert end_payload["metadata"]["repairAttempt"] == 1

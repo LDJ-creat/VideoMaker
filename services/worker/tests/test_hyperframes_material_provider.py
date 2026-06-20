@@ -579,9 +579,24 @@ def test_hyperframes_provider_uses_acp_author_backend(
 ) -> None:
     monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
     monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND", "acp")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_AGENT", "claude")
+    monkeypatch.delenv("VIDEOMAKER_CLAUDE_ACP_MODEL", raising=False)
     structure = _load_structure_fixture()
     slot_id = "seg-2-benefit_card-1"
     spec = _load_material_spec_fixture()
+    storage_root, _, generated_root, render_root = _project_layout(tmp_path)
+    sink = LocalFileSink(AgentRunStore(storage_root))
+    runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True),
+        prompt_loader=PromptLoader(),
+        observability_sink=sink,
+        model_name="fixture-text-model",
+    )
+    task_context = TaskContext(
+        project_id="project-1",
+        task_id="task-acp",
+        storage_root=storage_root,
+    )
 
     def _fake_acp_author(*_args, **_kwargs):
         return dict(spec)
@@ -591,7 +606,12 @@ def test_hyperframes_provider_uses_acp_author_backend(
         _fake_acp_author,
     )
 
-    ctx = _make_hf_ctx(tmp_path, structure=structure, runner=MagicMock(), task_context=MagicMock(task_id="task-acp"))
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        runner=runner,
+        task_context=task_context,
+    )
     ctx.storyboard = [
         {"slotId": slot_id, "startSec": 0.0, "endSec": 3.0},
     ]
@@ -612,3 +632,11 @@ def test_hyperframes_provider_uses_acp_author_backend(
     result = ctx.providers["hyperframes_material"].execute(action, ctx)
     assert result["ok"] is True
     assert (ctx.generated_root / "action-benefit-card.mp4").exists()
+
+    agent_runs = list((storage_root / "projects" / "project-1" / "logs" / "agent-runs").glob("*.json"))
+    assert agent_runs
+    agent_payload = json.loads(agent_runs[-1].read_text(encoding="utf-8"))
+    assert agent_payload["model"] == "acp:claude"
+    summary = json.loads(agent_payload["inputSummary"])
+    assert summary["slotId"] == slot_id
+    assert summary["backend"] == "acp"
