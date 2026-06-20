@@ -26,6 +26,7 @@ $env:VIDEOMAKER_OBSERVABILITY_CAPTURE = "full"   # 默认 full；可改为 summa
 - [ ] 跑一次 **样本分析**（map_reduce）：`storage/projects/{projectId}/logs/model-calls/` 出现 `chat_json` 记录（含 keyframe batch、segment analyst）。
 - [ ] 跑一次 **生成**：同目录出现 `image` / `video_submit` / `video_poll` / `tts`（视 gap 配置）。
 - [ ] composition ReAct 素材：`chat_tools` 记录带 `agentName=material_author` 与递增 `turn`。
+- [ ] composition **ACP** 素材（`VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND=acp`）：**无** `chat_tools` model-call；`logs/tool-runs/` 出现 `acp_session_start` / `acp_session_end`；`agent-runs` 的 `model` 为 `acp:*`。
 
 ## 2. Agent-runs 双写
 
@@ -38,6 +39,7 @@ $env:VIDEOMAKER_OBSERVABILITY_CAPTURE = "full"   # 默认 full；可改为 summa
 
 - [ ] worker 结束后 30s 内可见 trace（`session_id` = taskId）。
 - [ ] 同 task 下 agent span + model generation/span 层级正确。
+- [ ] ACP material_author：`material_author:acp_session_start` / `acp_lint_gate` / `acp_session_end` span 可见；metadata 含 `acpTraceDir`、`slotId`。
 - [ ] 用 `generationId` metadata 可过滤某次 variant 生成。
 
 ## 4. 降级与韧性

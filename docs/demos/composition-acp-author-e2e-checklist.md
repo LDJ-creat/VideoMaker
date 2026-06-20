@@ -85,6 +85,9 @@ Optional: set `VIDEOMAKER_ACP_SMOKE_SIMPLE=false` for full author with session l
    - `generations/{generationId}/generated/{actionId}.mp4`
    - `generations/{generationId}/generated/{actionId}/composition/`
 4. Agent run log shows `prompt_version=composition-acp-v1` and `backend=acp`.
+5. `logs/tool-runs/` contains `acp_session_start` / `acp_lint_gate` / `acp_session_end` (and optional `acp_session_update` spans).
+6. `logs/agent-runs/` entry has `model=acp:claude` (or env override) and `inputSummary.slotId`.
+7. With `LANGFUSE_ENABLED=true`, Langfuse trace shows `material_author:acp_session_*` spans under the same `taskId` trace.
 
 ## Repair round (manual / automation)
 

@@ -111,7 +111,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 - Sample structure extraction uses **`structure_analyst`** LLM Agent (perception facts from FFmpeg/OpenCV/Whisper remain algorithm inputs).
 - Generation uses Agent pipeline for mapping, gap, storyboard, packaging; material completion via `hyperframes_material` / `image_generation` / `video_generation` / `tts`.
 - **`VIDEOMAKER_FIXTURE_MODE=true`** — test/CI fixtures only; not a production fallback when live models fail.
-- **Observability (optional Langfuse):** `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; `VIDEOMAKER_OBSERVABILITY_CAPTURE` (`full` \| `summary` \| `off`, default `full`); model calls persist to `storage/projects/{projectId}/logs/model-calls/`; API `GET /api/generations/{id}/model-calls`, `GET /api/tasks/{id}/model-calls`. E2E: `docs/demos/langfuse-observability-e2e-checklist.md`.
+- **Observability (optional Langfuse):** `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; `VIDEOMAKER_OBSERVABILITY_CAPTURE` (`full` \| `summary` \| `off`, default `full`); model calls persist to `storage/projects/{projectId}/logs/model-calls/`; ACP material author tool spans persist to `logs/tool-runs/` (`acp_session_*`); API `GET /api/generations/{id}/model-calls`, `GET /api/tasks/{id}/model-calls`. E2E: `docs/demos/langfuse-observability-e2e-checklist.md`.
 - Default variants: **`high_click`** + **`high_conversion`**. Video generation quota: max **1** successful `video_generation` per `generationId` (configurable via env; see below).
 
 ### Post-P1 Extensions (also on `main`)
@@ -326,6 +326,7 @@ HyperFrames slot material env (worker):
 | `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | ACP author timeout per slot (seconds) | `600` |
 | `VIDEOMAKER_COMPOSITION_ACP_AUTO_APPROVE` | Auto-approve ACP tool/terminal prompts in headless worker | `true` |
 | `VIDEOMAKER_COMPOSITION_ACP_LINT_REPAIR_MAX` | Extra ACP repair sessions after post-turn lint failure | `1` |
+| `VIDEOMAKER_ACP_OBSERVABILITY_MAX_SESSION_UPDATES` | Max `acp_session_update` tool-run records exported per ACP author session | `40` |
 | `VIDEOMAKER_COMPOSITION_LINT_CACHE` | Skip duplicate HF lint when spec hash matches session lint | `true` |
 | `VIDEOMAKER_MCP_WRITE_SKIP_LINT` | Skip HF lint inside MCP `write_material_spec` (ACP default) | `true` when ACP |
 | `VIDEOMAKER_COMPOSITION_AGENT_MODE` | `react` (tool loop), `single_shot`, or `legacy` (when `AUTHOR_BACKEND=react`) | `react` |
