@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -21,7 +22,8 @@ from composition.types import AuthorRequest, RenderPaths
 
 def main() -> int:
     os.environ.setdefault("VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND", "acp")
-    os.environ.setdefault("VIDEOMAKER_COMPOSITION_ACP_AGENT", "claude")
+    os.environ.setdefault("VIDEOMAKER_COMPOSITION_ACP_AGENT", "cursor")
+    duration_sec = float(os.environ.get("VIDEOMAKER_ACP_SMOKE_DURATION_SEC", "8"))
     storage_root = REPO / "services" / "api" / "storage"
     storage_root.mkdir(parents=True, exist_ok=True)
 
@@ -33,12 +35,14 @@ def main() -> int:
         generation_id="smoke-acp-gen",
     )
     scratch = storage_root / "smoke" / "acp-author" / "benefit-card"
+    if scratch.exists():
+        shutil.rmtree(scratch)
     scratch.mkdir(parents=True, exist_ok=True)
 
     slot = {
         "role": "benefit_card",
         "scriptIntent": "展示三大核心卖点：轻量、续航、画质",
-        "visualIntent": "卡片依次弹入，强调标题与 bullet",
+        "visualIntent": "三张卡片依次弹入；纯图标+进度条动效，禁止任何可读中英文文案",
     }
     author_started = time.perf_counter()
     spec = author_material_spec_via_acp(
@@ -49,7 +53,11 @@ def main() -> int:
             brand_colors={"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
             task_id="smoke-acp",
             generation_id="smoke-acp-gen",
-            slot_timing={"startSec": 0.0, "endSec": 3.0, "durationSec": 3.0},
+            slot_timing={
+                "startSec": 0.0,
+                "endSec": duration_sec,
+                "durationSec": duration_sec,
+            },
         ),
         repo_root=REPO,
         scratch_dir=scratch,
@@ -69,6 +77,7 @@ def main() -> int:
             output_clip=clip,
             log_path=tmpdir / "render-log.json",
             aspect_ratio="9:16",
+            lint_reuse_scratch=scratch,
         ),
     )
     render_sec = round(time.perf_counter() - render_started, 2)
