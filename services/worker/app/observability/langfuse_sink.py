@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 from typing import Any
 
 from app.observability.capture import (
@@ -11,6 +12,22 @@ from app.observability.capture import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_agent_summary_metadata(input_summary: Any) -> dict[str, Any]:
+    if not isinstance(input_summary, str) or not input_summary.strip():
+        return {}
+    try:
+        parsed = json.loads(input_summary)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    metadata: dict[str, Any] = {}
+    for key in ("backend", "acpAgent", "acpTraceDir", "slotRole", "slotId", "reactTraceDir"):
+        if key in parsed:
+            metadata[key] = parsed[key]
+    return metadata
 
 
 class LangfuseSink:
@@ -46,19 +63,21 @@ class LangfuseSink:
             return
         try:
             trace = self._task_trace(log)
+            metadata = {
+                "kind": "agent_run",
+                "taskId": log.get("taskId"),
+                "generationId": log.get("generationId"),
+                "promptVersion": log.get("promptVersion"),
+                "outputValid": log.get("outputValid"),
+                "latencyMs": log.get("latencyMs"),
+                "model": log.get("model"),
+            }
+            metadata.update(_parse_agent_summary_metadata(log.get("inputSummary")))
             trace.span(
                 id=str(log.get("id")),
                 name=str(log.get("agentName", "agent_run")),
                 input=prepare_payload(log.get("inputSummary"), capture=self._capture),
-                metadata={
-                    "kind": "agent_run",
-                    "taskId": log.get("taskId"),
-                    "generationId": log.get("generationId"),
-                    "promptVersion": log.get("promptVersion"),
-                    "outputValid": log.get("outputValid"),
-                    "latencyMs": log.get("latencyMs"),
-                    "model": log.get("model"),
-                },
+                metadata=metadata,
             )
         except Exception:
             logger.exception("LangfuseSink.record_agent_run failed")
@@ -74,10 +93,30 @@ class LangfuseSink:
                 "projectId": log.get("projectId"),
                 "generationId": log.get("generationId"),
                 "latencyMs": log.get("latencyMs"),
+                "agentName": log.get("agentName"),
+                "slotId": log.get("slotId"),
             }
+            extra = log.get("metadata")
+            if isinstance(extra, dict):
+                for key in (
+                    "backend",
+                    "acpAgent",
+                    "acpTraceDir",
+                    "repairAttempt",
+                    "eventKind",
+                    "lintCached",
+                    "outputValid",
+                    "sessionUpdateDropped",
+                ):
+                    if key in extra:
+                        metadata[key] = extra[key]
+            span_name = str(log.get("toolName", "tool_run"))
+            if str(log.get("agentName")) == "material_author" and span_name.startswith("acp_"):
+                span_name = f"material_author:{span_name}"
             self._task_trace(log).span(
                 id=str(log.get("id")),
-                name=str(log.get("toolName", "tool_run")),
+                name=span_name,
+                input=prepare_payload(log.get("input"), capture=self._capture),
                 metadata=metadata,
             )
         except Exception:
