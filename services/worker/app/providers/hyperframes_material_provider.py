@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.material_author import run_material_author_with_runner
+from app.observability.acp_author_recorder import (
+    AcpAuthorObservabilityContext,
+    resolve_acp_model_label,
+)
 from app.composition.engine_factory import create_composition_engine
 from app.composition.gateway_adapter import ModelGatewayToolAdapter
 from app.providers.base_media_resolver import is_finish_action, resolve_slot_base_media
@@ -145,13 +149,16 @@ def _record_material_author_run(
         "mode": _agent_mode_label(),
         "compositionMode": _composition_mode(),
         "slotRole": slot.get("role"),
+        "slotId": slot.get("id"),
     }
     backend = _author_backend()
+    model_name = ctx.runner.model_name
     if backend == "acp":
         summary["backend"] = "acp"
         from app.composition.acp.author import resolve_acp_agent_label
 
         summary["acpAgent"] = resolve_acp_agent_label()
+        model_name = resolve_acp_model_label()
     if trace_dir:
         key = "acpTraceDir" if backend == "acp" else "reactTraceDir"
         summary[key] = trace_dir
@@ -159,7 +166,7 @@ def _record_material_author_run(
     payload = AgentRunLog(
         agent_name="material_author",
         prompt_version=prompt_version,
-        model=ctx.runner.model_name,
+        model=model_name,
         task="material_author",
         input_summary=json.dumps(summary, ensure_ascii=False)[:500],
         output_valid=valid,
@@ -222,6 +229,7 @@ def _author_spec(
                     raise RuntimeError(str(exc)) from exc
 
                 acp_trace = None
+                acp_observability = None
                 if ctx.task_context is not None and ctx.project_id:
                     acp_trace = AcpAuthorTraceRecorder.create(
                         ctx.storage_root,
@@ -231,6 +239,16 @@ def _author_spec(
                         generation_id=ctx.generation_id,
                     )
                     trace_dir = str(acp_trace.trace_dir)
+                    if ctx.runner is not None:
+                        acp_observability = AcpAuthorObservabilityContext.from_trace(
+                            sink=ctx.runner.observability_sink,
+                            trace_dir=acp_trace.trace_dir,
+                            project_id=ctx.project_id,
+                            task_id=ctx.task_context.task_id,
+                            generation_id=ctx.generation_id,
+                            slot_id=str(slot.get("id", "")),
+                            acp_agent=resolve_acp_agent_label(),
+                        )
                 spec = _enforce_spec_duration(
                     author_material_spec_via_acp(
                         AuthorRequest(
@@ -250,6 +268,7 @@ def _author_spec(
                         generated_root=ctx.generated_root,
                         slot_id=str(slot.get("id", "")),
                         trace=acp_trace,
+                        observability=acp_observability,
                     ),
                     target_duration,
                 )

@@ -24,6 +24,7 @@ from app.composition.acp.agent_registry import fake_agent_command, resolve_acp_a
 from app.composition.acp.fs_bridge import FsBridge
 from app.composition.acp.headless_client import HeadlessCompositionClient, client_capabilities
 from app.composition.acp.trace import AcpAuthorTraceRecorder
+from app.observability.acp_author_recorder import AcpAuthorObservabilityContext
 from knowledge.paths import validate_storage_segment
 
 
@@ -408,6 +409,7 @@ async def _author_async(
     generated_root: Path | None,
     agent_command: list[str] | None = None,
     trace: AcpAuthorTraceRecorder | None = None,
+    observability: AcpAuthorObservabilityContext | None = None,
 ) -> tuple[dict[str, Any], int, bool]:
     ensure_acp_dependencies()
     repo_root = repo_root.resolve()
@@ -423,6 +425,7 @@ async def _author_async(
     client_impl = HeadlessCompositionClient(
         fs_bridge=FsBridge(allowed_roots=allowed_roots),
         trace=trace,
+        observability=observability,
     )
 
     command = agent_command or resolve_acp_agent_command()
@@ -474,21 +477,34 @@ async def _author_async(
                 "lintRepairMax": repair_max,
                 "acpTimeoutSec": session_timeout,
                 "compositionTemplate": composition_template,
-            }
+            },
+            observability_run_id=observability.run_id if observability is not None else None,
         )
         trace.record_prompt(system=system, user=user)
+
+    if observability is not None:
+        observability.record_session_start(
+            agent_command=command,
+            acp_timeout_sec=session_timeout,
+            composition_template=composition_template,
+            lint_repair_max=repair_max,
+        )
 
     author_started = time.time()
     spec: dict[str, Any] | None = None
     last_errors: list[str] = []
+    lint_cached = False
 
     for attempt in range(repair_max + 1):
         repair_attempt = attempt
+        if observability is not None:
+            observability.note_session_progress(repair_attempt=repair_attempt, lint_cached=lint_cached)
         if attempt > 0:
             user = _build_repair_prompt(scratch_dir=scratch_dir, repo_root=repo_root, errors=last_errors)
             if trace is not None:
                 trace.record_prompt(system=system, user=user)
-
+            if observability is not None:
+                observability.record_repair_attempt(attempt=attempt, errors=last_errors)
         await asyncio.wait_for(
             _run_acp_session(
                 client_impl=client_impl,
@@ -515,6 +531,7 @@ async def _author_async(
             raise RuntimeError("acp_author_invalid_material_spec")
         spec = loaded
 
+        lint_started = time.perf_counter()
         lint_errors, lint_cached = _lint_spec_after_turn(
             spec,
             scratch_dir=scratch_dir,
@@ -523,6 +540,13 @@ async def _author_async(
             aspect_ratio=request.aspect_ratio,
             asset_root=generated_root,
         )
+        if observability is not None:
+            observability.record_lint_gate(
+                errors=lint_errors,
+                lint_cached=lint_cached,
+                latency_ms=(time.perf_counter() - lint_started) * 1000,
+                repair_attempt=repair_attempt,
+            )
         last_errors = lint_errors
         if not lint_errors:
             break
@@ -543,6 +567,7 @@ def author_material_spec_via_acp(
     slot_id: str = "",
     agent_command: list[str] | None = None,
     trace: AcpAuthorTraceRecorder | None = None,
+    observability: AcpAuthorObservabilityContext | None = None,
 ) -> dict[str, Any]:
     ensure_acp_dependencies()
     root = _resolve_repo_root(repo_root)
@@ -566,6 +591,7 @@ def author_material_spec_via_acp(
                 generated_root=generated_root,
                 agent_command=agent_command,
                 trace=trace,
+                observability=observability,
             )
         )
         if trace is not None:
@@ -577,6 +603,13 @@ def author_material_spec_via_acp(
                 repair_attempt=repair_attempt,
                 lint_cached=lint_cached,
             )
+        if observability is not None:
+            observability.record_session_end(
+                valid=True,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                repair_attempt=repair_attempt,
+                lint_cached=lint_cached,
+            )
         return spec
     except Exception as exc:
         if trace is not None:
@@ -584,6 +617,12 @@ def author_material_spec_via_acp(
                 valid=False,
                 validation_errors=[str(exc)],
                 total_latency_ms=(time.perf_counter() - started) * 1000,
+            )
+        if observability is not None:
+            observability.record_session_end(
+                valid=False,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                validation_errors=[str(exc)],
             )
         raise
 

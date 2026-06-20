@@ -21,6 +21,7 @@ from acp.schema import (
 from app.composition.acp.fs_bridge import FsBridge, PathConfinementError
 from app.composition.acp.terminal_bridge import TerminalBridge, _auto_approve_enabled
 from app.composition.acp.trace import AcpAuthorTraceRecorder
+from app.observability.acp_author_recorder import AcpAuthorObservabilityContext
 
 
 @dataclass
@@ -34,6 +35,7 @@ class _TerminalState:
 class HeadlessCompositionClient:
     fs_bridge: FsBridge
     trace: AcpAuthorTraceRecorder | None = None
+    observability: AcpAuthorObservabilityContext | None = None
     terminal_bridge: TerminalBridge = field(default_factory=TerminalBridge)
     _terminals: dict[str, _TerminalState] = field(default_factory=dict)
 
@@ -55,16 +57,27 @@ class HeadlessCompositionClient:
             self.trace.record_tool_call(
                 {"kind": "permission", "optionId": option_id, "autoApproved": True},
             )
+        if self.observability is not None:
+            self.observability.record_client_event(
+                kind="permission",
+                payload={"optionId": option_id, "autoApproved": True},
+            )
         return RequestPermissionResponse(
             outcome=AllowedOutcome(outcome="selected", option_id=option_id),
         )
 
     async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
         _ = session_id, kwargs
-        if self.trace is None:
+        if self.trace is None and self.observability is None:
             return
         payload = update.model_dump(by_alias=True) if hasattr(update, "model_dump") else {"update": str(update)}
-        self.trace.record_tool_call({"kind": "session_update", "update": payload})
+        if self.trace is not None:
+            self.trace.record_tool_call({"kind": "session_update", "update": payload})
+        if self.observability is not None:
+            self.observability.record_client_event(
+                kind="session_update",
+                payload={"update": payload},
+            )
 
     async def write_text_file(
         self,
@@ -120,6 +133,11 @@ class HeadlessCompositionClient:
             cwd=cwd,
         )
         self._terminals[terminal_id] = _TerminalState(exit_code=code, stdout=stdout, stderr=stderr)
+        if self.observability is not None:
+            self.observability.record_client_event(
+                kind="terminal",
+                payload={"command": command, "args": args or [], "exitCode": code},
+            )
         return CreateTerminalResponse(terminal_id=terminal_id)
 
     async def terminal_output(
@@ -183,6 +201,11 @@ class HeadlessCompositionClient:
     async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
         if self.trace is not None:
             self.trace.record_tool_call({"kind": "ext_notification", "method": method, "params": params})
+        if self.observability is not None:
+            self.observability.record_client_event(
+                kind="ext_notification",
+                payload={"method": method, "params": params},
+            )
 
 
 def client_capabilities() -> dict[str, Any]:

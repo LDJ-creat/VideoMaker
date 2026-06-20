@@ -56,9 +56,16 @@ class AcpAuthorTraceRecorder:
             project_id=project_id,
         )
 
-    def record_session(self, payload: dict[str, Any]) -> None:
+    @property
+    def run_id(self) -> str:
+        return self.trace_dir.name
+
+    def record_session(self, payload: dict[str, Any], *, observability_run_id: str | None = None) -> None:
+        merged = dict(payload)
+        if observability_run_id:
+            merged["observabilityRunId"] = observability_run_id
         (self.trace_dir / "session.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json.dumps(merged, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
