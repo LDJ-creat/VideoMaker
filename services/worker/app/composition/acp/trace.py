@@ -85,6 +85,8 @@ class AcpAuthorTraceRecorder:
         validation_errors: list[str],
         total_latency_ms: float,
         spec_path: str | None = None,
+        repair_attempt: int = 0,
+        lint_cached: bool = False,
     ) -> None:
         (self.trace_dir / "outcome.json").write_text(
             json.dumps(
@@ -93,6 +95,8 @@ class AcpAuthorTraceRecorder:
                     "validationErrors": validation_errors,
                     "totalLatencyMs": round(total_latency_ms, 2),
                     "specPath": spec_path,
+                    "repairAttempt": repair_attempt,
+                    "lintCached": lint_cached,
                     "recordedAt": _utc_now_iso(),
                     "backend": "acp",
                     "acpAgent": self.acp_agent,
