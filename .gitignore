@@ -15,6 +15,7 @@ dist/
 build/
 !services/composition/composition/build/
 !services/composition/composition/build/**
+services/composition/composition/build/__pycache__/
 *.egg-info/
 
 # Local runtime artifacts
