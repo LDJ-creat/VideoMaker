@@ -6,6 +6,10 @@ from typing import Any
 
 from composition.author.react_agent import author_material_spec
 from composition.build.composition_builder import build_composition
+from composition.lint_pipeline import (
+    LintContext,
+    try_reuse_composition_dir,
+)
 from composition.build.legacy_scaffold import MaterialScaffoldError
 from composition.patterns.deposit import deposit_pattern_candidate, promote_pattern
 from composition.patterns.resolver import pattern_l0_cards
@@ -106,40 +110,77 @@ class CompositionEngine:
     def render_clip(self, spec: dict[str, Any], paths: RenderPaths) -> RenderResult:
         if self._emit:
             self._emit("rendering_material", "Rendering HyperFrames material clip")
-        try:
-            composition_dir = build_composition(
-                spec,
-                paths.output_dir,
-                asset_root=paths.asset_root,
-                project_root=paths.project_root,
-                aspect_ratio=paths.aspect_ratio,
-            )
-        except MaterialScaffoldError as exc:
-            message = str(exc)
-            code = "material_sandbox_violation" if "escapes project sandbox" in message else "material_scaffold_failed"
-            return RenderResult(ok=False, error={"code": code, "message": message})
 
-        from composition.build.tailwind_runtime import ensure_tailwind_runtime_in_index
+        reuse_scratch = paths.lint_reuse_scratch
+        lint_ctx = LintContext(
+            scratch_dir=(reuse_scratch or paths.output_dir).resolve(),
+            repo_root=self.repo_root,
+            author_payload={},
+            aspect_ratio=paths.aspect_ratio,
+            asset_root=paths.asset_root,
+        )
+        composition_dir = try_reuse_composition_dir(spec, lint_ctx)
+        lint_passed = False
+        lint_skipped = False
+        lint_log: LintResult | None = None
 
-        index_path = composition_dir / "index.html"
-        if index_path.is_file():
-            ensure_tailwind_runtime_in_index(index_path)
+        if composition_dir is None:
+            try:
+                composition_dir = build_composition(
+                    spec,
+                    paths.output_dir,
+                    asset_root=paths.asset_root,
+                    project_root=paths.project_root,
+                    aspect_ratio=paths.aspect_ratio,
+                )
+            except MaterialScaffoldError as exc:
+                message = str(exc)
+                code = "material_sandbox_violation" if "escapes project sandbox" in message else "material_scaffold_failed"
+                return RenderResult(ok=False, error={"code": code, "message": message})
 
-        lint_log = paths.lint_log_path or (paths.output_dir / "lint-log.json")
-        lint = self.lint_composition(composition_dir, lint_log)
-        lint_passed = lint.ok and not lint.skipped
-        if not lint.ok and not lint.skipped and os.getenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid") != "legacy":
-            return RenderResult(
-                ok=False,
-                error={
-                    "code": "composition_lint_failed",
-                    "message": "; ".join(lint.errors) or "lint failed",
-                    "retryable": True,
-                },
-                lint_passed=False,
-                lint_skipped=lint.skipped,
-                lint_log_path=lint.log_path,
-            )
+            from composition.build.tailwind_runtime import ensure_tailwind_runtime_in_index
+
+            index_path = composition_dir / "index.html"
+            if index_path.is_file():
+                ensure_tailwind_runtime_in_index(index_path)
+
+            lint_log_path = paths.lint_log_path or (paths.output_dir / "lint-log.json")
+            lint = self.lint_composition(composition_dir, lint_log_path)
+            lint_passed = lint.ok and not lint.skipped
+            lint_skipped = lint.skipped
+            lint_log = lint
+            if not lint.ok and not lint.skipped and os.getenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid") != "legacy":
+                return RenderResult(
+                    ok=False,
+                    error={
+                        "code": "composition_lint_failed",
+                        "message": "; ".join(lint.errors) or "lint failed",
+                        "retryable": True,
+                    },
+                    lint_passed=False,
+                    lint_skipped=lint.skipped,
+                    lint_log_path=lint.log_path,
+                )
+            if lint_passed and reuse_scratch is None:
+                from composition.lint_pipeline import compute_spec_content_hash, resolve_hyperframes_argv, write_lint_passed_marker
+
+                write_lint_passed_marker(
+                    composition_dir,
+                    spec_hash=compute_spec_content_hash(
+                        spec,
+                        LintContext(
+                            scratch_dir=paths.output_dir.resolve(),
+                            repo_root=self.repo_root,
+                            author_payload={},
+                            aspect_ratio=paths.aspect_ratio,
+                            asset_root=paths.asset_root,
+                        ),
+                    ),
+                    hyperframes_command=resolve_hyperframes_argv(repo_root=self.repo_root),
+                )
+        else:
+            lint_passed = True
+            lint_skipped = False
 
         paths.output_clip.parent.mkdir(parents=True, exist_ok=True)
         render_result = self._cli.render(composition_dir, paths.output_clip, paths.log_path)
@@ -148,16 +189,16 @@ class CompositionEngine:
                 ok=False,
                 error=render_result.get("error"),
                 lint_passed=lint_passed,
-                lint_skipped=lint.skipped,
-                lint_log_path=lint.log_path,
+                lint_skipped=lint_skipped,
+                lint_log_path=lint_log.log_path if lint_log else None,
             )
         if not paths.output_clip.exists():
             return RenderResult(
                 ok=False,
                 error={"code": "material_render_missing_output", "message": "missing mp4"},
                 lint_passed=lint_passed,
-                lint_skipped=lint.skipped,
-                lint_log_path=lint.log_path,
+                lint_skipped=lint_skipped,
+                lint_log_path=lint_log.log_path if lint_log else None,
             )
         return RenderResult(
             ok=True,
@@ -165,8 +206,8 @@ class CompositionEngine:
             composition_dir=composition_dir,
             duration_sec=float(spec.get("durationSec", 0)),
             lint_passed=lint_passed,
-            lint_skipped=lint.skipped,
-            lint_log_path=lint.log_path if lint_passed else None,
+            lint_skipped=lint_skipped,
+            lint_log_path=lint_log.log_path if lint_passed and lint_log else None,
         )
 
     def deposit_pattern_candidate(self, ctx: PatternDepositContext) -> dict[str, str]:

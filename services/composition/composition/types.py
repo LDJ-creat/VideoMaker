@@ -40,6 +40,7 @@ class RenderPaths:
     asset_root: Path | None = None
     aspect_ratio: str = "9:16"
     lint_log_path: Path | None = None
+    lint_reuse_scratch: Path | None = None
 
 
 @dataclass
