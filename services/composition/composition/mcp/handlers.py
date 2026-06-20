@@ -1,116 +1,144 @@
-from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
-from typing import Any
-
-from composition.author.forbidden_copy_guard import check_forbidden_copy_in_spec
-from composition.author.tools import CompositionToolExecutor
-from composition.mcp.context import McpSessionContext
-from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_runner
-from composition.schema_loader import validate_contract
-from composition.skills.runtime import SkillRuntime
-from composition.types import BuildContext
-
-
-def _hyperframes_cli(repo_root: Path) -> HyperFramesCli:
-    if os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {"1", "true", "yes"}:
-        return HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root)
-    return HyperFramesCli(repo_root=repo_root)
-
-
-def create_executor(ctx: McpSessionContext) -> CompositionToolExecutor:
-    lint_root = ctx.scratch_dir / "mcp-session"
-    lint_root.mkdir(parents=True, exist_ok=True)
-    runtime = SkillRuntime(repo_root=ctx.repo_root)
-    build_ctx = BuildContext(
-        project_root=ctx.scratch_dir,
-        output_dir=lint_root,
-        asset_root=ctx.asset_root,
-        aspect_ratio=ctx.aspect_ratio,
-    )
-    return CompositionToolExecutor(
-        skill_runtime=runtime,
-        build_ctx=build_ctx,
-        lint_root=lint_root,
-        hyperframes_cli=_hyperframes_cli(ctx.repo_root),
-        repo_root=ctx.repo_root,
-        author_payload=ctx.author_payload,
-    )
-
-
-def handle_skill_view(ctx: McpSessionContext, *, location: str, section: str | None = None) -> str:
-    return create_executor(ctx).execute(
-        "skill_view",
-        {"location": location, **({"section": section} if section else {})},
-    )
-
-
-def handle_registry_list(
-    ctx: McpSessionContext,
-    *,
-    category: str | None = None,
-    role: str | None = None,
-) -> str:
-    args: dict[str, Any] = {}
-    if category:
-        args["category"] = category
-    if role:
-        args["role"] = role
-    return create_executor(ctx).execute("registry_list", args)
-
-
-def handle_composition_lint_draft(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
-    return create_executor(ctx).execute("composition_lint_draft", {"spec_json": spec_json})
-
-
-def lint_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> list[str]:
-    """Run build + hyperframes lint; return error strings (empty when ok)."""
-    raw = handle_composition_lint_draft(ctx, spec_json=spec_json)
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return [raw]
-    if payload.get("ok"):
-        return []
-    errors = payload.get("errors")
-    if isinstance(errors, list):
-        return [str(item) for item in errors]
-    return [raw]
-
-
-def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
-    if not isinstance(spec_json, dict):
-        return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
-
-    schema_result = validate_contract("material-spec", spec_json)
-    if not schema_result.valid:
-        errors = [f"{item.path}: {item.message}" for item in schema_result.errors]
-        return json.dumps({"ok": False, "errors": errors}, ensure_ascii=False)
-
-    copy_errors = check_forbidden_copy_in_spec(spec_json, ctx.author_payload)
-    if copy_errors:
-        return json.dumps({"ok": False, "errors": copy_errors}, ensure_ascii=False)
-
-    lint_errors = lint_material_spec(ctx, spec_json=spec_json)
-    if lint_errors:
-        return json.dumps({"ok": False, "errors": lint_errors}, ensure_ascii=False)
-
-    target = ctx.material_spec_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(spec_json, ensure_ascii=False, indent=2), encoding="utf-8")
-    lint_marker = ctx.scratch_dir / "material-spec.lint-passed"
-    lint_marker.write_text("ok\n", encoding="utf-8")
-    return json.dumps(
-        {"ok": True, "path": str(target)},
-        ensure_ascii=False,
-    )
-
-
-def read_material_spec(ctx: McpSessionContext) -> dict[str, Any] | None:
-    path = ctx.material_spec_path
-    if not path.is_file():
-        return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return payload if isinstance(payload, dict) else None
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from composition.author.tools import CompositionToolExecutor
+from composition.lint_pipeline import (
+    LintContext,
+    lint_material_spec_full,
+    spec_lint_result_to_json,
+    validate_spec_gate,
+)
+from composition.mcp.context import McpSessionContext
+from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_runner
+from composition.schema_loader import validate_contract
+from composition.skills.runtime import SkillRuntime
+from composition.types import BuildContext
+
+
+def _hyperframes_cli(repo_root: Path) -> HyperFramesCli:
+    if os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {"1", "true", "yes"}:
+        return HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root)
+    return HyperFramesCli(repo_root=repo_root)
+
+
+def _lint_context(ctx: McpSessionContext) -> LintContext:
+    return LintContext.from_mcp(ctx)
+
+
+def create_executor(ctx: McpSessionContext) -> CompositionToolExecutor:
+    ctx.scratch_dir.mkdir(parents=True, exist_ok=True)
+    runtime = SkillRuntime(repo_root=ctx.repo_root)
+    build_ctx = BuildContext(
+        project_root=ctx.scratch_dir,
+        output_dir=ctx.scratch_dir,
+        asset_root=ctx.asset_root,
+        aspect_ratio=ctx.aspect_ratio,
+    )
+    return CompositionToolExecutor(
+        skill_runtime=runtime,
+        build_ctx=build_ctx,
+        lint_root=ctx.scratch_dir,
+        hyperframes_cli=_hyperframes_cli(ctx.repo_root),
+        repo_root=ctx.repo_root,
+        author_payload=ctx.author_payload,
+    )
+
+
+def handle_skill_view(ctx: McpSessionContext, *, location: str, section: str | None = None) -> str:
+    return create_executor(ctx).execute(
+        "skill_view",
+        {"location": location, **({"section": section} if section else {})},
+    )
+
+
+def handle_registry_list(
+    ctx: McpSessionContext,
+    *,
+    category: str | None = None,
+    role: str | None = None,
+) -> str:
+    args: dict[str, Any] = {}
+    if category:
+        args["category"] = category
+    if role:
+        args["role"] = role
+    return create_executor(ctx).execute("registry_list", args)
+
+
+def handle_composition_lint_draft(
+    ctx: McpSessionContext,
+    *,
+    spec_json: dict[str, Any],
+    schema_only: bool = False,
+) -> str:
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+    lint_ctx = _lint_context(ctx)
+    errors, result = lint_material_spec_full(
+        spec_json,
+        lint_ctx,
+        schema_only=schema_only,
+        cli=_hyperframes_cli(ctx.repo_root),
+    )
+    if result is None:
+        return json.dumps({"ok": False, "errors": errors or ["lint failed"]}, ensure_ascii=False)
+    if errors:
+        payload = spec_lint_result_to_json(result)
+        payload["ok"] = False
+        return json.dumps(payload, ensure_ascii=False)
+    payload = spec_lint_result_to_json(result)
+    payload["ok"] = True
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def lint_material_spec(
+    ctx: McpSessionContext,
+    *,
+    spec_json: dict[str, Any],
+    skip_hf_if_cached: bool = False,
+) -> list[str]:
+    """Run validate + build + hyperframes lint; return error strings (empty when ok)."""
+    errors, _ = lint_material_spec_full(
+        spec_json,
+        _lint_context(ctx),
+        skip_hf_if_cached=skip_hf_if_cached,
+        cli=_hyperframes_cli(ctx.repo_root),
+    )
+    return errors
+
+
+def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+
+    gate_errors = validate_spec_gate(spec_json, ctx.author_payload)
+    if gate_errors:
+        return json.dumps({"ok": False, "errors": gate_errors}, ensure_ascii=False)
+
+    skip_lint = os.getenv("VIDEOMAKER_MCP_WRITE_SKIP_LINT", "").strip().lower() in {"1", "true", "yes"}
+    if not skip_lint:
+        lint_errors = lint_material_spec(ctx, spec_json=spec_json)
+        if lint_errors:
+            return json.dumps({"ok": False, "errors": lint_errors}, ensure_ascii=False)
+
+    target = ctx.material_spec_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(spec_json, ensure_ascii=False, indent=2), encoding="utf-8")
+    lint_marker = ctx.scratch_dir / "material-spec.lint-passed"
+    lint_marker.write_text("ok\n", encoding="utf-8")
+    return json.dumps(
+        {"ok": True, "path": str(target)},
+        ensure_ascii=False,
+    )
+
+
+def read_material_spec(ctx: McpSessionContext) -> dict[str, Any] | None:
+    path = ctx.material_spec_path
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None

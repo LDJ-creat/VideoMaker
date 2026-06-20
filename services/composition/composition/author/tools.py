@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from composition.author.forbidden_copy_guard import check_forbidden_copy_in_spec
-from composition.build.composition_builder import build_composition
+from composition.lint_pipeline import LintContext, lint_material_spec_full, spec_lint_result_to_json
 from composition.registry.installer import load_registry_catalog
 from composition.render.hyperframes_cli import HyperFramesCli
 from composition.skills.runtime import SkillRuntime
@@ -84,6 +83,7 @@ class CompositionToolExecutor:
         self._runtime = skill_runtime
         self._build_ctx = build_ctx
         self._lint_root = lint_root
+        self._repo_root = repo_root
         self._cli = hyperframes_cli or HyperFramesCli(repo_root=repo_root)
         self._author_payload = author_payload or {}
 
@@ -114,23 +114,30 @@ class CompositionToolExecutor:
             spec = arguments.get("spec_json")
             if not isinstance(spec, dict):
                 return json.dumps({"ok": False, "errors": ["spec_json must be object"]})
-            copy_errors = check_forbidden_copy_in_spec(spec, self._author_payload)
-            if copy_errors:
-                return json.dumps({"ok": False, "errors": copy_errors}, ensure_ascii=False)
-            draft_dir = self._lint_root / "lint-draft"
-            draft_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                build_composition(
-                    spec,
-                    draft_dir,
-                    asset_root=self._build_ctx.asset_root,
-                    project_root=self._build_ctx.project_root,
-                    aspect_ratio=self._build_ctx.aspect_ratio,
-                )
-            except Exception as exc:
-                return json.dumps({"ok": False, "errors": [str(exc)]})
-            lint = self._cli.lint(draft_dir, draft_dir / "lint-log.json")
-            return json.dumps(lint, ensure_ascii=False)
+            schema_only = bool(arguments.get("schema_only"))
+            from composition.paths import detect_repo_root
+
+            repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
+            lint_ctx = LintContext(
+                scratch_dir=self._lint_root.resolve(),
+                repo_root=repo,
+                author_payload=self._author_payload,
+                aspect_ratio=self._build_ctx.aspect_ratio,
+                asset_root=self._build_ctx.asset_root,
+            )
+            errors, result = lint_material_spec_full(
+                spec,
+                lint_ctx,
+                schema_only=schema_only,
+                cli=self._cli,
+            )
+            if result is None:
+                return json.dumps({"ok": False, "errors": errors or ["lint failed"]}, ensure_ascii=False)
+            payload = spec_lint_result_to_json(result)
+            payload["ok"] = not errors
+            if errors:
+                payload["errors"] = errors
+            return json.dumps(payload, ensure_ascii=False)
         if name == "submit_material_spec":
             return json.dumps({"accepted": True, "spec": arguments.get("spec_json")})
         return json.dumps({"error": f"unknown tool {name}"})
