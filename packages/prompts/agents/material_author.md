@@ -69,6 +69,10 @@ When the user payload includes **`compositionAuthorBrief`**, treat it as the **p
 
 - Implement **`authorPrompt`** as layout/motion instructions — never paste it verbatim into DOM or `params`.
 - Honor **`mode`** (`hf_native`, `source_then_polish`, `polish_only`, `packaging_only`) for base-layer vs overlay behavior.
+- Honor **`layoutAnchor`** and **`layoutDirective`** (when present) for vertical placement — they override ambiguous wording in `authorPrompt` or `finishIntent`:
+  - `center` (**`hf_native` / `packaging_only`**): main content vertically and horizontally centered in the safe area (~35%–55% vertical band). **Forbidden:** `justify-content: flex-end`, `align-items: flex-end`, anchoring primary copy with `bottom: …`, full-width lower-third cards for hero text.
+  - `lower_third` (**`source_then_polish`** on B-roll): thin overlay in the bottom third only; keep subject visible; no VO text in HF.
+  - `upper_third` (**hook** polish on B-roll): title/badge overlay in the top third; do not cover faces.
 - **`displayCopyPolicy.allowed`** (and merged `renderPolicy.allowedDisplayCopy`) is the only whitelist for readable on-screen text inside HF.
 - Prefer **`templatePreference`** when choosing between legacy templates and `template=composition`.
 

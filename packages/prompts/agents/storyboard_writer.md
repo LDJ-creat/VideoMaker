@@ -227,8 +227,21 @@ Non-HF scenes (pure `generated` video/image with no HF polish) **omit** `composi
 |-------|-------|
 | `mode` | `hf_native` \| `source_then_polish` \| `polish_only` \| `packaging_only` |
 | `authorPrompt` | ≤600 字中文：布局、层、动效、禁止项 |
+| `layoutAnchor` | `center` \| `lower_third` \| `upper_third` — **按 mode 选择**（见下表） |
 
 **Optional:** `templatePreference`, `displayCopyPolicy.allowed[]`
+
+## Layout anchor by mode (`layoutAnchor`)
+
+| `mode` | `layoutAnchor` | 含义 |
+|--------|----------------|------|
+| `hf_native` / `packaging_only` | **`center`** | 全屏 HF 合成，无主视频底片；主信息必须在竖屏安全区**垂直水平居中**（约 35%–55%），**禁止** lower third / flex-end 贴底（避免与 timeline 字幕轨重叠） |
+| `source_then_polish` + `cta` | `lower_third` | 保留 B-roll 人物居中；CTA/行动条仅在**下方三分之一**细 overlay，不挡脸 |
+| `source_then_polish` + `hook_visual` / `hook_text` | `upper_third` | 保留 B-roll；hook 标题/角标在**上方三分之一** |
+| `source_then_polish`（其他） | `lower_third` | 润色 overlay 贴底，不替换底片 |
+
+- `hf_native` 的 `authorPrompt` **必须**写明居中构图，**不得**写「lower third」「对比条贴底」「从底部滑入」等。
+- `source_then_polish` 的 `authorPrompt` **不得**要求全屏居中大字卡（那是 `hf_native`）；应写「保留底片 + 轻量 overlay」。
 
 ## Hard rules
 
@@ -241,8 +254,9 @@ Non-HF scenes (pure `generated` video/image with no HF polish) **omit** `composi
 ```json
 "compositionAuthorBrief": {
   "mode": "hf_native",
+  "layoutAnchor": "center",
   "templatePreference": "composition",
-  "authorPrompt": "竖屏卖点卡：暖白 solid 背景，三行利益点 stagger 揭示；无 emoji；末帧 hold。",
+  "authorPrompt": "竖屏卖点卡：暖白 solid 背景，三行利益点 stagger 揭示，主信息垂直水平居中；无 emoji；末帧 hold。",
   "displayCopyPolicy": { "allowed": ["SPF50+"] }
 }
 ```
@@ -252,6 +266,7 @@ Non-HF scenes (pure `generated` video/image with no HF polish) **omit** `composi
 ```json
 "compositionAuthorBrief": {
   "mode": "source_then_polish",
+  "layoutAnchor": "lower_third",
   "authorPrompt": "保留全屏 B-roll；仅加无字 lower third 条，0.3s 滑入，不挡人脸。"
 }
 ```
