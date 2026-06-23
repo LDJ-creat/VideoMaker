@@ -10,6 +10,7 @@ from composition.build.html_safety import HtmlSafetyError, validate_composition_
 from composition.build.legacy_scaffold import (
     MaterialScaffoldError,
     build_composition as build_legacy_composition,
+    collect_project_sandbox_paths,
     ensure_paths_in_project_sandbox,
     validate_material_spec,
 )
@@ -115,10 +116,10 @@ def build_composition(
 
     output_dir = output_dir.resolve()
     if project_root is not None:
-        sandbox_paths = [output_dir]
-        if asset_root is not None:
-            sandbox_paths.append(asset_root.resolve())
-        ensure_paths_in_project_sandbox(project_root, *sandbox_paths)
+        ensure_paths_in_project_sandbox(
+            project_root,
+            *collect_project_sandbox_paths(project_root, output_dir, asset_root),
+        )
 
     template = str(spec.get("template", ""))
     if template == "composition":

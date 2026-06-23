@@ -334,6 +334,21 @@ def ensure_paths_in_project_sandbox(project_root: Path, *paths: Path) -> None:
             raise MaterialScaffoldError(f"Path escapes project sandbox: {path}")
 
 
+def collect_project_sandbox_paths(
+    project_root: Path,
+    output_dir: Path,
+    asset_root: Path | None,
+) -> list[Path]:
+    """Paths that must stay under project_root. External asset_root is allowed (URI checks apply)."""
+    root = project_root.resolve()
+    paths: list[Path] = [output_dir.resolve()]
+    if asset_root is not None:
+        resolved_asset_root = asset_root.resolve()
+        if resolved_asset_root.is_relative_to(root):
+            paths.append(resolved_asset_root)
+    return paths
+
+
 def build_composition(
     spec: dict[str, Any],
     output_dir: Path,
@@ -350,10 +365,10 @@ def build_composition(
 
     output_dir = output_dir.resolve()
     if project_root is not None:
-        sandbox_paths = [output_dir]
-        if asset_root is not None:
-            sandbox_paths.append(asset_root.resolve())
-        ensure_paths_in_project_sandbox(project_root, *sandbox_paths)
+        ensure_paths_in_project_sandbox(
+            project_root,
+            *collect_project_sandbox_paths(project_root, output_dir, asset_root),
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
