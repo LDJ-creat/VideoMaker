@@ -55,6 +55,33 @@ def test_normalize_composition_author_brief_coerces_template() -> None:
     )
     assert brief is not None
     assert brief["templatePreference"] == "benefit-card"
+    assert brief["layoutAnchor"] == "center"
+    assert "垂直水平居中" in brief["authorPrompt"] or "居中" in brief["authorPrompt"]
+
+
+def test_normalize_hf_native_realigns_lower_third_anchor() -> None:
+    brief = normalize_composition_author_brief(
+        {
+            "mode": "hf_native",
+            "layoutAnchor": "lower_third",
+            "authorPrompt": "对比条贴底展示卖点。",
+        },
+        scene={"source": "packaging_completion"},
+        slot={"role": "benefit_card"},
+        gap_item=None,
+    )
+    assert brief is not None
+    assert brief["layoutAnchor"] == "center"
+
+
+def test_infer_layout_anchor_polish_cta() -> None:
+    from app.pipelines.composition_brief import infer_layout_anchor
+
+    assert (
+        infer_layout_anchor(mode="source_then_polish", slot={"role": "cta"})
+        == "lower_third"
+    )
+    assert infer_layout_anchor(mode="hf_native", slot={"role": "cta"}) == "center"
 
 
 def test_apply_storyboard_briefs_require_mode_raises() -> None:

@@ -88,6 +88,49 @@ def resolve_finish_intent_from_variant(
     return _finish_intent_from_variant(slot, variant_overrides)
 
 
+_HF_NATIVE_FINISH_INTENT_BY_ROLE: dict[str, str] = {
+    "benefit_card": "竖屏居中卖点字卡，主信息垂直居中，关键词高亮，禁止贴底 lower third",
+    "comparison": "竖屏居中并列对比，主信息垂直居中，禁止贴底条带",
+    "proof": "竖屏居中金句大字，主信息垂直居中，关键词高亮",
+    "cta": "竖屏居中收束卡片，主文案垂直居中；口播由字幕轨承担，HF 内避免底部叠字",
+    "hook_text": "竖屏居中标题字卡，主信息垂直居中，禁止贴底",
+    "transition": "竖屏居中过渡字卡，主信息垂直居中",
+}
+
+_BOTTOM_FINISH_INTENT_SIGNALS = (
+    "lower third",
+    "lower_third",
+    "lower-third",
+    "对比条",
+    "贴底",
+    "底部条",
+)
+
+
+def coerce_finish_intent_for_mode(
+    *,
+    completion_mode: str,
+    slot: dict[str, Any],
+    finish_intent: str | None,
+) -> str | None:
+    """Align finishIntent with completion mode — hf_native centers; polish modes may use lower third."""
+    mode = _normalize_mode(completion_mode, default="source_only")
+    intent = str(finish_intent or "").strip()
+    role = normalize_slot_role(str(slot.get("role") or ""))
+
+    if mode not in {"hf_native", "packaging_only"}:
+        return intent or None
+
+    if not intent:
+        return _HF_NATIVE_FINISH_INTENT_BY_ROLE.get(role)
+
+    intent_lower = intent.lower()
+    if any(signal in intent_lower for signal in _BOTTOM_FINISH_INTENT_SIGNALS):
+        return _HF_NATIVE_FINISH_INTENT_BY_ROLE.get(role, intent)
+
+    return intent
+
+
 def _default_mode_for_slot(
     slot: dict[str, Any],
     variant_overrides: dict[str, Any] | None = None,

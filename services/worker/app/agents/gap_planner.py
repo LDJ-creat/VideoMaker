@@ -4,7 +4,11 @@ from typing import Any
 
 from app.agents.runner import AgentRunner
 from app.config.variants import load_variant_gap_planner_overrides
-from app.pipelines.gap_reconcile import reconcile_provider_chain, resolve_finish_intent_from_variant
+from app.pipelines.gap_reconcile import (
+    coerce_finish_intent_for_mode,
+    reconcile_provider_chain,
+    resolve_finish_intent_from_variant,
+)
 from app.pipelines.gap_selection import provider_rationale
 from app.runtime.video_gen_quota import VideoGenQuota
 from app.agents.slot_mapper import classify_slot_matches
@@ -167,10 +171,18 @@ def apply_provider_reconciliation(
                 "completionMode": mode,
                 "reconcileNotes": notes,
             }
-            if not str(merged_item.get("finishIntent", "")).strip():
-                default_intent = resolve_finish_intent_from_variant(slot, overrides)
-                if default_intent and mode in {"source_then_polish", "hf_native", "packaging_only"}:
-                    merged_item["finishIntent"] = default_intent
+            raw_intent = str(merged_item.get("finishIntent", "")).strip()
+            if not raw_intent:
+                raw_intent = str(resolve_finish_intent_from_variant(slot, overrides) or "").strip()
+            coerced_intent = coerce_finish_intent_for_mode(
+                completion_mode=mode,
+                slot=slot,
+                finish_intent=raw_intent or None,
+            )
+            if coerced_intent:
+                merged_item["finishIntent"] = coerced_intent
+            elif raw_intent:
+                merged_item["finishIntent"] = raw_intent
             updated.append(merged_item)
         gap_report[bucket] = updated
     return gap_report

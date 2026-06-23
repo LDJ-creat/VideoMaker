@@ -13,6 +13,80 @@ VALID_TEMPLATE_PREFERENCES = frozenset(
 _HF_COMPLETION_MODES = frozenset({"hf_native", "packaging_only", "source_then_polish"})
 _AUTHOR_PROMPT_MAX_LEN = 600
 
+_LAYOUT_ANCHOR_BY_MODE: dict[str, str] = {
+    "hf_native": "center",
+    "packaging_only": "center",
+    "source_then_polish": "lower_third",
+    "polish_only": "lower_third",
+}
+
+_LAYOUT_ANCHOR_POLISH_BY_ROLE: dict[str, str] = {
+    "hook_text": "upper_third",
+    "hook_visual": "upper_third",
+    "cta": "lower_third",
+}
+
+_LAYOUT_DIRECTIVES: dict[str, str] = {
+    "center": (
+        "主信息区必须在竖屏安全区内垂直水平居中（约 35%–55% 垂直带）；"
+        "禁止 justify-content:flex-end、align-items:flex-end、bottom 锚定主文案，"
+        "避免与 timeline 底部字幕轨重叠。"
+    ),
+    "lower_third": (
+        "保留底片人物居中/偏上；overlay 仅在下方三分之一细条，不遮挡人脸；"
+        "禁止在 HF 内重复口播字幕。"
+    ),
+    "upper_third": (
+        "保留底片人物居中；hook/标题 overlay 在上方三分之一，不遮挡面部。"
+    ),
+}
+
+_BOTTOM_LAYOUT_SIGNALS = (
+    "lower third",
+    "lower_third",
+    "lower-third",
+    "对比条",
+    "贴底",
+    "底部",
+    "flex-end",
+)
+
+
+def layout_directive_for_anchor(anchor: str) -> str:
+    return _LAYOUT_DIRECTIVES.get(str(anchor or "").strip(), _LAYOUT_DIRECTIVES["center"])
+
+
+def infer_layout_anchor(
+    *,
+    mode: str,
+    slot: dict[str, Any],
+) -> str:
+    if mode in {"hf_native", "packaging_only"}:
+        return "center"
+    role = normalize_slot_role(str(slot.get("role") or ""))
+    return _LAYOUT_ANCHOR_POLISH_BY_ROLE.get(role, _LAYOUT_ANCHOR_BY_MODE.get(mode, "lower_third"))
+
+
+def author_prompt_conflicts_layout_anchor(author_prompt: str, layout_anchor: str) -> bool:
+    text = str(author_prompt or "").lower()
+    if layout_anchor == "center":
+        return any(signal in text for signal in _BOTTOM_LAYOUT_SIGNALS)
+    return False
+
+
+def append_layout_hint_to_author_prompt(author_prompt: str, layout_anchor: str) -> str:
+    prompt = str(author_prompt or "").strip()
+    anchor = str(layout_anchor or "").strip()
+    if not prompt or anchor != "center":
+        return prompt
+    if any(token in prompt for token in ("垂直居中", "画面居中", "居中排版", "主信息居中")):
+        return prompt
+    hint = "主信息垂直水平居中，禁止贴底 lower third。"
+    combined = f"{prompt}；{hint}" if prompt else hint
+    if len(combined) > _AUTHOR_PROMPT_MAX_LEN:
+        return combined[:_AUTHOR_PROMPT_MAX_LEN]
+    return combined
+
 _TEMPLATE_BY_ROLE: dict[str, str] = {
     "benefit_card": "benefit-card",
     "hook_text": "title-lower-third",
@@ -141,9 +215,23 @@ def normalize_composition_author_brief(
     if mode not in VALID_BRIEF_MODES:
         mode = infer_composition_brief_mode(scene=scene, slot=slot, gap_item=gap_item)
 
+    layout_anchor = str(raw.get("layoutAnchor") or "").strip()
+    if layout_anchor not in {"center", "lower_third", "upper_third"}:
+        layout_anchor = infer_layout_anchor(mode=mode, slot=slot)
+    else:
+        inferred_anchor = infer_layout_anchor(mode=mode, slot=slot)
+        if mode in {"hf_native", "packaging_only"} and layout_anchor != "center":
+            layout_anchor = "center"
+        elif mode in {"source_then_polish", "polish_only"} and layout_anchor == "center":
+            layout_anchor = inferred_anchor
+
+    if layout_anchor == "center":
+        author_prompt = append_layout_hint_to_author_prompt(author_prompt, layout_anchor)
+
     brief: dict[str, Any] = {
         "mode": mode,
         "authorPrompt": author_prompt,
+        "layoutAnchor": layout_anchor,
     }
 
     template = str(raw.get("templatePreference") or "").strip()

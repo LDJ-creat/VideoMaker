@@ -4,6 +4,8 @@ from typing import Any
 
 from app.pipelines.composition_brief import (
     infer_composition_brief_mode,
+    infer_layout_anchor,
+    layout_directive_for_anchor,
     merge_display_copy_from_packaging,
 )
 
@@ -131,6 +133,14 @@ def _enrich_semantic_fields(
                 )
                 if composition_brief.get("mode") != inferred_mode:
                     composition_brief = {**composition_brief, "mode": inferred_mode}
+            layout_anchor = str(composition_brief.get("layoutAnchor") or "").strip()
+            if layout_anchor not in {"center", "lower_third", "upper_third"}:
+                layout_anchor = infer_layout_anchor(
+                    mode=str(composition_brief.get("mode") or inferred_mode),
+                    slot=slot,
+                )
+                composition_brief = {**composition_brief, "layoutAnchor": layout_anchor}
+            brief["layoutDirective"] = layout_directive_for_anchor(layout_anchor)
             brief["compositionAuthorBrief"] = composition_brief
 
     creative = dict(brief.get("creativeBrief") or {})
