@@ -243,6 +243,58 @@ def test_fork_for_slot_uses_distinct_gateway(tmp_path: Path) -> None:
     assert len(ctx._gateway_counter) >= 2  # type: ignore[attr-defined]
 
 
+def test_slot_timeout_marks_pending_slots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS", "2")
+    monkeypatch.setattr(
+        "app.providers.material_parallel.material_slot_timeout_sec",
+        lambda: 0.5,
+    )
+
+    ctx = _make_ctx(tmp_path)
+    register_default_providers(ctx)
+    results_box: list[list[dict[str, Any]]] = []
+
+    def slow_execute(action, inner_ctx, *, only_aigc=True):
+        threading.Event().wait(5)
+        slot_id = str(action.get("slotId"))
+        out = tmp_path / "generated" / f"{slot_id}.png"
+        out.write_bytes(b"png")
+        return {
+            "ok": True,
+            "actionId": action["id"],
+            "slotId": slot_id,
+            "provider": action.get("provider"),
+            "artifactRef": {"id": action["id"], "type": "image", "uri": str(out.resolve())},
+        }
+
+    monkeypatch.setattr(
+        "app.providers.completion_registry._execute_single_action",
+        slow_execute,
+    )
+
+    actions = [_action("a1", "slot-a"), _action("b1", "slot-b")]
+    thread = threading.Thread(
+        target=lambda: results_box.append(execute_completion_plan(actions, ctx)),
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=8)
+    assert thread.is_alive() is False
+    assert results_box
+    timeout_codes = {
+        str(item.get("error", {}).get("code"))
+        for item in results_box[0]
+        if not item.get("ok")
+    }
+    assert "material_slot_timeout" in timeout_codes
+
+
+def test_material_slot_timeout_sec_default() -> None:
+    from app.providers.material_parallel import material_slot_timeout_sec
+
+    assert material_slot_timeout_sec() >= 60.0
+
+
 def test_serial_mode_matches_single_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS", "1")
     ctx = _make_ctx(

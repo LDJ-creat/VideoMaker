@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 
 from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID
@@ -17,6 +18,26 @@ def max_concurrent_material_slots() -> int:
         return max(1, int(raw))
     except ValueError:
         return 3
+
+
+def material_slot_timeout_sec() -> float:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_SLOT_TIMEOUT_SEC", "2400")
+    try:
+        return max(60.0, float(raw))
+    except ValueError:
+        return 2400.0
+
+
+def _slot_timeout_result(slot_id: str, *, timeout_sec: float) -> MaterialResult:
+    return {
+        "ok": False,
+        "slotId": slot_id,
+        "error": {
+            "code": "material_slot_timeout",
+            "message": f"Material completion timed out for slot {slot_id} after {int(timeout_sec)}s",
+            "retryable": True,
+        },
+    }
 
 
 def partition_actions_by_slot(
@@ -159,6 +180,9 @@ def execute_completion_plan_parallel(
         if failed:
             return _sort_results_by_actions(results, actions)
     else:
+        slot_timeout_sec = material_slot_timeout_sec()
+        overall_timeout = slot_timeout_sec * max(1, len(visual_groups))
+        deadline = time.monotonic() + overall_timeout
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = {
                 executor.submit(
@@ -170,29 +194,86 @@ def execute_completion_plan_parallel(
                 ): slot_id
                 for slot_id, slot_actions in visual_groups.items()
             }
-            for future in as_completed(futures):
-                if future.cancelled():
-                    continue
-                slot_results = future.result()
-                results.extend(slot_results)
-                if fail_fast and any(not item.get("ok") for item in slot_results):
-                    ctx.request_cancel()
+            pending = set(futures.keys())
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     failed = True
-                    for pending in futures:
-                        if not pending.done():
-                            pending.cancel()
-                    break
-            if failed:
-                for future in futures:
-                    if future.cancelled() or future.done():
-                        continue
-                    try:
-                        results.extend(future.result())
-                    except Exception:
-                        logger.exception(
-                            "Parallel material slot failed during fail_fast drain generation_id=%s",
-                            ctx.generation_id,
+                    ctx.request_cancel()
+                    for pending_future in pending:
+                        results.append(
+                            _slot_timeout_result(
+                                futures[pending_future],
+                                timeout_sec=slot_timeout_sec,
+                            )
                         )
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return _sort_results_by_actions(results, actions)
+
+                done, pending = wait(
+                    pending,
+                    timeout=remaining,
+                    return_when=FIRST_COMPLETED,
+                )
+                if not done:
+                    failed = True
+                    ctx.request_cancel()
+                    for pending_future in pending:
+                        if pending_future.done():
+                            try:
+                                results.extend(pending_future.result())
+                            except Exception:
+                                logger.exception(
+                                    "Parallel material slot failed during timeout drain generation_id=%s",
+                                    ctx.generation_id,
+                                )
+                            continue
+                        results.append(
+                            _slot_timeout_result(
+                                futures[pending_future],
+                                timeout_sec=slot_timeout_sec,
+                            )
+                        )
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    return _sort_results_by_actions(results, actions)
+
+                for future in done:
+                    if future.cancelled():
+                        continue
+                    slot_id = futures[future]
+                    try:
+                        slot_results = future.result()
+                    except Exception as exc:
+                        logger.exception(
+                            "Parallel material slot raised generation_id=%s slot_id=%s",
+                            ctx.generation_id,
+                            slot_id,
+                        )
+                        slot_results = [
+                            {
+                                "ok": False,
+                                "slotId": slot_id,
+                                "error": {
+                                    "code": "material_slot_failed",
+                                    "message": str(exc),
+                                    "retryable": True,
+                                },
+                            }
+                        ]
+                    results.extend(slot_results)
+                    if fail_fast and any(not item.get("ok") for item in slot_results):
+                        ctx.request_cancel()
+                        failed = True
+                        for pending_future in pending:
+                            results.append(
+                                _slot_timeout_result(
+                                    futures[pending_future],
+                                    timeout_sec=slot_timeout_sec,
+                                )
+                            )
+                        pending.clear()
+                        break
+            if failed:
                 executor.shutdown(wait=False, cancel_futures=True)
                 return _sort_results_by_actions(results, actions)
 
