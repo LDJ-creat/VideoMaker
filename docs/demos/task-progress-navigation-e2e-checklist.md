@@ -36,34 +36,41 @@ Manual verification for SSE progress push and Workbench panel auto-navigation.
 1. Run generation with both `high_click` and `high_conversion`.
 2. After both variants succeed, confirm auto-navigation to **结果**.
 3. Confirm variant tabs and generation plans are hydrated.
+4. Confirm no top-level **Generation plan not ready** error appears while progress shows 100%.
 
-### 5. Page refresh recovery
+### 5. Single-variant completion
+
+1. Run generation with one variant until progress shows 100% / succeeded.
+2. Confirm auto-navigation to **结果** without manual tab switch.
+3. Confirm no top-level **Generation plan not ready** error while waiting on **进度**.
+
+### 6. Page refresh recovery
 
 1. During `running` or `awaiting_review`, refresh the project page.
 2. Confirm hydrate lands on **进度** or **脚本审核** as appropriate.
 3. Confirm SSE/polling resumes and progress is not stale.
 
-### 6. Manual tab override
+### 7. Manual tab override
 
 1. During an active generation, manually open **结果** via the stepper.
 2. Confirm pipeline does not steal focus while tasks still run.
 3. Start a new analysis/generation run.
 4. Confirm auto-navigation is re-enabled for the new run.
 
-### 7. SSE fallback to polling
+### 8. SSE fallback to polling
 
 1. With devtools, block or drop `/api/tasks/*/events` requests.
 2. After repeated SSE failures, confirm progress panel shows polling notice.
 3. Confirm progress still updates via polling until terminal status.
 
-### 8. Approve script — no bounce back to script-review
+### 9. Approve script — no bounce back to script-review
 
 1. Reach **脚本审核** during generation (master or storyboard gate).
 2. Approve and confirm immediate return to **进度**.
 3. While the worker resumes, confirm the UI does **not** flash back to **脚本审核** when stale poll/SSE snapshots still say `awaiting_review`.
 4. Confirm progress continues until the next review gate or completion.
 
-### 9. Generation failure settlement
+### 10. Generation failure settlement
 
 1. Start generation and force a variant task to `failed` (e.g. disable a required provider mid-run).
 2. Confirm auto-navigation stays on **进度** (not **结果**).
