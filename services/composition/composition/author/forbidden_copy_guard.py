@@ -42,6 +42,8 @@ FIELD_SEMANTICS: dict[str, str] = {
     "slot.creativeDirection": "Creative brief for layout/motion — never render verbatim on screen.",
     "compositionAuthorBrief": "Primary HF authoring spec — implement layout/motion; never render authorPrompt verbatim.",
     "compositionAuthorBrief.authorPrompt": "HF execution instructions — guides HTML/GSAP, not on-screen copy.",
+    "compositionAuthorBrief.layoutAnchor": "Vertical placement: center for hf_native; lower_third/upper_third for source_then_polish overlays.",
+    "layoutDirective": "Expanded layout rule derived from layoutAnchor — overrides ambiguous authorPrompt/finishIntent.",
     "finishBrief.compositionAuthorBrief": "Primary HF authoring spec copied from storyboard — same rules as compositionAuthorBrief.",
     "finishBrief.creativeBrief": "Implementation spec — guides polish tasks, not visible copy.",
     "finishBrief.finishIntent": "Polish task description — implement as motion/UI, not as text nodes.",
