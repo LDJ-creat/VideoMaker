@@ -4,6 +4,7 @@ import { fixtureGenerationPlan } from "@/fixtures";
 import type { GenerationResponse } from "@/lib/apiClient";
 import {
   applyGenerationRunDetail,
+  applyLatestGenerationPlans,
   fetchGenerationRunPlans,
   generationRunPlansAreLoaded,
   reloadGenerationRunPlansWithRetry,
@@ -90,6 +91,52 @@ describe("reloadGenerationRunResults", () => {
     await expect(
       fetchGenerationRunPlans(entries, fetchGeneration),
     ).resolves.toBeNull();
+  });
+
+  it("applyLatestGenerationPlans hydrates active run entries from latest snapshot", () => {
+    const setVariantPlans = vi.fn();
+    const setGenerationId = vi.fn();
+    const setGenerationPlan = vi.fn();
+    const setActiveVariantGenerationId = vi.fn();
+    const setGapReport = vi.fn();
+    const setGapApiPending = vi.fn();
+    const setActiveGenerations = vi.fn();
+    const setRenderVideoByGenerationId = vi.fn();
+
+    const plan = {
+      ...fixtureGenerationPlan,
+      id: "gen-a",
+      variant: "high_click",
+    } satisfies GenerationResponse;
+
+    const applied = applyLatestGenerationPlans(
+      {
+        generations: [
+          {
+            generationId: "gen-a",
+            variant: "high_click",
+            status: "succeeded",
+            taskId: "task-a",
+            plan,
+          },
+        ],
+      },
+      entries.slice(0, 1),
+      {
+        setVariantPlans,
+        setGenerationId,
+        setGenerationPlan,
+        setActiveVariantGenerationId,
+        setGapReport,
+        setGapApiPending,
+        setActiveGenerations,
+        setRenderVideoByGenerationId,
+      },
+    );
+
+    expect(applied).toBe(true);
+    expect(setGenerationId).toHaveBeenCalledWith("gen-a");
+    expect(setGenerationPlan).toHaveBeenCalledWith(plan);
   });
 
   it("applyGenerationRunDetail hydrates all variants and prefers succeeded plan", () => {

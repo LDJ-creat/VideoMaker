@@ -59,6 +59,54 @@ export function generationRunPlansAreLoaded(
   return entries.every((entry) => Boolean(variantPlans[entry.generationId]));
 }
 
+export function applyLatestGenerationPlans(
+  data: {
+    generations: GenerationRunGenerationSummary[];
+  },
+  entries: ActiveGenerationEntry[],
+  setters: ApplyGenerationRunDetailSetters,
+): boolean {
+  const entryIds = new Set(entries.map((entry) => entry.generationId));
+  const matched = data.generations.filter((entry) =>
+    entryIds.has(entry.generationId),
+  );
+  if (matched.length !== entries.length) return false;
+  if (!matched.every((entry) => entry.plan != null)) return false;
+
+  const planMap: Record<string, GenerationPlan> = {};
+  const renderVideos: Record<string, string> = {};
+  for (const entry of matched) {
+    const plan = entry.plan!;
+    planMap[entry.generationId] = plan;
+    if (plan.renderVideoUrl) {
+      renderVideos[entry.generationId] = plan.renderVideoUrl;
+    }
+  }
+
+  setters.setVariantPlans(planMap);
+  setters.setRenderVideoByGenerationId((prev) => ({ ...prev, ...renderVideos }));
+  setters.setActiveGenerations(entries);
+
+  const primary =
+    entries.find((entry) => planMap[entry.generationId]) ?? entries[0];
+  if (!primary) return false;
+  const primaryPlan = planMap[primary.generationId];
+  if (!primaryPlan) return false;
+
+  setters.setGenerationId(primary.generationId);
+  setters.setActiveVariantGenerationId(primary.generationId);
+  setters.setGenerationPlan(primaryPlan);
+  const gap = primaryPlan.gapReport;
+  if (gap) {
+    setters.setGapReport(gap);
+    setters.setGapApiPending(false);
+  } else {
+    setters.setGapReport(null);
+    setters.setGapApiPending(false);
+  }
+  return true;
+}
+
 export type GenerationRunGenerationSummary = {
   generationId: string;
   variant?: string;

@@ -8,6 +8,7 @@ import {
   isEffectiveReviewMilestone,
   isReviewMilestone,
   isTaskMilestone,
+  resolveLiveTaskStatus,
 } from "@/lib/taskMilestones";
 
 describe("taskMilestones", () => {
@@ -59,5 +60,15 @@ describe("taskMilestones", () => {
     expect(
       applyTaskStatusOverride(event, "retrying").status,
     ).toBe("retrying");
+  });
+
+  it("does not let stale queued override mask awaiting_review", () => {
+    const event = {
+      ...fixtureTaskEvent,
+      status: "awaiting_review" as TaskStatus,
+      stage: "awaiting_master_review",
+    };
+    expect(resolveLiveTaskStatus(event, "queued")).toBe("awaiting_review");
+    expect(isEffectiveReviewMilestone(event, "queued")).toBe(true);
   });
 });

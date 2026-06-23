@@ -23,12 +23,24 @@ export function isReviewMilestone(event: TaskEvent): boolean {
   return event.status === "awaiting_review";
 }
 
+/** Merge optimistic overrides without masking live task progress. */
+export function resolveLiveTaskStatus(
+  event: TaskEvent,
+  override?: TaskStatus,
+): TaskStatus {
+  if (!override || override === event.status) return event.status;
+  if (override === "retrying" || override === "running") return override;
+  if (override === "queued" && event.status !== "queued") return event.status;
+  return override;
+}
+
 export function applyTaskStatusOverride(
   event: TaskEvent,
   override?: TaskStatus,
 ): TaskEvent {
-  if (!override || override === event.status) return event;
-  return { ...event, status: override };
+  const status = resolveLiveTaskStatus(event, override);
+  if (status === event.status) return event;
+  return { ...event, status };
 }
 
 /** Review gate considering optimistic status overrides (e.g. after approve). */
@@ -37,7 +49,7 @@ export function isEffectiveReviewMilestone(
   override?: TaskStatus,
 ): boolean {
   if (!event) return false;
-  const status = override ?? event.status;
+  const status = resolveLiveTaskStatus(event, override);
   if (status === "retrying" || status === "running") return false;
   return status === "awaiting_review";
 }
