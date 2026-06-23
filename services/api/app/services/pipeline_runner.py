@@ -566,6 +566,9 @@ class PipelineRunner:
         self._sample_analysis_active = 0
         self._sample_analysis_queue: list[dict[str, Any]] = []
         self._sample_analysis_lock = threading.Lock()
+        self._generation_active = 0
+        self._generation_queue: list[dict[str, Any]] = []
+        self._generation_lock = threading.Lock()
 
     def _max_concurrent_sample_analysis(self) -> int:
         raw = os.getenv("VIDEOMAKER_MAX_CONCURRENT_SAMPLE_ANALYSIS", "2")
@@ -573,6 +576,80 @@ class PipelineRunner:
             return max(1, int(raw))
         except ValueError:
             return 2
+
+    def _max_concurrent_generations(self) -> int:
+        raw = os.getenv("VIDEOMAKER_MAX_CONCURRENT_GENERATIONS", "2")
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return 2
+
+    @property
+    def generation_queue_size(self) -> int:
+        with self._generation_lock:
+            return len(self._generation_queue)
+
+    @property
+    def generation_active_count(self) -> int:
+        with self._generation_lock:
+            return self._generation_active
+
+    def _is_generation_task_queued(self, task_id: str) -> bool:
+        with self._generation_lock:
+            return any(item.get("task_id") == task_id for item in self._generation_queue)
+
+    def enqueue_generation(self, *, kind: str, **payload: Any) -> None:
+        task_id = str(payload["task_id"])
+        if self._is_task_active(task_id):
+            worker_logger.warning(
+                "Skipping duplicate generation enqueue for active task_id=%s",
+                task_id,
+            )
+            return
+        with self._generation_lock:
+            if any(item.get("task_id") == task_id for item in self._generation_queue):
+                worker_logger.warning(
+                    "Skipping duplicate generation enqueue for queued task_id=%s",
+                    task_id,
+                )
+                return
+            self._generation_queue.append({"kind": kind, **payload})
+        self._drain_generation_queue()
+        if self._is_generation_task_queued(task_id):
+            initial_stage = str(payload.get("initial_stage") or "analyzing_assets")
+            self._emit(
+                task_id,
+                status="queued",
+                stage=initial_stage,
+                progress=0,
+                message="Waiting for generation slot",
+            )
+
+    def _drain_generation_queue(self) -> None:
+        while True:
+            with self._generation_lock:
+                if self._generation_active >= self._max_concurrent_generations():
+                    return
+                if not self._generation_queue:
+                    return
+                item = self._generation_queue.pop(0)
+                self._generation_active += 1
+            kind = str(item.pop("kind"))
+            if kind == "generation":
+                self._start_generation_job(from_queue=True, **item)
+            elif kind == "revise":
+                self._start_revise_job(from_queue=True, **item)
+            elif kind == "revise_patch":
+                self._start_revise_patch_job(from_queue=True, **item)
+            else:
+                with self._generation_lock:
+                    self._generation_active = max(0, self._generation_active - 1)
+                logger.error("Unknown generation queue kind=%s task_id=%s", kind, item.get("task_id"))
+
+    def _finish_generation_slot(self) -> None:
+        with self._generation_lock:
+            self._generation_active = max(0, self._generation_active - 1)
+        self._drain_generation_queue()
 
     def _is_task_active(self, task_id: str) -> bool:
         with self._running_lock:
@@ -589,13 +666,15 @@ class PipelineRunner:
         with self._running_lock:
             self._active_tasks.discard(task_id)
 
-    def _run_task(self, task_id: str, job: Any) -> None:
+    def _run_task(self, task_id: str, job: Any, *, queue_slot_release: bool = False) -> None:
         def wrapped() -> None:
             if not self._mark_task_active(task_id):
                 worker_logger.warning(
                     "Skipping duplicate in-process job task_id=%s",
                     task_id,
                 )
+                if queue_slot_release:
+                    self._finish_generation_slot()
                 return
             try:
                 job()
@@ -948,6 +1027,41 @@ class PipelineRunner:
         human_review_mode: bool | None = None,
         on_generation_complete: Any | None = None,
     ) -> None:
+        self.enqueue_generation(
+            kind="generation",
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            structure=structure,
+            user_brief=user_brief,
+            assets=assets,
+            resume=resume,
+            variant=variant,
+            sample_selection=sample_selection,
+            generation_run_id=generation_run_id,
+            human_review_mode=human_review_mode,
+            on_generation_complete=on_generation_complete,
+            initial_stage="analyzing_assets",
+        )
+
+    def _start_generation_job(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        resume: bool = False,
+        variant: str = "default",
+        sample_selection: dict[str, Any] | None = None,
+        generation_run_id: str | None = None,
+        human_review_mode: bool | None = None,
+        on_generation_complete: Any | None = None,
+        from_queue: bool = False,
+        initial_stage: str = "analyzing_assets",
+    ) -> None:
         def job() -> None:
             result: dict[str, Any] = {"ok": False}
             try:
@@ -956,9 +1070,17 @@ class PipelineRunner:
                     self._emit(
                         task_id,
                         status="running",
-                        stage="analyzing_assets",
+                        stage=initial_stage,
                         progress=5,
                         message="Resuming generation from checkpoint",
+                    )
+                elif from_queue:
+                    self._emit(
+                        task_id,
+                        status="running",
+                        stage=initial_stage,
+                        progress=5,
+                        message="Starting generation",
                     )
                 worker_result = self._get_pipeline().run_generation(
                     project_id=project_id,
@@ -1005,7 +1127,7 @@ class PipelineRunner:
                 self._emit(
                     task_id,
                     status="failed",
-                    stage="analyzing_assets",
+                    stage=initial_stage,
                     progress=0,
                     message="Generation failed",
                     error={
@@ -1018,8 +1140,10 @@ class PipelineRunner:
             finally:
                 if on_generation_complete is not None:
                     on_generation_complete(generation_id, result if "result" in locals() else {"ok": False})
+                if from_queue:
+                    self._finish_generation_slot()
 
-        self._run_task(task_id, job)
+        self._run_task(task_id, job, queue_slot_release=from_queue)
 
     def parse_edit_intent(
         self,
@@ -1184,6 +1308,25 @@ class PipelineRunner:
         task_id: str,
         plan: dict[str, Any],
     ) -> None:
+        self.enqueue_generation(
+            kind="revise_patch",
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            plan=plan,
+            initial_stage="applying_revise_patch",
+        )
+
+    def _start_revise_patch_job(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        plan: dict[str, Any],
+        from_queue: bool = False,
+        initial_stage: str = "applying_revise_patch",
+    ) -> None:
         from app.services.revise_plan_service import (
             clear_revise_patch_context,
             mark_plan_executed,
@@ -1197,6 +1340,14 @@ class PipelineRunner:
         def job() -> None:
             try:
                 self.project_store.update_generation(generation_id, status="running", task_id=task_id)
+                if from_queue:
+                    self._emit(
+                        task_id,
+                        status="running",
+                        stage=initial_stage,
+                        progress=5,
+                        message="Starting revise patch",
+                    )
                 pipeline = self._get_pipeline()
                 if not hasattr(pipeline, "execute_revise_patch"):
                     raise RuntimeError("Pipeline does not support execute_revise_patch")
@@ -1272,8 +1423,11 @@ class PipelineRunner:
                         generation_id,
                         plan_id,
                     )
+            finally:
+                if from_queue:
+                    self._finish_generation_slot()
 
-        self._run_task(task_id, job)
+        self._run_task(task_id, job, queue_slot_release=from_queue)
 
     def start_revise(
         self,
@@ -1291,6 +1445,41 @@ class PipelineRunner:
         resume: bool = False,
         finalize_plan_id: str | None = None,
     ) -> None:
+        self.enqueue_generation(
+            kind="revise",
+            project_id=project_id,
+            source_generation_id=source_generation_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            instruction=instruction,
+            intents=intents,
+            structure=structure,
+            user_brief=user_brief,
+            assets=assets,
+            variant=variant,
+            resume=resume,
+            finalize_plan_id=finalize_plan_id,
+            initial_stage="parsing_edit_intent",
+        )
+
+    def _start_revise_job(
+        self,
+        *,
+        project_id: str,
+        source_generation_id: str,
+        generation_id: str,
+        task_id: str,
+        instruction: str,
+        intents: list[dict[str, Any]],
+        structure: dict[str, Any],
+        user_brief: dict[str, Any],
+        assets: list[dict[str, Any]],
+        variant: str | None = None,
+        resume: bool = False,
+        finalize_plan_id: str | None = None,
+        from_queue: bool = False,
+        initial_stage: str = "parsing_edit_intent",
+    ) -> None:
         from app.services.revise_plan_service import (
             mark_plan_executed,
             mark_plan_execution_failed,
@@ -1303,9 +1492,17 @@ class PipelineRunner:
                     self._emit(
                         task_id,
                         status="running",
-                        stage="parsing_edit_intent",
+                        stage=initial_stage,
                         progress=5,
                         message="Resuming generation revise from checkpoint",
+                    )
+                elif from_queue:
+                    self._emit(
+                        task_id,
+                        status="running",
+                        stage=initial_stage,
+                        progress=5,
+                        message="Starting generation revise",
                     )
                 pipeline = self._get_pipeline()
                 if not hasattr(pipeline, "run_revise"):
@@ -1392,8 +1589,11 @@ class PipelineRunner:
                         source_generation_id,
                         finalize_plan_id,
                     )
+            finally:
+                if from_queue:
+                    self._finish_generation_slot()
 
-        self._run_task(task_id, job)
+        self._run_task(task_id, job, queue_slot_release=from_queue)
 
     def _human_review_mode_for_generation(self, generation: dict[str, Any]) -> bool | None:
         generation_root = (
