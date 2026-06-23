@@ -53,6 +53,29 @@ describe("TaskProgressPanel", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("shows script review banner with gate label near progress bar", () => {
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "awaiting_review",
+          stage: "awaiting_master_review",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onGoToScriptReview={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("script-review-gate-banner")).toHaveTextContent(
+      "总脚本审核",
+    );
+    expect(
+      screen.getByRole("button", { name: "前往脚本审核" }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps raw stage in dev footer only", async () => {
     const user = userEvent.setup();
     render(

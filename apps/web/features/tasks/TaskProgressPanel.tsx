@@ -192,6 +192,20 @@ export function TaskProgressPanel({
           <Progress value={displayProgress} />
         </div>
 
+        {event.status === "awaiting_review" && onGoToScriptReview ? (
+          <div
+            className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3"
+            data-testid="script-review-gate-banner"
+          >
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              生成已暂停，等待您审核{stageLabel}后继续。
+            </p>
+            <Button type="button" variant="outline" onClick={onGoToScriptReview}>
+              前往脚本审核
+            </Button>
+          </div>
+        ) : null}
+
         {migrationContext ? (
           <GenerationMigrationProgressPanel
             context={migrationContext}
@@ -228,17 +242,6 @@ export function TaskProgressPanel({
                 {formattedError.technical}
               </pre>
             ) : null}
-          </div>
-        ) : null}
-
-        {event.status === "awaiting_review" && onGoToScriptReview ? (
-          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
-            <p className="text-sm text-amber-800 dark:text-amber-200">
-              生成已暂停，等待您审核脚本后继续。
-            </p>
-            <Button type="button" variant="outline" onClick={onGoToScriptReview}>
-              前往脚本审核
-            </Button>
           </div>
         ) : null}
 
