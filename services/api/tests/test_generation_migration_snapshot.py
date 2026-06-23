@@ -131,6 +131,44 @@ def test_migration_snapshot_happy_path(migration_client) -> None:
     assert payload["materialState"]["completedActionIds"] == ["action-slot-2"]
 
 
+def test_migration_snapshot_infers_completed_slots_from_disk(migration_client) -> None:
+    client, storage_root, project_store, task_events = migration_client
+    project = client.post("/api/projects", json={"name": "DiskSlots"}).json()
+    task = task_events.create_task(
+        project_id=project["id"],
+        stage="generating_material",
+        message="running",
+    )
+    created = project_store.create_generation(
+        project_id=project["id"],
+        task_id=task["taskId"],
+        status="running",
+        variant="high_click",
+    )
+    generation_id = created["id"]
+    _write_migration_artifacts(
+        storage_root,
+        project_id=project["id"],
+        generation_id=generation_id,
+    )
+    generated = (
+        storage_root
+        / "projects"
+        / project["id"]
+        / "generations"
+        / generation_id
+        / "generated"
+    )
+    generated.mkdir(parents=True, exist_ok=True)
+    (generated / "action-slot-2.mp4").write_bytes(b"x" * 20_000)
+
+    response = client.get(f"/api/generations/{generation_id}/migration-snapshot")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["materialState"]["completedActionIds"] == ["action-slot-2"]
+    assert payload["completedSlotIds"] == ["slot-2"]
+
+
 def test_migration_snapshot_generation_not_found(migration_client) -> None:
     client, *_ = migration_client
     response = client.get("/api/generations/missing-generation/migration-snapshot")

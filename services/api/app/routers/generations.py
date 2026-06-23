@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from knowledge.paths import validate_storage_segment
+from material_disk import infer_completed_slot_ids
 from pydantic import BaseModel, Field
 
 from app.services.agent_runs import list_agent_runs_for_generation
@@ -156,11 +157,17 @@ def get_migration_snapshot(generation_id: str, request: Request) -> dict[str, An
                     ],
                 }
 
+    completed_slot_ids = infer_completed_slot_ids(
+        completion_actions,
+        generation_root / "generated",
+    )
+
     return {
         "slotMatches": slot_matches,
         "gapReport": gap_report,
         "completionActions": completion_actions,
         "materialState": material_state,
+        "completedSlotIds": completed_slot_ids,
     }
 
 

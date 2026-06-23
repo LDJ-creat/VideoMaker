@@ -16,6 +16,7 @@ from app.services.project_store import ProjectStore
 from app.services.generation_responses import generation_render_video_url
 from app.services.task_events import TaskEventService
 from app.services.upload_batch_store import UploadBatchStore
+from app.services.worker_process_registry import WorkerProcessRegistry
 
 logger = logging.getLogger(__name__)
 worker_logger = logging.getLogger("videomaker.worker")
@@ -188,12 +189,14 @@ class SubprocessDemoPipeline:
         database_path: Path,
         storage_root: Path,
         api_base_url: str | None = None,
+        process_registry: WorkerProcessRegistry | None = None,
     ) -> None:
         self._database_path = database_path
         self._storage_root = storage_root
         self._api_base_url = api_base_url or _default_api_base_url()
         self._worker_root = _worker_root()
         self._python = _worker_python(self._worker_root)
+        self._process_registry = process_registry
 
     def _payload_base(self) -> dict[str, str]:
         return {
@@ -214,22 +217,29 @@ class SubprocessDemoPipeline:
         except Exception:
             logger.debug("stock media credentials unavailable for worker env", exc_info=True)
 
-    def _log_worker_output(self, payload: dict[str, Any], completed: subprocess.CompletedProcess[str]) -> None:
+    def _log_worker_output(
+        self,
+        payload: dict[str, Any],
+        *,
+        returncode: int,
+        stdout: str,
+        stderr: str,
+    ) -> None:
         task_id = payload.get("taskId", "unknown")
         mode = payload.get("mode", "unknown")
-        stderr = (completed.stderr or "").strip()
-        stdout = (completed.stdout or "").strip()
+        stderr = stderr.strip()
+        stdout = stdout.strip()
 
         worker_logger.info(
             "subprocess finished task_id=%s mode=%s returncode=%s",
             task_id,
             mode,
-            completed.returncode,
+            returncode,
         )
         if stdout:
             worker_logger.debug("stdout (task_id=%s):\n%s", task_id, stdout)
         if stderr:
-            log = worker_logger.error if completed.returncode != 0 else worker_logger.warning
+            log = worker_logger.error if returncode != 0 else worker_logger.warning
             log("stderr (task_id=%s):\n%s", task_id, stderr)
 
     def _invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -255,29 +265,45 @@ class SubprocessDemoPipeline:
             self._python,
         )
 
-        completed = subprocess.run(
-            [self._python, str(script), json.dumps(payload, ensure_ascii=False)],
+        task_id = str(payload.get("taskId") or "")
+        command = [self._python, str(script), json.dumps(payload, ensure_ascii=False)]
+        process = subprocess.Popen(
+            command,
             cwd=str(self._worker_root),
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
         )
-        self._log_worker_output(payload, completed)
+        if self._process_registry is not None and task_id:
+            self._process_registry.register(task_id, process)
+        try:
+            stdout_raw, stderr_raw = process.communicate()
+        finally:
+            if self._process_registry is not None and task_id:
+                self._process_registry.unregister(task_id, process)
 
-        if completed.returncode != 0 and not completed.stdout.strip():
-            stderr = (completed.stderr or "").strip()
-            raise RuntimeError(stderr or f"Worker exited with code {completed.returncode}")
+        returncode = int(process.returncode or 0)
+        self._log_worker_output(
+            payload,
+            returncode=returncode,
+            stdout=stdout_raw or "",
+            stderr=stderr_raw or "",
+        )
 
-        stdout = completed.stdout.strip()
+        if returncode != 0 and not (stdout_raw or "").strip():
+            stderr = (stderr_raw or "").strip()
+            raise RuntimeError(stderr or f"Worker exited with code {returncode}")
+
+        stdout = (stdout_raw or "").strip()
         if not stdout:
-            stderr = (completed.stderr or "").strip()
+            stderr = (stderr_raw or "").strip()
             raise RuntimeError(stderr or "Worker produced no output")
 
         # Use the last line in case libraries print warnings to stdout.
         result = json.loads(stdout.splitlines()[-1])
-        if completed.returncode != 0 and result.get("ok") is not True:
-            stderr = (completed.stderr or "").strip()
+        if returncode != 0 and result.get("ok") is not True:
+            stderr = (stderr_raw or "").strip()
             final_event = result.get("finalEvent")
             error = final_event.get("error") if isinstance(final_event, dict) else None
             if isinstance(error, dict):
@@ -569,6 +595,26 @@ class PipelineRunner:
         self._generation_active = 0
         self._generation_queue: list[dict[str, Any]] = []
         self._generation_lock = threading.Lock()
+        self._worker_registry = WorkerProcessRegistry()
+
+    def terminate_task_worker(self, task_id: str, *, reason: str = "cancelled") -> bool:
+        terminated = self._worker_registry.terminate(task_id, reason=reason)
+        with self._running_lock:
+            self._active_tasks.discard(task_id)
+        return terminated
+
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        current = self.task_events.get_task(task_id)
+        if current is None:
+            raise KeyError(task_id)
+        self.terminate_task_worker(task_id, reason="cancelled")
+        return self._emit(
+            task_id,
+            status="cancelled",
+            stage=current["stage"],
+            progress=current["progress"],
+            message="Task cancelled",
+        )
 
     def _max_concurrent_sample_analysis(self) -> int:
         raw = os.getenv("VIDEOMAKER_MAX_CONCURRENT_SAMPLE_ANALYSIS", "2")
@@ -689,6 +735,7 @@ class PipelineRunner:
                 database_path=self.database.path,
                 storage_root=self.storage_root,
                 api_base_url=self.api_base_url,
+                process_registry=self._worker_registry,
             )
         return self._pipeline
 
@@ -1629,18 +1676,19 @@ class PipelineRunner:
                 str(generation["id"]),
             ) is None
 
-        if status not in {"failed", "retrying", "running", "awaiting_review"} and not (
+        if status not in {"failed", "retrying", "running", "awaiting_review", "cancelled"} and not (
             status == "succeeded" and render_incomplete
         ):
             raise ValueError(
                 f"Task cannot be retried from status '{status}' "
-                "(expected failed, retrying, awaiting_review, stale running, "
+                "(expected failed, cancelled, retrying, awaiting_review, stale running, "
                 "or succeeded without render output)"
             )
         if self._is_task_active(task_id):
-            raise ValueError(
-                "Task is still running in this API process; wait for it to finish before retrying"
-            )
+            self.terminate_task_worker(task_id, reason="retry")
+        elif status == "running":
+            # Stale running rows can remain when a worker was orphaned; allow retry after cleanup.
+            self.terminate_task_worker(task_id, reason="retry_stale")
 
         error = current.get("error")
         if isinstance(error, dict) and error.get("retryable") is False:

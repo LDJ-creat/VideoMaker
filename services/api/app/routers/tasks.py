@@ -118,16 +118,14 @@ def retry_task(task_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/{task_id}/cancel")
 def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
-    current = service(request).get_task(task_id)
-    if current is None:
+    task_service = service(request)
+    if task_service.get_task(task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return service(request).update_task(
-        task_id,
-        status="cancelled",
-        stage=current["stage"],
-        progress=current["progress"],
-        message="Task cancelled",
-    )
+    runner: Any = request.app.state.pipeline_runner
+    try:
+        return runner.cancel_task(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
 
 
 @router.get("/{task_id}/events")

@@ -47,6 +47,19 @@ def test_cancel_running_task(client):
     assert response.json()["status"] == "cancelled"
 
 
+def test_retry_cancelled_task(client):
+    created = client.post(
+        "/api/tasks",
+        json={"projectId": "project-1", "stage": "uploading", "message": "Queued"},
+    ).json()
+    client.post(f"/api/tasks/{created['taskId']}/cancel")
+
+    response = client.post(f"/api/tasks/{created['taskId']}/retry")
+
+    assert response.status_code == 400
+    assert "No sample or generation" in response.json()["detail"]
+
+
 def test_sse_stream_returns_task_events(client):
     created = client.post(
         "/api/tasks",
