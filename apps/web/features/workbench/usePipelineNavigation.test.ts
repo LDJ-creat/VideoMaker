@@ -100,6 +100,31 @@ describe("usePipelineNavigation", () => {
     expect(keyA).not.toEqual(keyB);
   });
 
+  it("navigates to result when all tasks succeeded despite stale running hydrate", () => {
+    const intent = computeGenerationSettlementIntent({
+      lastAction: "generation",
+      panel: "progress",
+      autoNavEnabled: true,
+      displayGenerationEvents: {},
+      activeGenerationTaskIds: ["t1"],
+      allGenerationTasksSucceeded: true,
+      anyGenerationTaskFailed: false,
+      anyGenerationAwaitingReview: false,
+      singleTaskEvent: null,
+      sampleId: null,
+      isBatchAnalysis: false,
+      reloadSucceeded: true,
+      hydrateAwaitingReview: false,
+      hydrateRunning: true,
+      hydrateAllSucceeded: false,
+    });
+    expect(intent).toEqual({
+      type: "go_result",
+      reason: "generation-settlement:reloaded",
+      reloadFailed: false,
+    });
+  });
+
   it("navigates to result when reload fails but all tasks succeeded", () => {
     const intent = computeGenerationSettlementIntent({
       lastAction: "generation",

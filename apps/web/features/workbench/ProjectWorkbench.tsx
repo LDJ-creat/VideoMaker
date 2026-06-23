@@ -81,6 +81,7 @@ import {
 } from "@/features/workbench/usePipelineNavigation";
 import {
   applyTaskStatusOverride,
+  isEffectiveReviewMilestone,
 } from "@/lib/taskMilestones";
 import { buildRecentSampleAnalysisTasks, buildRetryableSampleAnalysisTasks } from "@/lib/batchAnalysisProgress";
 import { StructureProvenancePanel } from "@/features/structure-provenance/StructureProvenancePanel";
@@ -135,7 +136,7 @@ import {
   isGenerationRenderIncomplete,
   shouldWatchGenerationTasks,
 } from "@/lib/generationTaskHydration";
-import { getErrorMessage } from "@/lib/errors";
+import { getErrorMessage, isGenerationPlanNotReadyError } from "@/lib/errors";
 import { mergeTaskEvents, mergeTaskEventsIfChanged } from "@/lib/taskEventMerge";
 import {
   loadProjectSession,
@@ -143,6 +144,7 @@ import {
 } from "@/lib/project-session";
 import { resolveRenderVideoUrl } from "@/lib/resolveRenderVideoUrl";
 import {
+  applyLatestGenerationPlans,
   applyGenerationRunDetail,
   generationRunPlansAreLoaded,
   reloadGenerationRunPlansWithRetry,
@@ -839,12 +841,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const reloadActiveGenerationResults = useCallback(
     async (entries: ActiveGenerationEntry[]) => {
       if (entries.length === 0) return false;
-      const plans = await reloadGenerationRunPlansWithRetry(
-        entries,
-        async (generationId) => (await getGeneration(generationId)).data,
-      );
-      if (!plans) return false;
-      applyReloadedGenerationPlans(plans, entries, {
+      const setters = {
         setVariantPlans,
         setGenerationId,
         setGenerationPlan,
@@ -853,16 +850,43 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setGapApiPending,
         setActiveGenerations,
         setRenderVideoByGenerationId,
-      });
-      const missingVideo = entries
-        .map((entry) => entry.generationId)
-        .filter((generationId) => !plans[generationId]?.renderVideoUrl);
-      if (missingVideo.length > 0) {
-        void refreshRenderVideoUrls(missingVideo);
+      };
+      const plans = await reloadGenerationRunPlansWithRetry(
+        entries,
+        async (generationId) => (await getGeneration(generationId)).data,
+      );
+      if (plans) {
+        applyReloadedGenerationPlans(plans, entries, setters);
+        const missingVideo = entries
+          .map((entry) => entry.generationId)
+          .filter((generationId) => !plans[generationId]?.renderVideoUrl);
+        if (missingVideo.length > 0) {
+          void refreshRenderVideoUrls(missingVideo);
+        }
+        return true;
       }
-      return true;
+      try {
+        const { data, meta } = await getLatestGenerations(projectId);
+        setDataSource(meta.dataSource);
+        if (applyLatestGenerationPlans(data, entries, setters)) {
+          const missingVideo = entries
+            .map((entry) => entry.generationId)
+            .filter(
+              (generationId) =>
+                !data.generations.find((entry) => entry.generationId === generationId)
+                  ?.plan?.renderVideoUrl,
+            );
+          if (missingVideo.length > 0) {
+            void refreshRenderVideoUrls(missingVideo);
+          }
+          return true;
+        }
+      } catch {
+        /* latest snapshot may not exist yet */
+      }
+      return false;
     },
-    [refreshRenderVideoUrls],
+    [projectId, refreshRenderVideoUrls],
   );
 
   const loadGenerationIntoVariants = useCallback(
@@ -893,7 +917,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           setGapApiPending(true);
         }
       } catch (err) {
-        setDataError(getErrorMessage(err));
+        if (!isGenerationPlanNotReadyError(err)) {
+          setDataError(getErrorMessage(err));
+        }
       } finally {
         setDataLoading(false);
       }
@@ -946,18 +972,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         autoNavEnabled: autoNavEnabledRef.current,
       });
       if (intent) {
-        if (intent.type === "go_script_review") {
-          const match = activeGenerations.find(
-            (entry) => entry.taskId === event.taskId,
-          );
-          if (match) {
-            void loadGenerationIntoVariants(match.generationId);
-          }
-        }
         applyNavIntent(intent, setPanel);
       }
     },
-    [activeGenerations, lastAction, loadGenerationIntoVariants, setPanel],
+    [lastAction, setPanel],
   );
 
   const handleGenerationTaskTerminal = useCallback(
@@ -966,12 +984,8 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         const next = mergeTaskEventsIfChanged(previous, { [event.taskId]: event });
         return next ?? previous;
       });
-      const match = activeGenerations.find((entry) => entry.taskId === event.taskId);
-      if (match && event.status === "succeeded") {
-        void loadGenerationIntoVariants(match.generationId);
-      }
     },
-    [activeGenerations, loadGenerationIntoVariants],
+    [],
   );
 
   const handleAllGenerationTerminal = useCallback(
@@ -1014,20 +1028,48 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         let hydrateAllSucceeded = false;
 
         if (!reloadSucceeded || hasFailedTask) {
-          const latest = await loadProjectResults();
+          let latestGenerations: LatestGenerationsResponse["generations"] | null =
+            null;
+          try {
+            const { data, meta } = await getLatestGenerations(projectId);
+            setDataSource(meta.dataSource);
+            latestGenerations = data.generations;
+            if (
+              !reloadSucceeded &&
+              !hasFailedTask &&
+              runEntries.length > 0 &&
+              runEntries.every(
+                (entry) => events[entry.taskId]?.status === "succeeded",
+              )
+            ) {
+              reloadSucceeded = applyLatestGenerationPlans(data, runEntries, {
+                setVariantPlans,
+                setGenerationId,
+                setGenerationPlan,
+                setActiveVariantGenerationId,
+                setGapReport,
+                setGapApiPending,
+                setActiveGenerations,
+                setRenderVideoByGenerationId,
+              });
+            }
+          } catch {
+            latestGenerations = null;
+          }
           if (activeGenerationRunId) {
             void loadGenerationRunProvenance(activeGenerationRunId);
           }
-          if (latest) {
-            const generations = latest.generations;
-            hydrateAwaitingReview = generations.some(
+          if (latestGenerations) {
+            hydrateAwaitingReview = latestGenerations.some(
               (entry) => entry.status === "awaiting_review",
             );
-            hydrateRunning = generations.some((entry) => entry.status === "running");
+            hydrateRunning = latestGenerations.some(
+              (entry) => entry.status === "running",
+            );
             hydrateAllSucceeded =
-              generations.length > 0 &&
-              generations.every((entry) => entry.status === "succeeded");
-            if (hydrateAllSucceeded && runEntries.length > 0) {
+              latestGenerations.length > 0 &&
+              latestGenerations.every((entry) => entry.status === "succeeded");
+            if (hydrateAllSucceeded && runEntries.length > 0 && !reloadSucceeded) {
               reloadSucceeded = await reloadActiveGenerationResults(runEntries);
             }
           }
@@ -1065,6 +1107,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           if (hasFailedTask) {
             setLastAction("generation");
           }
+          if (intent.type === "go_result") {
+            setDataError(null);
+          }
           applyNavIntent(intent, setPanel);
           if (
             intent.type === "go_result" ||
@@ -1082,7 +1127,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       disableAutoNav,
       lastAction,
       loadGenerationRunProvenance,
-      loadProjectResults,
+      projectId,
       reloadActiveGenerationResults,
       setLastAction,
       setPanel,
@@ -1255,31 +1300,63 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const liveGenerationStatusByTaskId = useMemo(() => {
-    const fromEvents: Record<string, TaskStatus> = {};
-    for (const [taskId, taskEvent] of Object.entries(displayGenerationEvents)) {
-      fromEvents[taskId] = taskEvent.status;
+    const merged: Record<string, TaskStatus> = {};
+    for (const entry of activeGenerations) {
+      if (!entry.taskId) continue;
+      const event = displayGenerationEvents[entry.taskId];
+      if (!event) {
+        const fallback = generationStatusOverrides[entry.taskId];
+        if (fallback) merged[entry.taskId] = fallback;
+        continue;
+      }
+      merged[entry.taskId] = applyTaskStatusOverride(
+        event,
+        generationStatusOverrides[entry.taskId],
+      ).status;
     }
-    return { ...fromEvents, ...generationStatusOverrides };
-  }, [displayGenerationEvents, generationStatusOverrides]);
+    return merged;
+  }, [activeGenerations, displayGenerationEvents, generationStatusOverrides]);
+
+  const applyGenerationStatusOverrides = useCallback(
+    (
+      updater: (
+        previous: Record<string, TaskStatus>,
+      ) => Record<string, TaskStatus>,
+    ) => {
+      setGenerationStatusOverrides((previous) => {
+        const next = updater(previous);
+        generationStatusOverridesRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
-    setGenerationStatusOverrides((previous) => {
+    applyGenerationStatusOverrides((previous) => {
       let changed = false;
       const next = { ...previous };
       for (const taskId of Object.keys(previous)) {
         const live = displayGenerationEvents[taskId]?.status;
+        const override = previous[taskId];
+        if (!live) continue;
         if (
-          live &&
+          override === "retrying" &&
           live !== "awaiting_review" &&
-          previous[taskId] === "retrying"
+          (live === "running" || live === "retrying")
         ) {
+          delete next[taskId];
+          changed = true;
+          continue;
+        }
+        if (override === "queued" && live !== "queued") {
           delete next[taskId];
           changed = true;
         }
       }
       return changed ? next : previous;
     });
-  }, [displayGenerationEvents]);
+  }, [applyGenerationStatusOverrides, displayGenerationEvents]);
 
   const generationStatusByTaskId = useMemo(
     () =>
@@ -1357,15 +1434,20 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     if (!showMultiVariantGenerationProgress) return;
     if (OUTPUT_RESULT_PANELS.includes(panel)) return;
     if (panel === "script-review") return;
-    const awaiting = Object.values(generationStatusByTaskId).some(
-      (status) => status === "awaiting_review",
+    const awaiting = activeGenerations.some((entry) =>
+      isEffectiveReviewMilestone(
+        displayGenerationEvents[entry.taskId],
+        generationStatusOverrides[entry.taskId],
+      ),
     );
     if (awaiting) {
       setPanel("script-review", "hydrate:awaiting-review");
     }
   }, [
+    activeGenerations,
     autoNavEnabled,
-    generationStatusByTaskId,
+    displayGenerationEvents,
+    generationStatusOverrides,
     lastAction,
     panel,
     setPanel,
@@ -1531,7 +1613,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       for (const entry of entries) {
         queuedOverrides[entry.taskId] = "queued";
       }
-      setGenerationStatusOverrides(queuedOverrides);
+      applyGenerationStatusOverrides(() => queuedOverrides);
       setGenerationId(entries[0]?.generationId ?? null);
       setTaskId(null);
       bumpTaskWatchKeys(entries.map((entry) => entry.taskId));
@@ -1541,7 +1623,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     } finally {
       setBusy(false);
     }
-  }, [projectId, selectedVariantIds]);
+  }, [projectId, selectedVariantIds, applyGenerationStatusOverrides]);
 
   const activeResultPlan =
     (activeVariantGenerationId
@@ -1766,7 +1848,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             });
             return next ?? previous;
           });
-          setGenerationStatusOverrides((previous) => ({
+          applyGenerationStatusOverrides((previous) => ({
             ...previous,
             [activeTaskId]: afterRetry.status,
           }));
@@ -1780,7 +1862,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         setBusy(false);
       }
     },
-    [activeGenerations, event?.status, event?.taskId, renderVideoByGenerationId, taskId, variantPlans],
+    [activeGenerations, applyGenerationStatusOverrides, event?.status, event?.taskId, renderVideoByGenerationId, taskId, variantPlans],
   );
 
   const handleRetryGenerationFromResult = useCallback(
@@ -2190,13 +2272,14 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 const approvedTaskIds = activeGenerations
                   .map((entry) => entry.taskId)
                   .filter((id) => id.length > 0);
-                setGenerationStatusOverrides((previous) => {
+                applyGenerationStatusOverrides((previous) => {
                   const next = { ...previous };
                   for (const id of approvedTaskIds) {
                     next[id] = "retrying";
                   }
                   return next;
                 });
+                setDataError(null);
                 bumpTaskWatchKeys(approvedTaskIds);
                 setPanel("progress", "script-review:approved");
               }}

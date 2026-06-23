@@ -128,10 +128,12 @@ export function computeGenerationSettlementIntent(
   }
 
   if (input.hydrateAwaitingReview || input.anyGenerationAwaitingReview) {
-    return { type: "go_script_review", reason: "generation-settlement:awaiting-review" };
+    if (!input.allGenerationTasksSucceeded) {
+      return { type: "go_script_review", reason: "generation-settlement:awaiting-review" };
+    }
   }
 
-  if (input.hydrateRunning) {
+  if (input.hydrateRunning && !input.allGenerationTasksSucceeded) {
     return { type: "go_progress", reason: "generation-settlement:running" };
   }
 
