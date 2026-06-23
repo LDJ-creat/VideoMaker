@@ -11,16 +11,27 @@
 
 ## Env
 
+Copy [`services/api/.env.example`](../api/.env.example) → `services/api/.env` (gitignored). **`run-dev.ps1` loads `.env` automatically**; worker subprocesses inherit the same values—no need to export in the shell each session.
+
 | Env | Default | Notes |
 |-----|---------|-------|
-| `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND` | `react` | Set `acp` to enable external agent author |
+| `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND` | `react` | Set `acp` in `.env` to enable external agent author |
 | `VIDEOMAKER_COMPOSITION_ACP_AGENT` | `claude` | `claude` / `codex` / `cursor` |
 | `VIDEOMAKER_COMPOSITION_ACP_AGENT_COMMAND` | empty | JSON array override spawn command |
-| `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | `600` | Per-slot author timeout |
+| `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | unset | Per-slot timeout; **1800** when `template=composition` if unset |
 | `VIDEOMAKER_COMPOSITION_ACP_AUTO_APPROVE` | `true` | Headless tool/terminal approval |
 | `VIDEOMAKER_COMPOSITION_ACP_LINT_REPAIR_MAX` | `1` | Post-turn lint failure → extra ACP repair sessions |
 | `VIDEOMAKER_COMPOSITION_LINT_CACHE` | `true` | Skip duplicate HF lint when spec hash matches session lint |
 | `VIDEOMAKER_MCP_WRITE_SKIP_LINT` | `true` (ACP) | MCP `write_material_spec` skips HF lint; worker gate remains |
+
+### Concurrency (dual-layer)
+
+| Layer | Env | Default | Notes |
+|-------|-----|---------|-------|
+| API global | `VIDEOMAKER_MAX_CONCURRENT_GENERATIONS` | `2` | Generation + revise fork subprocesses; 3rd plan queues until slot frees |
+| Worker per generation | `VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS` | `3` | Cross-slot HF/ACP parallel; same slot stock→finish serial; master TTS last |
+
+**Tuning when Cursor rate-limits:** keep `GENERATIONS=2`, lower `MATERIAL_MAX_CONCURRENT_SLOTS` to `2`, or set `GENERATIONS=1` for conservative runs. Worst case at defaults ≈ 2×3 = 6 parallel authors.
 
 ## A. Module automation
 
@@ -79,7 +90,7 @@ Optional: set `VIDEOMAKER_ACP_SMOKE_SIMPLE=false` for full author with session l
 
 ## D. Workbench full pipeline (manual)
 
-1. Worker env: `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND=acp`, pick agent via `VIDEOMAKER_COMPOSITION_ACP_AGENT`.
+1. Copy `services/api/.env.example` → `services/api/.env`; set `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND=acp` and `VIDEOMAKER_COMPOSITION_ACP_AGENT=cursor` (or claude/codex). Restart `run-dev.ps1`.
 2. Run generation with HF packaging slots to MP4.
 3. Confirm artifact paths match react backend:
    - `generations/{generationId}/generated/{actionId}.mp4`

@@ -111,7 +111,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 - Sample structure extraction uses **`structure_analyst`** LLM Agent (perception facts from FFmpeg/OpenCV/Whisper remain algorithm inputs).
 - Generation uses Agent pipeline for mapping, gap, storyboard, packaging; material completion via `hyperframes_material` / `image_generation` / `video_generation` / `tts`.
 - **`VIDEOMAKER_FIXTURE_MODE=true`** — test/CI fixtures only; not a production fallback when live models fail.
-- **Observability (optional Langfuse):** `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; `VIDEOMAKER_OBSERVABILITY_CAPTURE` (`full` \| `summary` \| `off`, default `full`); model calls persist to `storage/projects/{projectId}/logs/model-calls/`; ACP material author tool spans persist to `logs/tool-runs/` (`acp_session_*`); API `GET /api/generations/{id}/model-calls`, `GET /api/tasks/{id}/model-calls`. E2E: `docs/demos/langfuse-observability-e2e-checklist.md`.
+- **Observability (optional Langfuse):** `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`; copy [`services/api/langfuse.env.example`](services/api/langfuse.env.example) → `langfuse.env` (auto-loaded by `run-dev.ps1`); `VIDEOMAKER_OBSERVABILITY_CAPTURE` (`full` \| `summary` \| `off`, default `full`); model calls persist to `storage/projects/{projectId}/logs/model-calls/`; ACP material author tool spans persist to `logs/tool-runs/` (`acp_session_*`); API `GET /api/generations/{id}/model-calls`, `GET /api/tasks/{id}/model-calls`. Setup: `docs/demos/langfuse-cloud-setup-guide.md`; E2E: `docs/demos/langfuse-observability-e2e-checklist.md`.
 - Default variants: **`high_click`** + **`high_conversion`**. Video generation quota: max **1** successful `video_generation` per `generationId` (configurable via env; see below).
 
 ### Post-P1 Extensions (also on `main`)
@@ -255,6 +255,9 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_FFMPEG_VIDEO_CRF` | libx264 CRF for FFmpeg final encode | `23` |
 | `VIDEOMAKER_FFMPEG_BGM_VOLUME` | BGM level in FFmpeg audio mix | `0.25` |
 | `VIDEOMAKER_FFMPEG_TRANSITION_MODE` | Scene transitions: `cut`, `overlay_fade`, or `xfade` | `cut` |
+| `VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS` | Visual slot material chains in parallel per generation (`1`=legacy serial) | `3` |
+
+Material completion: different `slotId` chains run concurrently (default 3); same slot (`stock` → `-finish`) stays serial; `__master__` TTS runs after all visual slots. Parallel cross-slot execution requires `gateway_factory` (per-slot ModelGateway for ReAct/ACP); without it, visual slots run serially. `fail_fast` cancels not-yet-started slot chains; in-flight provider work may continue until its current action finishes. Combined with API `VIDEOMAKER_MAX_CONCURRENT_GENERATIONS=2`, default worst case ≈ 6 parallel ACP/HF authors.
 
 Subtitles are rebuilt after material completion from voiceover WAV windows (not storyboard char-weight placeholders). Global TTS writes one `vo-master` clip; timeline may extend to `narrationDurationSec` when narration exceeds the planned duration.
 
@@ -293,6 +296,17 @@ Generation with human review (default): worker pauses at `awaiting_master_review
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
 
+**API concurrency caps** (process-local queues in `PipelineRunner`; worker subprocesses inherit worker-side env via `.env`):
+
+| Env (API) | Meaning | Default |
+|-----------|---------|---------|
+| `VIDEOMAKER_MAX_CONCURRENT_GENERATIONS` | Max generation/revise worker subprocesses at once (dual variant plan fills cap=2) | `2` |
+| `VIDEOMAKER_MAX_CONCURRENT_SAMPLE_ANALYSIS` | Max sample-analysis worker subprocesses at once | `2` |
+
+Queued generation tasks emit `status=queued` with message `Waiting for generation slot` until a slot frees. The cap limits **active worker subprocesses**, not generations awaiting human review: when a run pauses at `awaiting_review`, the worker exits and the slot is released for the next queued job.
+
+**Note:** `VIDEOMAKER_MAX_CONCURRENT_GENERATIONS` is per API process; multiple uvicorn workers each maintain an independent queue.
+
 ```powershell
 cd services/api
 python -m pytest
@@ -315,7 +329,7 @@ Pipelines and tools:
 - **Render:** `render_timeline_to_hyperframes`, `composition_preview`, `ffmpeg_backend` (default final MP4), `hyperframes_backend` (fallback / slot material via `hyperframes_material_tool`)
 - **Composition (thin adapter):** `app/composition/engine_factory.py` → `services/composition/` `CompositionEngine` for material author + build/lint/render + pattern deposit
 
-HyperFrames slot material env (worker):
+HyperFrames slot material env (worker). Local dev: copy `services/api/.env.example` → `services/api/.env`; `run-dev.ps1` loads it into the API/worker process (same pattern as `langfuse.env`).
 
 | Env | Meaning | Default |
 |-----|---------|---------|
@@ -323,7 +337,7 @@ HyperFrames slot material env (worker):
 | `VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND` | `react` (internal ReAct) or `acp` (external agent via ACP) | `react` |
 | `VIDEOMAKER_COMPOSITION_ACP_AGENT` | `claude`, `codex`, or `cursor` when `AUTHOR_BACKEND=acp` | `claude` |
 | `VIDEOMAKER_COMPOSITION_ACP_AGENT_COMMAND` | JSON array override for ACP agent spawn | empty |
-| `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | ACP author timeout per slot (seconds) | `600` |
+| `VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC` | ACP author timeout per slot (seconds); unset → 1800 when `template=composition`, else 600 | unset |
 | `VIDEOMAKER_COMPOSITION_ACP_AUTO_APPROVE` | Auto-approve ACP tool/terminal prompts in headless worker | `true` |
 | `VIDEOMAKER_COMPOSITION_ACP_LINT_REPAIR_MAX` | Extra ACP repair sessions after post-turn lint failure | `1` |
 | `VIDEOMAKER_ACP_OBSERVABILITY_MAX_SESSION_UPDATES` | Max `acp_session_update` tool-run records exported per ACP author session | `40` |
@@ -333,6 +347,7 @@ HyperFrames slot material env (worker):
 | `VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS` | Max ReAct turns for material author | `5` |
 | `VIDEOMAKER_COMPOSITION_SKIP_LINT` | Skip hyperframes lint before render | unset |
 | `VIDEOMAKER_SKILL_VIEW_TOKEN_CAP` | Cumulative skill_view token cap per generation | `6000` |
+| `VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS` | Parallel visual-slot material author+render per generation | `3` |
 
 Skills layout (repo root):
 
