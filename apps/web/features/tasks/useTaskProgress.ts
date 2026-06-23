@@ -80,26 +80,37 @@ export function useTaskProgress({
     }
   }, []);
 
+  const prevWatchKeyRef = useRef(watchKey);
+
   useEffect(() => {
     if (!enabled || !taskId) {
       eventRef.current = null;
       lastEventIdRef.current = 0;
+      prevWatchKeyRef.current = watchKey;
       setEvent(null);
       setMode("idle");
       setSseFailureCount(0);
       return;
     }
 
+    if (prevWatchKeyRef.current !== watchKey) {
+      prevWatchKeyRef.current = watchKey;
+      eventRef.current = null;
+      lastEventIdRef.current = 0;
+      setEvent(null);
+    } else {
+      setEvent((previous) => {
+        if (previous && isTaskTerminalStatus(previous.status)) {
+          eventRef.current = null;
+          lastEventIdRef.current = 0;
+          return null;
+        }
+        eventRef.current = previous;
+        return previous;
+      });
+    }
+
     setSseFailureCount(0);
-    setEvent((previous) => {
-      if (previous && isTaskTerminalStatus(previous.status)) {
-        eventRef.current = null;
-        lastEventIdRef.current = 0;
-        return null;
-      }
-      eventRef.current = previous;
-      return previous;
-    });
 
     let disposed = false;
     const cleanup = startTaskWatch({

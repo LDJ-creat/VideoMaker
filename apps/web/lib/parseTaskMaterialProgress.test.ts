@@ -18,6 +18,14 @@ describe("parseTaskMaterialProgress", () => {
     expect(result.summary).toContain("slot-2");
   });
 
+  it("parses HyperFrames ready as completed", () => {
+    const result = parseTaskMaterialProgress(
+      "HyperFrames material ready for slot slot-2",
+    );
+    expect(result.kind).toBe("completed");
+    expect(result.summary).toBe("slot-2 素材已就绪");
+  });
+
   it("returns empty hint for unrelated messages", () => {
     const result = parseTaskMaterialProgress("Queued generation");
     expect(result.summary).toBeNull();

@@ -224,6 +224,9 @@ export function useMultiTaskProgress({
       if (previousWatchKey !== undefined && previousWatchKey !== watchKeyForTask) {
         notifiedTerminalRef.current.delete(taskId);
         allTerminalNotifiedRef.current = false;
+        delete eventsRef.current[taskId];
+        lastEventIdByTaskRef.current[taskId] = 0;
+        setEvents({ ...eventsRef.current });
       }
       watchKeysByTaskRef.current[taskId] = watchKeyForTask;
       cleanupByTaskRef.current[taskId] = startTaskWatch({

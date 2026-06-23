@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GenerationMigrationProgressPanel } from "@/features/structure-migration/GenerationMigrationProgressPanel";
 import { fixtureTaskEvent, fixtureVideoStructure } from "@/fixtures";
+import {
+  EMPTY_PARALLEL_MATERIAL_ACTIVITY,
+  reduceParallelMaterialActivityFromMessages,
+} from "@/lib/parallelMaterialActivity";
 
 vi.mock("@/features/structure-migration/useGenerationMigrationArtifacts", () => ({
   useGenerationMigrationArtifacts: () => ({
@@ -36,6 +40,7 @@ vi.mock("@/features/structure-migration/useGenerationMigrationArtifacts", () => 
         },
       ],
       materialState: null,
+      completedSlotIds: [],
     },
     progressGroup: "completing" as const,
   }),
@@ -47,6 +52,9 @@ describe("GenerationMigrationProgressPanel", () => {
   });
 
   it("shows active migration table during running_agent HyperFrames work", () => {
+    const materialActivity = reduceParallelMaterialActivityFromMessages([
+      "Authoring HyperFrames material spec for slot-cta",
+    ]);
     render(
       <GenerationMigrationProgressPanel
         context={{
@@ -55,6 +63,7 @@ describe("GenerationMigrationProgressPanel", () => {
           structure: fixtureVideoStructure,
           variantLabel: "高转化版",
         }}
+        materialActivity={materialActivity}
         event={{
           ...fixtureTaskEvent,
           stage: "running_agent",

@@ -16,7 +16,9 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { TaskArtifactPreview } from "@/features/tasks/TaskArtifactPreview";
 import { GenerationMigrationProgressPanel } from "@/features/structure-migration/GenerationMigrationProgressPanel";
+import { resolveEffectiveMigrationGroup } from "@/features/structure-migration/resolveEffectiveMigrationGroup";
 import type { MigrationProgressContext } from "@/features/structure-migration/useGenerationMigrationArtifacts";
+import { useGenerationMigrationArtifacts } from "@/features/structure-migration/useGenerationMigrationArtifacts";
 import { getTaskStageLabel } from "@/features/tasks/stageLabels";
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
 import {
@@ -24,13 +26,21 @@ import {
   inferAssetUnderstandingRouteFromEvent,
 } from "@/lib/assetUnderstandingRouteLabels";
 import { formatTaskError } from "@/lib/formatTaskError";
-import { formatTaskMessage } from "@/lib/taskMessageLabels";
 import { scriptReviewGateLabel } from "@/lib/durationTargetLabels";
-import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
+import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
+import {
+  buildUnifiedMaterialProgressSummary,
+  mergeCompletedMaterialSlotIds,
+  reconcileMaterialSlotProgress,
+  shouldInferDiskCompletedSlots,
+} from "@/lib/parallelMaterialActivity";
+import { formatTaskMessage } from "@/lib/taskMessageLabels";
 import {
   getTaskStatusBadgeVariant,
   getTaskStatusLabel,
+  isTaskCancellable,
 } from "@/lib/taskStatusLabels";
+import { useParallelMaterialActivity } from "@/features/tasks/useParallelMaterialActivity";
 import { cn } from "@/lib/utils";
 
 type TaskProgressPanelProps = {
@@ -45,8 +55,13 @@ type TaskProgressPanelProps = {
   onRetry?: () => void;
   retryBusy?: boolean;
   retryLabel?: string;
+  onCancel?: () => void;
+  cancelBusy?: boolean;
+  cancelLabel?: string;
   onGoToScriptReview?: () => void;
   migrationContext?: MigrationProgressContext;
+  /** Bump after cancel/retry so migration/material UI drops stale state. */
+  progressResetKey?: number;
 };
 
 function shortTaskId(taskId: string): string {
@@ -65,8 +80,12 @@ export function TaskProgressPanel({
   onRetry,
   retryBusy = false,
   retryLabel = "重试任务",
+  onCancel,
+  cancelBusy = false,
+  cancelLabel = "取消任务",
   onGoToScriptReview,
   migrationContext,
+  progressResetKey = 0,
 }: TaskProgressPanelProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [lastFailedSummary, setLastFailedSummary] = useState<string | null>(null);
@@ -76,7 +95,41 @@ export function TaskProgressPanel({
       ? formatTaskError(event?.error)
       : null;
   const assetRoute = inferAssetUnderstandingRouteFromEvent(event);
-  const materialProgress = parseTaskMaterialProgress(event?.message);
+  const materialActivity = useParallelMaterialActivity(event?.taskId, event, {
+    resetKey: progressResetKey,
+  });
+  const migrationArtifacts = useGenerationMigrationArtifacts({
+    projectId: migrationContext?.projectId ?? "",
+    generationId: migrationContext?.generationId,
+    event,
+    enabled: Boolean(migrationContext?.projectId && migrationContext?.generationId),
+    resetKey: progressResetKey,
+  });
+  const migrationProgressGroup = resolveEffectiveMigrationGroup(
+    event?.stage,
+    event?.message,
+    migrationArtifacts.artifacts,
+  );
+  const completedFromActions = deriveCompletedSlotIds(
+    migrationArtifacts.artifacts?.completionActions ?? [],
+    migrationArtifacts.artifacts?.materialState?.completedActionIds,
+  );
+  const completedSlotIds = mergeCompletedMaterialSlotIds(
+    materialActivity,
+    completedFromActions,
+    migrationArtifacts.artifacts?.completedSlotIds,
+    { includeDisk: shouldInferDiskCompletedSlots(migrationProgressGroup) },
+  );
+  const resolvedMaterialActivity = reconcileMaterialSlotProgress(
+    materialActivity,
+    completedSlotIds,
+  );
+  const materialProgress = buildUnifiedMaterialProgressSummary(
+    resolvedMaterialActivity,
+    event?.message,
+  );
+  const showCancel =
+    Boolean(onCancel) && event != null && isTaskCancellable(event.status);
 
   useEffect(() => {
     if (event?.status === "failed" && formattedError?.title) {
@@ -105,7 +158,9 @@ export function TaskProgressPanel({
       ? scriptReviewGateLabel(event.stage)
       : getTaskStageLabel(event.stage);
   const statusLabel = getTaskStatusLabel(event.status);
-  const message = formatTaskMessage(event.message);
+  const message =
+    materialProgress.primary ?? formatTaskMessage(event.message);
+  const materialSummary = materialProgress.secondary;
   const showPollingNotice = sseFailureCount > 0 && mode === "polling";
   const progressLabel = Number.isInteger(displayProgress)
     ? `${displayProgress}%`
@@ -173,12 +228,12 @@ export function TaskProgressPanel({
           <p className={cn("text-sm", compact ? "text-muted-foreground" : "text-foreground")}>
             {message}
           </p>
-          {materialProgress.summary ? (
+          {materialSummary ? (
             <p
               className="text-xs font-medium text-foreground/90"
               data-testid="task-material-progress"
             >
-              {materialProgress.summary}
+              {materialSummary}
             </p>
           ) : null}
           {(event.stage === "extracting_structure_direct" ||
@@ -210,6 +265,8 @@ export function TaskProgressPanel({
           <GenerationMigrationProgressPanel
             context={migrationContext}
             event={event}
+            materialActivity={resolvedMaterialActivity}
+            progressResetKey={progressResetKey}
             defaultExpanded
           />
         ) : null}
@@ -245,33 +302,58 @@ export function TaskProgressPanel({
           </div>
         ) : null}
 
-        {onRetry ? (
-          <div className="min-h-[4.5rem] space-y-2" data-testid="task-retry-region">
-            {event.status === "retrying" && lastFailedSummary && !formattedError ? (
-              <details className="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-muted-foreground">
-                <summary className="cursor-pointer font-medium text-destructive">
-                  上次失败原因
-                </summary>
-                <p className="mt-1">{lastFailedSummary}</p>
-              </details>
+        {showCancel || onRetry ? (
+          <div
+            className="flex min-h-[4.5rem] flex-wrap items-start gap-2"
+            data-testid="task-action-region"
+          >
+            {showCancel ? (
+              <div className="space-y-2" data-testid="task-cancel-region">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={cancelBusy || retryBusy}
+                  onClick={() => void onCancel?.()}
+                >
+                  {cancelBusy ? "正在取消…" : cancelLabel}
+                </Button>
+                {!compact ? (
+                  <p className="text-xs text-muted-foreground">
+                    取消后任务会停止推进；已生成的中间产物会保留，可稍后重试同一任务。
+                  </p>
+                ) : null}
+              </div>
             ) : null}
-            {event.status === "succeeded" ? (
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                生成计划已完成，但演示 MP4 尚未就绪，可重新提交渲染。
-              </p>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              disabled={retryBusy}
-              onClick={() => void onRetry()}
-            >
-              {retryBusy ? "正在重新提交…" : retryLabel}
-            </Button>
-            {!compact ? (
-              <p className="text-xs text-muted-foreground">
-                重试会从上次 checkpoint 继续执行，复用同一任务 ID 与已完成阶段的中间产物。
-              </p>
+
+            {onRetry ? (
+              <div className="min-h-[4.5rem] space-y-2" data-testid="task-retry-region">
+                {event.status === "retrying" && lastFailedSummary && !formattedError ? (
+                  <details className="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer font-medium text-destructive">
+                      上次失败原因
+                    </summary>
+                    <p className="mt-1">{lastFailedSummary}</p>
+                  </details>
+                ) : null}
+                {event.status === "succeeded" ? (
+                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                    生成计划已完成，但演示 MP4 尚未就绪，可重新提交渲染。
+                  </p>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={retryBusy || cancelBusy}
+                  onClick={() => void onRetry()}
+                >
+                  {retryBusy ? "正在重新提交…" : retryLabel}
+                </Button>
+                {!compact ? (
+                  <p className="text-xs text-muted-foreground">
+                    重试会从上次 checkpoint 继续执行，复用同一任务 ID 与已完成阶段的中间产物。
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}

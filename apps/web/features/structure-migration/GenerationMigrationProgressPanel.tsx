@@ -12,13 +12,23 @@ import {
   useGenerationMigrationArtifacts,
   type MigrationProgressContext,
 } from "@/features/structure-migration/useGenerationMigrationArtifacts";
-import { normalizeMigrationSlotId } from "@/lib/migrationSlotId";
+import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
+import {
+  buildUnifiedMaterialProgressSummary,
+  getActiveMaterialSlotIds,
+  mergeCompletedMaterialSlotIds,
+  reconcileMaterialSlotProgress,
+  shouldInferDiskCompletedSlots,
+  type ParallelMaterialActivity,
+} from "@/lib/parallelMaterialActivity";
 import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 import { cn } from "@/lib/utils";
 
 type GenerationMigrationProgressPanelProps = {
   context: MigrationProgressContext;
   event: TaskEvent | null;
+  materialActivity: ParallelMaterialActivity;
+  progressResetKey?: number;
   defaultExpanded?: boolean;
 };
 
@@ -38,12 +48,15 @@ function shouldShowMigrationShell(event: TaskEvent | null): boolean {
 export function GenerationMigrationProgressPanel({
   context,
   event,
+  materialActivity,
+  progressResetKey = 0,
   defaultExpanded = true,
 }: GenerationMigrationProgressPanelProps) {
   const { artifacts, progressGroup } = useGenerationMigrationArtifacts({
     projectId: context.projectId,
     generationId: context.generationId,
     event,
+    resetKey: progressResetKey,
   });
 
   if (!event || !shouldShowMigrationShell(event)) {
@@ -53,10 +66,28 @@ export function GenerationMigrationProgressPanel({
   const materialProgress = parseTaskMaterialProgress(event.message);
   const isPreMigration =
     progressGroup === "pending" && !materialProgress.actionLabel;
+  const completedFromActions = deriveCompletedSlotIds(
+    artifacts?.completionActions ?? [],
+    artifacts?.materialState?.completedActionIds,
+  );
+  const completedSlotIds = mergeCompletedMaterialSlotIds(
+    materialActivity,
+    completedFromActions,
+    artifacts?.completedSlotIds,
+    { includeDisk: shouldInferDiskCompletedSlots(progressGroup) },
+  );
+  const resolvedActivity = reconcileMaterialSlotProgress(
+    materialActivity,
+    completedSlotIds,
+  );
+  const unifiedMaterial = buildUnifiedMaterialProgressSummary(
+    resolvedActivity,
+    event.message,
+  );
+  const activeSlotIds = getActiveMaterialSlotIds(resolvedActivity);
   const activeSlotId =
-    progressGroup === "completing"
-      ? normalizeMigrationSlotId(materialProgress.slotId)
-      : null;
+    activeSlotIds.size === 1 ? [...activeSlotIds][0]! : null;
+  const materialSummary = unifiedMaterial.secondary;
 
   if (!context.structure) {
     return (
@@ -104,7 +135,9 @@ export function GenerationMigrationProgressPanel({
     mode: "progress",
     progressGroup,
     activeSlotId,
+    activeSlotIds,
     completedActionIds: artifacts?.materialState?.completedActionIds,
+    completedSlotIds,
     taskSucceeded: event.status === "succeeded",
   });
 
@@ -114,7 +147,9 @@ export function GenerationMigrationProgressPanel({
       : progressGroup === "planning"
         ? "匹配结果已写入；正在为缺口槽位选择 Pexels / HyperFrames / AIGC 补全策略。"
         : progressGroup === "completing"
-          ? "补全策略已确定，正在生成或渲染各槽位素材。"
+          ? activeSlotIds.size > 1
+            ? "补全策略已确定，正在并行生成或渲染多个槽位素材。"
+            : "补全策略已确定，正在生成或渲染各槽位素材。"
           : "结构迁移进度将随任务阶段自动更新。";
 
   return (
@@ -123,12 +158,12 @@ export function GenerationMigrationProgressPanel({
       variantLabel={context.variantLabel}
     >
       <p className="text-sm text-muted-foreground">{stageHint}</p>
-      {materialProgress.summary ? (
+      {materialSummary ? (
         <p
           className="text-xs font-medium text-foreground/90"
           data-testid="migration-active-action"
         >
-          {materialProgress.summary}
+          {materialSummary}
         </p>
       ) : null}
       <StructureMigrationPanel
@@ -138,6 +173,7 @@ export function GenerationMigrationProgressPanel({
         collapsible={false}
         compact
         activeSlotId={activeSlotId}
+        activeSlotIds={activeSlotIds}
         data-testid="generation-migration-progress-panel"
       />
     </MigrationProgressShell>

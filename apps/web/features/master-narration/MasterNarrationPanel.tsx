@@ -1,8 +1,8 @@
 "use client";
 
-import type { GapReport, GenerationPlan, VideoStructure } from "@videomaker/contracts";
+import type { AgentRunLog, GapReport, GenerationPlan, VideoStructure } from "@videomaker/contracts";
 import { Clock, Layers, Mic } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,6 +24,7 @@ import {
 import { resolveStoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { StoryboardSceneCard } from "@/features/master-narration/StoryboardSceneCard";
 import { getVariantLabel } from "@/lib/variantRegistry";
+import { getGenerationAgentRuns } from "@/lib/apiClient";
 
 type MasterNarrationPanelProps = {
   plan: GenerationPlan;
@@ -45,10 +46,25 @@ export function MasterNarrationPanel({
   const derivedFallback =
     !plan.masterNarration?.trim() && master === deriveMasterFromStoryboard(plan.storyboard);
 
+  const [agentRuns, setAgentRuns] = useState<AgentRunLog[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await getGenerationAgentRuns(plan.id);
+      if (!cancelled && result.data?.runs) {
+        setAgentRuns(result.data.runs);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.id]);
+
   const migrationRows = useMemo(() => {
     if (!structure) return [];
-    return buildSlotMigrationRowsFromPlan(structure, plan, gapReport ?? null);
-  }, [gapReport, plan, structure]);
+    return buildSlotMigrationRowsFromPlan(structure, plan, gapReport ?? null, agentRuns);
+  }, [agentRuns, gapReport, plan, structure]);
 
   const migrationBySlot = useMemo(
     () => new Map(migrationRows.map((row) => [row.slotId, row])),
@@ -136,6 +152,8 @@ export function MasterNarrationPanel({
                     userAssetSummary={migration?.userAssetSummary}
                     gapSummary={migration?.gapSummary}
                     completionProvider={migration?.completionProvider}
+                    completionProviders={migration?.completionProviders}
+                    acpFailureSummary={migration?.acpFailureSummary}
                   />
                 );
               })

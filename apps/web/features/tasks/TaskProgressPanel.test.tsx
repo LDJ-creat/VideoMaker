@@ -76,6 +76,28 @@ describe("TaskProgressPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows cancel when onCancel is provided for running tasks", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "running",
+          stage: "generating_material",
+          message: "Completing slot slot-3",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "取消任务" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps raw stage in dev footer only", async () => {
     const user = userEvent.setup();
     render(

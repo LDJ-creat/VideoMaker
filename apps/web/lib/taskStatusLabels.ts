@@ -51,3 +51,14 @@ export function isTaskWatchActive(status: TaskStatus | string | undefined): bool
   if (!status) return false;
   return !isTaskTerminalStatus(status);
 }
+
+/** Statuses where the user may request cancellation from the workbench. */
+export function isTaskCancellable(status: TaskStatus | string | undefined): boolean {
+  if (!status) return false;
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "retrying" ||
+    status === "awaiting_review"
+  );
+}

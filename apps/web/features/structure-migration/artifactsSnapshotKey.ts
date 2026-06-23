@@ -9,5 +9,6 @@ export function artifactsSnapshotKey(
     gapReport: artifacts.gapReport,
     completionActions: artifacts.completionActions,
     materialState: artifacts.materialState,
+    completedSlotIds: artifacts.completedSlotIds,
   });
 }

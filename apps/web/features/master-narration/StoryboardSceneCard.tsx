@@ -34,6 +34,8 @@ type StoryboardSceneCardProps = {
   userAssetSummary?: string | null;
   gapSummary?: string | null;
   completionProvider?: string | null;
+  completionProviders?: string[];
+  acpFailureSummary?: string | null;
 };
 
 export function StoryboardSceneCard({
@@ -48,6 +50,8 @@ export function StoryboardSceneCard({
   userAssetSummary,
   gapSummary,
   completionProvider,
+  completionProviders,
+  acpFailureSummary,
 }: StoryboardSceneCardProps) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const script = scene.script.trim();
@@ -144,10 +148,20 @@ export function StoryboardSceneCard({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             {visualProvider && KNOWN_MEDIA_PROVIDERS.has(visualProvider) ? (
-              <GeneratedAssetBadge provider={visualProvider} />
+              <GeneratedAssetBadge
+                provider={visualProvider}
+                providers={
+                  completionProviders && completionProviders.length > 0
+                    ? completionProviders
+                    : undefined
+                }
+              />
             ) : null}
             <span className="text-xs text-muted-foreground">视觉素材来源</span>
           </div>
+          {acpFailureSummary ? (
+            <p className="text-xs text-destructive">{acpFailureSummary}</p>
+          ) : null}
           <p className="text-sm text-muted-foreground">{scene.visual}</p>
           <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2">
             <p className="mb-1 text-xs font-medium text-muted-foreground">分镜口播</p>

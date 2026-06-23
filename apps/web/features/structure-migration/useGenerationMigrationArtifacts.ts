@@ -23,6 +23,8 @@ type UseGenerationMigrationArtifactsOptions = {
   generationId: string | null | undefined;
   event: TaskEvent | null;
   enabled?: boolean;
+  /** Bump after cancel/retry to drop stale migration snapshot state. */
+  resetKey?: number;
 };
 
 export function useGenerationMigrationArtifacts({
@@ -30,6 +32,7 @@ export function useGenerationMigrationArtifacts({
   generationId,
   event,
   enabled = true,
+  resetKey = 0,
 }: UseGenerationMigrationArtifactsOptions): {
   artifacts: GenerationMigrationArtifacts | null;
   progressGroup: ReturnType<typeof resolveEffectiveMigrationGroup>;
@@ -44,6 +47,7 @@ export function useGenerationMigrationArtifacts({
   const snapshotKeyRef = useRef<string | null>(
     cached ? artifactsSnapshotKey(cached) : null,
   );
+  const lastResetKeyRef = useRef(resetKey);
 
   const progressGroup = resolveEffectiveMigrationGroup(
     event?.stage,
@@ -58,7 +62,21 @@ export function useGenerationMigrationArtifacts({
   });
 
   useEffect(() => {
+    if (lastResetKeyRef.current === resetKey) {
+      return;
+    }
+    lastResetKeyRef.current = resetKey;
+    snapshotKeyRef.current = null;
+    setArtifacts(null);
+    if (generationId) {
+      invalidateMigrationSnapshotCache(generationId);
+    }
+  }, [generationId, resetKey]);
+
+  useEffect(() => {
     if (event?.status === "failed" || event?.status === "cancelled") {
+      snapshotKeyRef.current = null;
+      setArtifacts(null);
       if (generationId) {
         invalidateMigrationSnapshotCache(generationId);
       }
@@ -94,7 +112,7 @@ export function useGenerationMigrationArtifacts({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [generationId, projectId, shouldPoll]);
+  }, [generationId, projectId, resetKey, shouldPoll]);
 
   return {
     artifacts,

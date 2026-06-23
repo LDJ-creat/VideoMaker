@@ -583,6 +583,40 @@ export async function retryTask(taskId: string): Promise<ApiResult<TaskEvent>> {
   return apiFetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
 }
 
+export async function cancelTask(taskId: string): Promise<ApiResult<TaskEvent>> {
+  await apiFetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+  return getTask(taskId);
+}
+
+export async function fetchTaskEventHistory(
+  taskId: string,
+): Promise<TaskEvent[]> {
+  const response = await fetch(`/api/tasks/${taskId}/events?once=true`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load task events (${response.status})`);
+  }
+
+  const events: TaskEvent[] = [];
+  const body = await response.text();
+  for (const line of body.split("\n")) {
+    if (!line.startsWith("data: ")) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(line.slice(6)) as TaskEvent & {
+        eventId?: number;
+      };
+      const { eventId: _eventId, ...event } = parsed;
+      events.push(event);
+    } catch {
+      // Ignore malformed SSE payloads.
+    }
+  }
+  return events;
+}
+
 export async function startSampleAnalysis(
   sampleId: string,
 ): Promise<ApiResult<{ taskId: string }>> {

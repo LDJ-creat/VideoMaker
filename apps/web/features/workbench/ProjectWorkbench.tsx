@@ -120,6 +120,7 @@ import {
   listProjectAssets,
   listProjectSamples,
   cancelRevisePlan,
+  cancelTask,
   executeRevisePlan,
   getReviseSession,
   planReviseGeneration,
@@ -1822,6 +1823,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           : undefined;
         const canRetry =
           latest.status === "failed" ||
+          latest.status === "cancelled" ||
           latest.status === "retrying" ||
           latest.status === "running" ||
           canRetryGenerationTask({
@@ -1863,6 +1865,48 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
       }
     },
     [activeGenerations, applyGenerationStatusOverrides, event?.status, event?.taskId, renderVideoByGenerationId, taskId, variantPlans],
+  );
+
+  const handleCancelTask = useCallback(
+    async (cancelTaskId?: string) => {
+      const activeTaskId =
+        cancelTaskId ?? taskId ?? event?.taskId ?? undefined;
+      if (!activeTaskId) return;
+      setBusy(true);
+      setDataError(null);
+      try {
+        const { data: cancelled } = await cancelTask(activeTaskId);
+        const activeEntry = activeGenerations.find(
+          (entry) => entry.taskId === activeTaskId,
+        );
+        if (activeEntry) {
+          setSettledGenerationEvents((previous) => {
+            const next = mergeTaskEventsIfChanged(previous, {
+              [activeTaskId]: cancelled,
+            });
+            return next ?? previous;
+          });
+          applyGenerationStatusOverrides((previous) => ({
+            ...previous,
+            [activeTaskId]: cancelled.status,
+          }));
+        } else {
+          setTaskId(activeTaskId);
+        }
+        bumpTaskWatchKey(activeTaskId);
+      } catch (err) {
+        setDataError(getErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      activeGenerations,
+      applyGenerationStatusOverrides,
+      bumpTaskWatchKey,
+      event?.taskId,
+      taskId,
+    ],
   );
 
   const handleRetryGenerationFromResult = useCallback(
@@ -2218,8 +2262,12 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 retryBusy={busy}
                 retryLabel="重试生成 / 重新渲染"
                 onRetry={(retryTaskId) => void handleRetryFailedTask(retryTaskId)}
+                onCancel={(cancelTaskId) => void handleCancelTask(cancelTaskId)}
+                cancelBusy={busy}
+                cancelLabel="取消生成"
                 onGoToScriptReview={() => setPanel("script-review")}
                 getMigrationContext={getMigrationContext}
+                taskWatchKeys={taskWatchKeys}
               />
             ) : (
               <TaskProgressPanel
@@ -2245,15 +2293,35 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                       : "重试样例分析"
                 }
                 onRetry={
-                  event?.status === "failed" && (taskId || event.taskId) && !busy
+                  (event?.status === "failed" || event?.status === "cancelled") &&
+                  (taskId || event.taskId) &&
+                  !busy
                     ? () => void handleRetryFailedTask()
                     : undefined
+                }
+                onCancel={
+                  event && !busy
+                    ? () => void handleCancelTask()
+                    : undefined
+                }
+                cancelBusy={busy}
+                cancelLabel={
+                  lastAction === "analysis"
+                    ? "取消分析"
+                    : lastAction === "revise"
+                      ? "取消改片"
+                      : "取消任务"
                 }
                 onGoToScriptReview={() => setPanel("script-review")}
                 migrationContext={
                   taskId && getMigrationContext(taskId)
                     ? getMigrationContext(taskId)!
                     : undefined
+                }
+                progressResetKey={
+                  singleProgressTaskId
+                    ? (taskWatchKeys[singleProgressTaskId] ?? 0)
+                    : 0
                 }
               />
             )}
