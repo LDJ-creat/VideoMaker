@@ -14,6 +14,11 @@
       "minLength": 1,
       "maxLength": 600
     },
+    "layoutAnchor": {
+      "type": "string",
+      "enum": ["center", "lower_third", "upper_third"],
+      "description": "Vertical placement of the primary HF content. hf_native uses center; source_then_polish overlays use lower_third (cta) or upper_third (hook)."
+    },
     "templatePreference": {
       "type": "string",
       "enum": ["composition", "benefit-card", "title-lower-third", "ken-burns"]

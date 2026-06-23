@@ -646,9 +646,12 @@ export type CompositionTemplatePreference =
   | "title-lower-third"
   | "ken-burns";
 
+export type CompositionLayoutAnchor = "center" | "lower_third" | "upper_third";
+
 export type CompositionAuthorBrief = {
   mode: CompositionAuthorBriefMode;
   authorPrompt: string;
+  layoutAnchor?: CompositionLayoutAnchor;
   templatePreference?: CompositionTemplatePreference;
   displayCopyPolicy?: {
     allowed?: string[];
