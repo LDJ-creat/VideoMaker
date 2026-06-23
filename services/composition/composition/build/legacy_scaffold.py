@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -244,7 +245,12 @@ def _render_body(
     primary = _sanitize_color(colors.get("primary"), fallback="#2563eb")
     background = _sanitize_color(colors.get("background"), fallback="#0b0d12")
     text = _sanitize_color(colors.get("text"), fallback="#ffffff")
-    title = sanitize_string(str(params.get("title", ""))) or "VideoMaker"
+    default_title = (
+        "VideoMaker"
+        if os.getenv("VIDEOMAKER_FIXTURE_MODE", "").strip().lower() in {"1", "true", "yes"}
+        else ""
+    )
+    title = sanitize_string(str(params.get("title", ""))) or default_title
     subtitle = sanitize_string(str(params.get("subtitle", ""))) or ""
 
     if template == "benefit-card":

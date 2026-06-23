@@ -88,3 +88,24 @@ def test_mcp_write_material_spec(mcp_scratch: tuple[Path, Path]) -> None:
     assert payload["ok"] is True
     written = json.loads((scratch / "material-spec.json").read_text(encoding="utf-8"))
     assert written["template"] == "benefit-card"
+
+
+def test_mcp_lint_draft_returns_hint_code(mcp_scratch: tuple[Path, Path]) -> None:
+    scratch, payload_path = mcp_scratch
+    spec = {"template": "not-a-real-template", "durationSec": 3, "params": {}}
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "composition.mcp.server"],
+        env=_server_env(scratch, payload_path),
+        cwd=str(REPO_ROOT),
+    )
+    raw = asyncio.run(
+        _call_tool(
+            params,
+            "composition_lint_draft",
+            {"spec_json": spec, "schema_only": True},
+        ),
+    )
+    payload = json.loads(raw)
+    assert payload["ok"] is False
+    assert payload.get("hintCode") in {"schema_invalid", "unknown"}
