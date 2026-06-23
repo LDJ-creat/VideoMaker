@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MasterNarrationPanel } from "@/features/master-narration/MasterNarrationPanel";
@@ -32,6 +32,11 @@ describe("MasterNarrationPanel", () => {
     );
     expect(screen.getByText("槽位拆解")).toBeInTheDocument();
     expect(screen.getAllByText("结构意图").length).toBeGreaterThan(0);
+    const designPanel = screen.getByTestId("scene-design-scene-3");
+    expect(designPanel).toBeInTheDocument();
+    expect(within(designPanel).getByText("分镜包装设计")).toBeInTheDocument();
+    expect(within(designPanel).getByText(/亮黄价格贴纸 stagger 弹出/)).toBeInTheDocument();
+    expect(within(designPanel).getByText("补全润色意图")).toBeInTheDocument();
   });
 
   it("derives master text from storyboard when field is empty", () => {

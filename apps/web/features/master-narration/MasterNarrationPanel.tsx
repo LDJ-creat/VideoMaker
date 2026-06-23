@@ -130,7 +130,7 @@ export function MasterNarrationPanel({
             <div>
               <p className="text-sm font-medium">槽位拆解</p>
               <p className="text-xs text-muted-foreground">
-                每个结构槽位的迁移意图、视觉素材来源与分镜口播。
+                每个结构槽位的迁移意图、分镜视觉/包装设计、素材来源与分镜口播。
               </p>
             </div>
             {scenes.length === 0 ? (
@@ -151,6 +151,7 @@ export function MasterNarrationPanel({
                     userAssetId={migration?.userAssetId}
                     userAssetSummary={migration?.userAssetSummary}
                     gapSummary={migration?.gapSummary}
+                    finishIntent={migration?.finishIntent}
                     completionProvider={migration?.completionProvider}
                     completionProviders={migration?.completionProviders}
                     acpFailureSummary={migration?.acpFailureSummary}

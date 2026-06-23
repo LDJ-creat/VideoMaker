@@ -44,6 +44,7 @@ export type SlotMigrationRow = {
   completionProviders: string[];
   completionStrategy: string | null;
   completionReason: string | null;
+  finishIntent: string | null;
   acpFailureSummary: string | null;
   resolvedVisual: string | null;
   script: string | null;
@@ -61,15 +62,23 @@ function classifyMatch(match: SlotMatch | undefined): "matched" | "weak" | "none
 function gapEntryForSlot(
   gapReport: GapReport | null | undefined,
   slotId: string,
-): { reason: string; suggestedFixes: string[] } | null {
+): { reason: string; suggestedFixes: string[]; finishIntent?: string } | null {
   if (!gapReport) return null;
   const weak = gapReport.weakSlots.find((entry) => entry.slotId === slotId);
   if (weak) {
-    return { reason: weak.reason, suggestedFixes: weak.suggestedFixes };
+    return {
+      reason: weak.reason,
+      suggestedFixes: weak.suggestedFixes,
+      finishIntent: weak.finishIntent,
+    };
   }
   const missing = gapReport.missingSlots.find((entry) => entry.slotId === slotId);
   if (missing) {
-    return { reason: missing.reason, suggestedFixes: missing.suggestedFixes };
+    return {
+      reason: missing.reason,
+      suggestedFixes: missing.suggestedFixes,
+      finishIntent: missing.finishIntent,
+    };
   }
   return null;
 }
@@ -229,6 +238,10 @@ export function buildSlotMigrationRows(input: {
       completionProviders: [],
       completionStrategy: completion?.strategy ?? null,
       completionReason: completion?.reason ?? completion?.rationale ?? null,
+      finishIntent:
+        completion?.finishIntent?.trim() ||
+        gap?.finishIntent?.trim() ||
+        null,
       acpFailureSummary: null,
       resolvedVisual: scene?.visual ?? null,
       script: scene?.script ?? null,

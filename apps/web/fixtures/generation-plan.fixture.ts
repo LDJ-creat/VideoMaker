@@ -36,6 +36,16 @@ export const fixtureGenerationPlan: GenerationPlan = {
       visual: "价格贴纸 + 购买引导",
       script: "限时第二件半价，评论区领券",
       source: "packaging_completion",
+      compositionAuthorBrief: {
+        mode: "hf_native",
+        layoutAnchor: "center",
+        templatePreference: "benefit-card",
+        authorPrompt:
+          "竖屏居中卖点字卡，亮黄价格贴纸 stagger 弹出，末帧 hold，禁止贴底 lower third",
+        displayCopyPolicy: {
+          allowed: ["限时第二件半价", "评论区领券"],
+        },
+      },
     },
   ],
   timeline: {
@@ -182,6 +192,7 @@ export const fixtureGenerationPlan: GenerationPlan = {
       outputRef: "pack-cta-001",
       provider: "hyperframes_material",
       rationale: "HyperFrames benefit-card 模板补全 CTA 贴纸",
+      finishIntent: "竖屏居中卖点字卡，主信息垂直居中",
       artifactRef: {
         id: "art-cta-card",
         type: "image",

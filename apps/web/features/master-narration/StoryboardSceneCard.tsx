@@ -7,6 +7,10 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { GeneratedAssetBadge } from "@/features/aigc-preview/GeneratedAssetBadge";
+import {
+  formatCompositionBriefMeta,
+  hasCompositionDesignContent,
+} from "@/features/master-narration/formatCompositionDesign";
 import type { StoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { scriptBelongsToMaster } from "@/features/master-narration/resolveMasterNarration";
 import { cn } from "@/lib/utils";
@@ -33,6 +37,7 @@ type StoryboardSceneCardProps = {
   userAssetId?: string | null;
   userAssetSummary?: string | null;
   gapSummary?: string | null;
+  finishIntent?: string | null;
   completionProvider?: string | null;
   completionProviders?: string[];
   acpFailureSummary?: string | null;
@@ -49,6 +54,7 @@ export function StoryboardSceneCard({
   userAssetId,
   userAssetSummary,
   gapSummary,
+  finishIntent,
   completionProvider,
   completionProviders,
   acpFailureSummary,
@@ -63,6 +69,14 @@ export function StoryboardSceneCard({
       : media.provider && KNOWN_MEDIA_PROVIDERS.has(media.provider)
         ? media.provider
         : completionProvider ?? media.provider;
+  const compositionBrief = scene.compositionAuthorBrief;
+  const showDesignSection = hasCompositionDesignContent({
+    brief: compositionBrief,
+    finishIntent,
+    visualDirection: scene.visual,
+  });
+  const briefMeta = compositionBrief ? formatCompositionBriefMeta(compositionBrief) : [];
+  const allowedCopy = compositionBrief?.displayCopyPolicy?.allowed?.filter(Boolean) ?? [];
 
   return (
     <div
@@ -102,6 +116,45 @@ export function StoryboardSceneCard({
           ) : null}
         </dl>
       )}
+
+      {showDesignSection ? (
+        <dl
+          className="mb-3 grid gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-sm"
+          data-testid={`scene-design-${scene.id}`}
+        >
+          {scene.visual?.trim() ? (
+            <MigrationField label="分镜视觉方向" value={scene.visual.trim()} />
+          ) : null}
+          {compositionBrief?.authorPrompt?.trim() ? (
+            <div className="grid gap-2 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
+              <dt className="text-xs font-medium text-muted-foreground">分镜包装设计</dt>
+              <dd className="space-y-2">
+                {briefMeta.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {briefMeta.map((label) => (
+                      <Badge key={label} variant="outline" className="font-normal">
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-sm leading-relaxed text-foreground">
+                  {compositionBrief.authorPrompt.trim()}
+                </p>
+                {allowedCopy.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    允许上屏文案：{allowedCopy.join(" · ")}
+                  </p>
+                ) : null}
+              </dd>
+            </div>
+          ) : null}
+          {finishIntent?.trim() &&
+          finishIntent.trim() !== compositionBrief?.authorPrompt?.trim() ? (
+            <MigrationField label="补全润色意图" value={finishIntent.trim()} />
+          ) : null}
+        </dl>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,280px)_1fr]">
         <div
@@ -162,7 +215,9 @@ export function StoryboardSceneCard({
           {acpFailureSummary ? (
             <p className="text-xs text-destructive">{acpFailureSummary}</p>
           ) : null}
-          <p className="text-sm text-muted-foreground">{scene.visual}</p>
+          {!showDesignSection && scene.visual?.trim() ? (
+            <p className="text-sm text-muted-foreground">{scene.visual}</p>
+          ) : null}
           <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2">
             <p className="mb-1 text-xs font-medium text-muted-foreground">分镜口播</p>
             <p className="text-sm font-medium leading-relaxed">
@@ -185,7 +240,7 @@ function MigrationField({
   hint?: string;
 }) {
   return (
-    <div className="grid gap-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:gap-3">
+    <div className="grid gap-1 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="space-y-1">
         <p className="text-sm text-foreground">{value}</p>
