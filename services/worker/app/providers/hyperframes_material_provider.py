@@ -19,7 +19,8 @@ from app.providers.finish_brief import build_finish_brief_for_action
 from app.providers.material_types import MaterialContext, MaterialResult
 from app.runtime.agent_run_store import AgentRunLog
 from app.tools.hyperframes_material_tool import HyperFramesMaterialTool
-from composition.author.coercer import build_author_fallback_spec
+from composition.author.coercer import build_author_fallback_spec, build_video_composition_fallback
+from composition.author.payload import has_video_asset_refs
 from composition.types import AuthorRequest, PatternDepositContext
 
 LOGGER = logging.getLogger(__name__)
@@ -34,6 +35,34 @@ def _legacy_fallback_spec(
         slot,
         asset_refs=asset_refs,
         duration_sec=duration_sec,
+    )
+
+
+def _tiered_author_fallback(
+    action: dict[str, Any],
+    slot: dict[str, Any],
+    asset_refs: list[dict[str, Any]] | None,
+    *,
+    duration_sec: float,
+    finish_action: bool,
+) -> tuple[dict[str, Any], str | None]:
+    refs = [ref for ref in (asset_refs or []) if isinstance(ref, dict)]
+    strategy = str(action.get("strategy") or "").strip().lower()
+    source_provider = str(action.get("sourceProvider") or "").strip().lower()
+
+    if finish_action or strategy == "source_then_polish" or source_provider == "stock_media_search":
+        if has_video_asset_refs(refs):
+            try:
+                return build_video_composition_fallback(slot, refs, duration_sec=duration_sec), None
+            except ValueError:
+                pass
+
+    if refs:
+        return _legacy_fallback_spec(slot, refs, duration_sec=duration_sec), None
+
+    return (
+        _legacy_fallback_spec(slot, None, duration_sec=duration_sec),
+        "ACP 作者失败，已降级为占位素材",
     )
 
 
@@ -417,11 +446,18 @@ class HyperFramesMaterialProvider:
                         action_id,
                         exc_info=True,
                     )
-                    spec = _legacy_fallback_spec(
+                    spec, fallback_warning = _tiered_author_fallback(
+                        action,
                         slot,
                         asset_refs,
                         duration_sec=_duration_for_slot(ctx, slot_id),
+                        finish_action=finish_action,
                     )
+                    if fallback_warning:
+                        ctx.emit_progress(
+                            "rendering_material",
+                            f"槽位 {slot_id}: {fallback_warning}",
+                        )
 
         output_dir = ctx.generated_root / action_id / "composition"
         output_clip = expected_hyperframes_output(action, ctx.generated_root)

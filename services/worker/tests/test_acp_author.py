@@ -200,22 +200,42 @@ def test_author_material_spec_via_acp_records_observability_tool_runs(
         for path in tool_dir.glob("acp-*.json")
     }
     assert "acp_session_start" in tool_names
-    assert "acp_lint_gate" in tool_names
+    assert "acp_turn_lint_gate" in tool_names
     assert "acp_session_end" in tool_names
     session_payload = json.loads((trace.trace_dir / "session.json").read_text(encoding="utf-8"))
     assert session_payload.get("observabilityRunId") == trace.run_id
 
 
-def test_acp_lint_repair_retries_after_post_turn_failure(
+def test_acp_prompt_default_not_smoke_simple(
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIDEOMAKER_ACP_SMOKE_SIMPLE", raising=False)
+    _, user, _ = _build_prompt_text(
+        AuthorRequest(
+            project_id="proj-acp",
+            generation_id="gen-1",
+            slot={"role": "hook_visual"},
+            aspect_ratio="9:16",
+        ),
+        repo_root,
+        scratch_dir=repo_root / "storage" / "scratch" / "pytest-acp-default",
+    )
+    assert "Pass this spec_json verbatim" not in user
+
+
+def test_acp_turn_loop_retries_in_same_session(
     tmp_path: Path,
     repo_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from contextlib import asynccontextmanager
+
     from app.composition.acp import author as author_module
 
     monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC", "120")
     monkeypatch.setenv("VM_ACP_FIXTURE_LINT", "1")
-    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_LINT_REPAIR_MAX", "1")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS", "5")
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     spec_payload = {
@@ -229,36 +249,50 @@ def test_acp_lint_repair_retries_after_post_turn_failure(
     }
     (scratch / "material-spec.json").write_text(json.dumps(spec_payload), encoding="utf-8")
 
-    session_calls: list[int] = []
-
-    async def fake_run_session(**kwargs: object) -> None:
-        _ = kwargs
-        session_calls.append(1)
-
+    counters = {"sessions": 0, "prompts": 0}
     lint_calls = {"n": 0}
 
-    def fake_lint_after_turn(*args: object, **kwargs: object) -> tuple[list[str], bool]:
-        _ = args, kwargs
+    class _Session:
+        session_id = "turn-loop-session"
+
+    class _Conn:
+        async def initialize(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def new_session(self, **_kwargs: object) -> _Session:
+            counters["sessions"] += 1
+            return _Session()
+
+        async def prompt(self, *_args: object, **_kwargs: object) -> object:
+            counters["prompts"] += 1
+            return None
+
+        async def close_session(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_spawn(*_args: object, **_kwargs: object):
+        yield _Conn(), None
+
+    def fake_lint_after_turn(*_args: object, **_kwargs: object) -> tuple[list[str], bool]:
         lint_calls["n"] += 1
         if lint_calls["n"] == 1:
-            return ["simulated lint failure"], False
+            return ["Path escapes project sandbox: generated/foo.mp4"], False
         return [], False
 
-    monkeypatch.setattr(author_module, "_run_acp_session", fake_run_session)
+    monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
     monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
     monkeypatch.setattr(author_module, "_lint_spec_after_turn", fake_lint_after_turn)
 
     storage_root = tmp_path / "storage"
-    sink = LocalFileSink(AgentRunStore(storage_root))
-    trace = AcpAuthorTraceRecorder.create(
-        storage_root,
-        project_id="proj-acp",
-        acp_agent="fake",
-        generation_id="gen-1",
-    )
     observability = AcpAuthorObservabilityContext.from_trace(
-        sink=sink,
-        trace_dir=trace.trace_dir,
+        sink=LocalFileSink(AgentRunStore(storage_root)),
+        trace_dir=AcpAuthorTraceRecorder.create(
+            storage_root,
+            project_id="proj-acp",
+            acp_agent="fake",
+            generation_id="gen-1",
+        ).trace_dir,
         project_id="proj-acp",
         task_id=None,
         generation_id="gen-1",
@@ -279,7 +313,8 @@ def test_acp_lint_repair_retries_after_post_turn_failure(
         observability=observability,
     )
     assert spec["params"]["title"] == "Retry"
-    assert len(session_calls) == 2
+    assert counters["sessions"] == 1
+    assert counters["prompts"] == 2
 
     payloads = [
         json.loads(path.read_text(encoding="utf-8"))
@@ -287,3 +322,92 @@ def test_acp_lint_repair_retries_after_post_turn_failure(
     ]
     end_payload = next(item for item in payloads if item["toolName"] == "acp_session_end")
     assert end_payload["metadata"]["repairAttempt"] == 1
+    assert "acp_turn_lint_gate" in {item["toolName"] for item in payloads}
+
+
+def test_acp_turn_loop_exhausted_raises(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.composition.acp import author as author_module
+
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS", "1")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "material-spec.json").write_text(
+        json.dumps({"template": "benefit-card", "durationSec": 3, "params": {"title": "X"}}),
+        encoding="utf-8",
+    )
+
+    class _Session:
+        session_id = "exhausted"
+
+    class _Conn:
+        async def initialize(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def new_session(self, **_kwargs: object) -> _Session:
+            return _Session()
+
+        async def prompt(self, *_args: object, **_kwargs: object) -> object:
+            return None
+
+        async def close_session(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_spawn(*_args: object, **_kwargs: object):
+        yield _Conn(), None
+
+    monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
+    monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
+    monkeypatch.setattr(
+        author_module,
+        "_lint_spec_after_turn",
+        lambda *_a, **_k: (["simulated lint failure"], False),
+    )
+
+    with pytest.raises(RuntimeError, match="acp_author_spec_invalid"):
+        author_material_spec_via_acp(
+            AuthorRequest(
+                project_id="proj-acp",
+                generation_id="gen-1",
+                slot={"role": "benefit_card"},
+                aspect_ratio="9:16",
+            ),
+            repo_root=repo_root,
+            scratch_dir=scratch,
+            agent_command=fake_agent_command(),
+        )
+
+
+def test_in_session_followup_includes_sandbox_recipe(
+    repo_root: Path,
+    tmp_path: Path,
+) -> None:
+    from app.composition.acp.author import _build_in_session_followup
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "slot-1-stock.mp4").write_bytes(b"video")
+    text = _build_in_session_followup(
+        ["Path escapes project sandbox: generated/slot-1-stock.mp4"],
+        1,
+        scratch_dir=scratch,
+        repo_root=repo_root,
+    )
+    assert "IN_SESSION_REPAIR" in text
+    assert "sandbox_path" in text
+    assert "slot-1-stock.mp4" in text
+
+
+def test_acp_lint_repair_retries_after_post_turn_failure(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backward-compatible alias for turn-loop in-session repair."""
+    test_acp_turn_loop_retries_in_same_session(tmp_path, repo_root, monkeypatch)

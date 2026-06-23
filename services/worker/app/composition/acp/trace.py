@@ -94,7 +94,14 @@ class AcpAuthorTraceRecorder:
         spec_path: str | None = None,
         repair_attempt: int = 0,
         lint_cached: bool = False,
+        turn_count: int | None = None,
+        hint_codes: list[str] | None = None,
+        hint_code: str | None = None,
     ) -> None:
+        resolved_turn = turn_count if turn_count is not None else repair_attempt + 1
+        resolved_hints = list(hint_codes or [])
+        if hint_code and hint_code not in resolved_hints:
+            resolved_hints.append(hint_code)
         (self.trace_dir / "outcome.json").write_text(
             json.dumps(
                 {
@@ -103,6 +110,10 @@ class AcpAuthorTraceRecorder:
                     "totalLatencyMs": round(total_latency_ms, 2),
                     "specPath": spec_path,
                     "repairAttempt": repair_attempt,
+                    "finalTurn": resolved_turn,
+                    "turnCount": resolved_turn,
+                    "hintCodes": resolved_hints,
+                    "hintCode": resolved_hints[0] if resolved_hints else hint_code,
                     "lintCached": lint_cached,
                     "recordedAt": _utc_now_iso(),
                     "backend": "acp",

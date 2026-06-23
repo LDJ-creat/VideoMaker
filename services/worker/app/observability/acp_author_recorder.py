@@ -136,6 +136,7 @@ class AcpAuthorObservabilityContext:
         acp_timeout_sec: float,
         composition_template: bool,
         lint_repair_max: int,
+        max_turns: int | None = None,
     ) -> None:
         self._emit_tool_run(
             tool_name="acp_session_start",
@@ -145,7 +146,62 @@ class AcpAuthorObservabilityContext:
                 "acpTimeoutSec": acp_timeout_sec,
                 "compositionTemplate": composition_template,
                 "lintRepairMax": lint_repair_max,
+                "maxTurns": max_turns or lint_repair_max + 1,
             },
+        )
+
+    def record_turn_start(self, *, turn: int) -> None:
+        self._emit_tool_run(
+            tool_name="acp_turn_start",
+            event_kind="turn_start",
+            input_payload={"turn": turn},
+            metadata={"turn": turn},
+        )
+
+    def record_turn_followup(self, *, turn: int, errors: list[str] | None = None) -> None:
+        self.note_session_progress(repair_attempt=turn, lint_cached=self._last_lint_cached)
+        self._emit_tool_run(
+            tool_name="acp_turn_followup",
+            event_kind="turn_followup",
+            input_payload={
+                "turn": turn,
+                "errors": "; ".join(errors or [])[:500],
+            },
+            metadata={"turn": turn, "repairAttempt": turn},
+        )
+
+    def record_turn_lint_gate(
+        self,
+        *,
+        turn: int,
+        errors: list[str],
+        lint_cached: bool,
+        latency_ms: float = 0.0,
+    ) -> None:
+        self.note_session_progress(repair_attempt=max(0, turn - 1), lint_cached=lint_cached)
+        self._emit_tool_run(
+            tool_name="acp_turn_lint_gate",
+            event_kind="turn_lint_gate",
+            latency_ms=latency_ms,
+            input_payload={
+                "turn": turn,
+                "errors": errors[:20],
+                "lintCached": lint_cached,
+            },
+            metadata={
+                "turn": turn,
+                "lintCached": lint_cached,
+                "repairAttempt": max(0, turn - 1),
+                "outputValid": not errors,
+            },
+        )
+
+    def record_session_retry(self, *, attempt: int, error: str) -> None:
+        self._emit_tool_run(
+            tool_name="acp_session_retry",
+            event_kind="session_retry",
+            input_payload={"attempt": attempt, "error": error[:500]},
+            metadata={"sessionRetryAttempt": attempt},
         )
 
     def record_session_end(
@@ -156,14 +212,20 @@ class AcpAuthorObservabilityContext:
         repair_attempt: int | None = None,
         lint_cached: bool | None = None,
         validation_errors: list[str] | None = None,
+        turn_count: int | None = None,
+        hint_codes: list[str] | None = None,
     ) -> None:
         resolved_repair = self._last_repair_attempt if repair_attempt is None else repair_attempt
         resolved_lint_cached = self._last_lint_cached if lint_cached is None else lint_cached
+        resolved_turn = turn_count if turn_count is not None else resolved_repair + 1
         metadata: dict[str, Any] = {
             "outputValid": valid,
             "repairAttempt": resolved_repair,
+            "turnCount": resolved_turn,
             "lintCached": resolved_lint_cached,
         }
+        if hint_codes:
+            metadata["hintCodes"] = hint_codes[:10]
         if self._session_update_dropped:
             metadata["sessionUpdateDropped"] = self._session_update_dropped
         self._emit_tool_run(
