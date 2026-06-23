@@ -1256,6 +1256,7 @@ def run_generating_material(
     variant_overrides: dict[str, Any] | None = None,
     brand_colors: dict[str, Any] | None = None,
     slot_filter: set[str] | None = None,
+    gateway_factory: Any | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -1306,6 +1307,7 @@ def run_generating_material(
             dict(plan["packagingPlan"]) if isinstance(plan.get("packagingPlan"), dict) else None
         ),
         material_state_path=state_path,
+        gateway_factory=gateway_factory,
     )
     register_default_providers(ctx)
 

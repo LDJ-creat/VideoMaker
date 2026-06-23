@@ -49,3 +49,12 @@ def test_legacy_max_calls_migration() -> None:
     quota = VideoGenQuota.from_checkpoint({"used": 1, "maxCalls": 1})
     assert quota.can_generate_for_slot("__legacy__") is False
     assert quota.can_generate_for_slot("slot-new") is True
+
+
+def test_reserve_and_release_restore_quota() -> None:
+    quota = VideoGenQuota(max_slots=1, max_per_slot=1)
+    assert quota.reserve("slot-a") is True
+    assert quota.used == 1
+    quota.release("slot-a")
+    assert quota.used == 0
+    assert quota.reserve("slot-b") is True

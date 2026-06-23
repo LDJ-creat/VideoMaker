@@ -222,6 +222,31 @@ class P0DemoPipeline:
             return FixtureMaterialGateway()
         raise LLMToolConfigError("No ModelGateway configured for live mode")
 
+    def _build_material_gateway_factory(
+        self,
+        *,
+        context: TaskContext | None,
+        generation_id: str,
+    ):
+        def factory() -> ModelGateway | FixtureMaterialGateway:
+            if self._llm.fixture_mode:
+                return FixtureMaterialGateway()
+            if self._database_path is not None and not is_fixture_mode():
+                store = ModelGatewayStore(self._database_path, self._storage_root)
+                gateway = ModelGateway.from_store(store)
+                if context is not None:
+                    attach_gateway_observability(
+                        gateway,
+                        sink=self._observability_sink,
+                        project_id=context.project_id,
+                        task_id=context.task_id,
+                        generation_id=generation_id,
+                    )
+                return gateway
+            return self._build_material_gateway()
+
+        return factory
+
     def _uses_fixture_runtime(self) -> bool:
         if self._llm.gateway is not None:
             return is_fixture_material_gateway(self._llm.gateway)
@@ -1347,6 +1372,10 @@ class P0DemoPipeline:
                     generation_root=generation_root,
                     render_root=render_root,
                     gateway=material_gateway,
+                    gateway_factory=self._build_material_gateway_factory(
+                        context=context,
+                        generation_id=generation_id,
+                    ),
                     emit_progress=material_progress,
                     register_artifact=context.register_artifact,
                     material_state_path=material_state_path,

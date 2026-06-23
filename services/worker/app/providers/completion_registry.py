@@ -310,6 +310,93 @@ def order_completion_actions(
     return sorted(actions, key=sort_key)
 
 
+def _execute_single_action(
+    action: dict[str, Any],
+    ctx: MaterialContext,
+    *,
+    only_aigc: bool = True,
+) -> MaterialResult | None:
+    """Run one completion action. Returns None when skipped."""
+    action_id = str(action["id"])
+    if ctx.is_cancelled():
+        return {
+            "ok": False,
+            "actionId": action_id,
+            "slotId": action.get("slotId"),
+            "provider": action.get("provider") or action.get("strategy"),
+            "error": {
+                "code": "material_cancelled",
+                "message": "Material completion cancelled",
+                "retryable": False,
+            },
+        }
+    provider_name = str(action.get("provider") or action.get("strategy", ""))
+    if only_aigc and provider_name in SKIPPED_PROVIDERS:
+        return None
+    if only_aigc and provider_name not in MATERIAL_PROVIDERS:
+        return None
+    if provider_name not in MATERIAL_PROVIDERS:
+        raise ToolError(
+            code="provider_not_registered",
+            message=f"No completion provider registered for {provider_name}",
+            retryable=False,
+        )
+    action_id = str(action["id"])
+    if material_action_done(action, ctx.generated_root):
+        with ctx.sync_lock:
+            ctx.completed_action_ids.add(action_id)
+            _persist_material_state(ctx)
+        disk_results = synthesize_material_results_from_disk([action], generated_root=ctx.generated_root)
+        return disk_results[0] if disk_results else {"ok": True, "actionId": action_id, "slotId": action.get("slotId")}
+    provider = ctx.providers.get(provider_name)
+    if provider is None:
+        raise ToolError(
+            code="provider_not_registered",
+            message=f"Provider {provider_name} is not registered",
+            retryable=False,
+        )
+    ctx.emit_progress("generating_material", f"Completing slot {action.get('slotId')}")
+    result = provider.execute(action, ctx)
+    if not result.get("ok"):
+        fallback = str((result.get("error") or {}).get("fallbackProvider", "")).strip()
+        if fallback in MATERIAL_PROVIDERS and fallback != provider_name:
+            fallback_impl = ctx.providers.get(fallback)
+            if fallback_impl is not None:
+                fallback_action = {**action, "provider": fallback, "strategy": fallback}
+                ctx.emit_progress(
+                    "generating_material",
+                    f"Fallback {fallback} for slot {action.get('slotId')}",
+                )
+                result = fallback_impl.execute(fallback_action, ctx)
+    if result.get("ok"):
+        with ctx.sync_lock:
+            ctx.completed_action_ids.add(str(action["id"]))
+            _persist_material_state(ctx)
+    return result
+
+
+def _execute_completion_plan_serial(
+    actions: list[dict[str, Any]],
+    ctx: MaterialContext,
+    *,
+    fail_fast: bool = True,
+    only_aigc: bool = True,
+) -> list[MaterialResult]:
+    results: list[MaterialResult] = []
+    for action in order_completion_actions(actions, structure=ctx.structure):
+        if ctx.is_cancelled():
+            if fail_fast:
+                return results
+            continue
+        result = _execute_single_action(action, ctx, only_aigc=only_aigc)
+        if result is None:
+            continue
+        results.append(result)
+        if not result.get("ok") and fail_fast:
+            return results
+    return results
+
+
 def execute_completion_plan(
     actions: list[dict[str, Any]],
     ctx: MaterialContext,
@@ -324,55 +411,23 @@ def execute_completion_plan(
     ``hyperframes_material``.
     When False, unknown providers raise ``ToolError`` (used in unit tests).
     """
-    results: list[MaterialResult] = []
-    for action in order_completion_actions(actions, structure=ctx.structure):
-        provider_name = str(action.get("provider") or action.get("strategy", ""))
-        if only_aigc and provider_name in SKIPPED_PROVIDERS:
-            continue
-        if only_aigc and provider_name not in MATERIAL_PROVIDERS:
-            continue
-        if provider_name not in MATERIAL_PROVIDERS:
-            raise ToolError(
-                code="provider_not_registered",
-                message=f"No completion provider registered for {provider_name}",
-                retryable=False,
-            )
-        action_id = str(action["id"])
-        if material_action_done(action, ctx.generated_root):
-            ctx.completed_action_ids.add(action_id)
-            _persist_material_state(ctx)
-            disk_results = synthesize_material_results_from_disk([action], generated_root=ctx.generated_root)
-            if disk_results:
-                results.extend(disk_results)
-            continue
-        provider = ctx.providers.get(provider_name)
-        if provider is None:
-            raise ToolError(
-                code="provider_not_registered",
-                message=f"Provider {provider_name} is not registered",
-                retryable=False,
-            )
-        ctx.emit_progress("generating_material", f"Completing slot {action.get('slotId')}")
-        result = provider.execute(action, ctx)
-        if not result.get("ok"):
-            fallback = str((result.get("error") or {}).get("fallbackProvider", "")).strip()
-            if fallback in MATERIAL_PROVIDERS and fallback != provider_name:
-                fallback_impl = ctx.providers.get(fallback)
-                if fallback_impl is not None:
-                    fallback_action = {**action, "provider": fallback, "strategy": fallback}
-                    ctx.emit_progress(
-                        "generating_material",
-                        f"Fallback {fallback} for slot {action.get('slotId')}",
-                    )
-                    result = fallback_impl.execute(fallback_action, ctx)
-        results.append(result)
-        if not result.get("ok"):
-            if fail_fast:
-                return results
-            continue
-        ctx.completed_action_ids.add(str(action["id"]))
-        _persist_material_state(ctx)
-    return results
+    from app.providers.material_parallel import execute_completion_plan_parallel, max_concurrent_material_slots
+
+    max_slots = max_concurrent_material_slots()
+    if max_slots <= 1:
+        return _execute_completion_plan_serial(
+            actions,
+            ctx,
+            fail_fast=fail_fast,
+            only_aigc=only_aigc,
+        )
+    return execute_completion_plan_parallel(
+        actions,
+        ctx,
+        fail_fast=fail_fast,
+        only_aigc=only_aigc,
+        max_workers=max_slots,
+    )
 
 
 def load_material_state(path: Path) -> tuple[VideoGenQuota, set[str]]:
