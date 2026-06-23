@@ -242,8 +242,9 @@ def test_langfuse_sink_acp_agent_run_metadata() -> None:
     from app.observability.langfuse_sink import LangfuseSink
 
     client = MagicMock()
-    trace = MagicMock()
-    client.trace.return_value = trace
+    observation = MagicMock()
+    client.create_trace_id.return_value = "a" * 32
+    client.start_observation.return_value = observation
     sink = LangfuseSink(client)
     sink.record_agent_run(
         {
@@ -265,17 +266,21 @@ def test_langfuse_sink_acp_agent_run_metadata() -> None:
             "promptVersion": "composition-acp-v1",
         }
     )
-    kwargs = trace.span.call_args.kwargs
+    kwargs = client.start_observation.call_args.kwargs
+    assert kwargs["name"] == "material_author"
+    assert kwargs["as_type"] == "span"
     assert kwargs["metadata"]["backend"] == "acp"
     assert kwargs["metadata"]["slotId"] == "slot-1"
+    observation.end.assert_called_once()
 
 
 def test_langfuse_sink_acp_tool_run_span_name() -> None:
     from app.observability.langfuse_sink import LangfuseSink
 
     client = MagicMock()
-    trace = MagicMock()
-    client.trace.return_value = trace
+    observation = MagicMock()
+    client.create_trace_id.return_value = "b" * 32
+    client.start_observation.return_value = observation
     sink = LangfuseSink(client)
     sink.record_tool_run(
         {
@@ -292,7 +297,9 @@ def test_langfuse_sink_acp_tool_run_span_name() -> None:
             },
         }
     )
-    kwargs = trace.span.call_args.kwargs
+    kwargs = client.start_observation.call_args.kwargs
     assert kwargs["name"] == "material_author:acp_session_start"
+    assert kwargs["as_type"] == "tool"
     assert kwargs["metadata"]["acpAgent"] == "cursor"
     assert kwargs["input"] is not None
+    observation.end.assert_called_once()

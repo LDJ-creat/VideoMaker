@@ -26,6 +26,7 @@ services/api/storage/*
 # Local env
 .env
 .env.local
+services/api/langfuse.env
 
 # Worktrees
 .worktrees/
@@ -37,4 +38,3 @@ Thumbs.db
 .vscode/
 
 services/worker/tests/_debug_out/
-

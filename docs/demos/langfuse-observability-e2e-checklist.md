@@ -1,5 +1,7 @@
 # Langfuse 与模型调用观测 E2E 检查清单
 
+**Cloud 开通与对接：** [langfuse-cloud-setup-guide.md](./langfuse-cloud-setup-guide.md)
+
 ## 前置条件
 
 1. Worker 安装 Langfuse 可选依赖：

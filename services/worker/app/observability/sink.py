@@ -226,6 +226,13 @@ def build_observability_sink(storage_root: str | Path) -> ObservabilitySink:
         langfuse_sink = LangfuseSink.from_env()
         if langfuse_sink is not None:
             sinks.append(langfuse_sink)
+        else:
+            logger.warning(
+                "LANGFUSE_ENABLED is set but Langfuse export is inactive. "
+                "Install langfuse in the worker Python used by API subprocesses "
+                "(services/api/.venv or services/worker/.venv): "
+                "pip install \"langfuse>=4.0,<5\""
+            )
     if len(sinks) == 1:
         sink: ObservabilitySink = sinks[0]
     else:
