@@ -38,6 +38,18 @@
 - [ ] Plan shows `Fork 新版本`
 - [ ] New `generationId` after execute; source generation unchanged
 
+## Scene structured revise (visual edit v2)
+
+- [ ] Open **全片拆解** (narration) or **结果** after generation `succeeded`
+- [ ] On storyboard card #N → **修改/重生成画面** → choose **微调修改 (edit)** + required instruction → **生成改片方案**
+- [ ] Plan shows `Fork 新版本` + `material_regen` + `materialEditMode=edit` + scoped `affectedSlotIds`; `planSource=scene_structured`
+- [ ] Confirm execute → new `generationId`; **Pexels+HF 槽** 同一 `{slotId}-stock.mp4`；HF overlay 按 instruction 变化
+- [ ] **纯 HF 槽** + edit：无 stock 步骤；spec 相似、layout/动效变化
+- [ ] **完全重生成 (full)** + instruction → plan `materialEditMode=full`; **Pexels 槽** 新 stock 文件 + 新 HF
+- [ ] **纯图片槽** + edit → worker 降级 full image regen + progress 提示
+- [ ] Packaging/subtitle low-cost 改片仍走底部 NL 栏（非分镜直改 UI）
+- [ ] **Not in scope:** per-scene duration adjust, per-scene script/voiceover edit (use bottom NL bar → planner)
+
 ## Multi-turn session
 
 - [ ] Second instruction in same session (e.g. `再少一点`)
