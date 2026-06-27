@@ -1,0 +1,34 @@
+{
+
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+
+  "$id": "https://videomaker.local/schemas/scene-revise-request.schema.json",
+
+  "title": "SceneReviseRequest",
+
+  "type": "object",
+
+  "additionalProperties": false,
+
+  "required": ["sceneId", "slotId", "mode", "instruction"],
+
+  "properties": {
+
+    "sceneId": { "type": "string", "minLength": 1 },
+
+    "slotId": { "type": "string", "minLength": 1 },
+
+    "mode": {
+
+      "type": "string",
+
+      "enum": ["edit", "full"]
+
+    },
+
+    "instruction": { "type": "string", "minLength": 1, "maxLength": 500 }
+
+  }
+
+}
+

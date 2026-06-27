@@ -174,7 +174,19 @@ export type RevisePlan = RevisePlannerOutput & {
   resultGenerationId?: string;
   resultTaskId?: string;
   affectedSlotIds?: string[];
+  planSource?: RevisePlanSource;
 };
+
+export type SceneVisualEditMode = "edit" | "full";
+
+export type SceneReviseRequest = {
+  sceneId: string;
+  slotId: string;
+  mode: SceneVisualEditMode;
+  instruction: string;
+};
+
+export type RevisePlanSource = "nl" | "scene_structured";
 
 export type ReviseSessionTurnStatus =
   | "planned"

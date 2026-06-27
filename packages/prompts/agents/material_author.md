@@ -121,6 +121,15 @@ When present, align composition density and motion with the generation variant (
 
 Honor `finishBrief.finishIntent` first; use variant overrides to choose **how much** packaging to add, not **which** provider tier to use.
 
+# Scene visual edit mode (`materialEditMode`)
+
+When the user payload includes **`materialEditMode`** and optional **`editInstruction`**:
+
+- **`edit`**: Apply **minimal diff** on top of **`existingMaterialSpec`**. Preserve `composition.bodyHtml` / styles / timelineScript structure unless `editInstruction` requires a targeted change. Do **not** replace Pexels/stock base video — the pipeline already decided base media.
+- **`full`**: You may rewrite the spec from brief + `editInstruction`, but still obey `renderPolicy`, `visualStyleBible`, and base-media constraints when `assetRefs` / finishBrief require keeping base footage visible.
+
+Never attempt to re-search stock footage or swap base media inside the author — that is handled outside this agent.
+
 # Constraints
 
 - Output JSON only matching `material-spec` schema.
