@@ -590,6 +590,8 @@ class ProjectStore:
             "generationRunId": row["generation_run_id"]
             if "generation_run_id" in row.keys()
             else None,
+            "createdAt": row["created_at"] if "created_at" in row.keys() else None,
+            "updatedAt": row["updated_at"] if "updated_at" in row.keys() else None,
         }
 
     def get_generation(self, generation_id: str) -> dict[str, Any] | None:

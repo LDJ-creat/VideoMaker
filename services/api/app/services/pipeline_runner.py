@@ -144,6 +144,26 @@ def _load_revise_plan_builder_module() -> Any:
     return module
 
 
+def _load_scene_revise_builder_module() -> Any:
+    import importlib.util
+    import sys
+
+    _ensure_worker_pipelines_namespace()
+    module_key = "app.pipelines.scene_revise_builder"
+    if module_key in sys.modules:
+        return sys.modules[module_key]
+
+    module_path = _worker_root() / "app" / "pipelines" / "scene_revise_builder.py"
+    spec = importlib.util.spec_from_file_location(module_key, module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load scene revise builder from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_key] = module
+    sys.modules["app.pipelines"].scene_revise_builder = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
@@ -1244,6 +1264,15 @@ class PipelineRunner:
     ) -> dict[str, Any]:
         module = _load_revise_plan_builder_module()
         return module.build_planner_output_from_rules(instruction, source_plan)
+
+    @staticmethod
+    def build_scene_revise_planner_output(
+        structured: dict[str, Any],
+        *,
+        source_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        module = _load_scene_revise_builder_module()
+        return module.build_scene_revise_planner_output(structured, source_plan=source_plan)
 
     @staticmethod
     def enrich_revise_plan(

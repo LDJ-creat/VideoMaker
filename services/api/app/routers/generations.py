@@ -7,7 +7,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request, status
 from knowledge.paths import validate_storage_segment
 from material_disk import infer_completed_slot_ids
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.agent_runs import list_agent_runs_for_generation
 from app.services.model_calls import list_model_calls_for_generation
@@ -25,9 +25,27 @@ class ReviseGenerationRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
+class SceneReviseStructured(BaseModel):
+    sceneId: str = Field(min_length=1)
+    slotId: str = Field(min_length=1)
+    mode: Literal["edit", "full"]
+    instruction: str = Field(min_length=1, max_length=500)
+
+
 class RevisePlanRequest(BaseModel):
-    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
+    instruction: str | None = Field(default=None, max_length=MAX_REVISE_INSTRUCTION_LEN)
+    structured: SceneReviseStructured | None = None
     newSession: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_plan_input(self) -> RevisePlanRequest:
+        has_instruction = bool((self.instruction or "").strip())
+        has_structured = self.structured is not None
+        if has_instruction == has_structured:
+            raise ValueError("Provide exactly one of instruction or structured")
+        if has_instruction and len(self.instruction or "") < 1:
+            raise ValueError("instruction must not be empty")
+        return self
 
 
 class ReviseExecuteRequest(BaseModel):
@@ -535,13 +553,21 @@ def plan_revise_generation(
     supersede_draft_plans(storage_root, project_id, generation_id, session)
 
     try:
-        planner_output = runner.plan_revise_generation(
-            project_id=project_id,
-            generation_id=generation_id,
-            instruction=payload.instruction,
-            source_plan=source_plan,
-            session=session,
-        )
+        if payload.structured is not None:
+            planner_output = runner.build_scene_revise_planner_output(
+                payload.structured.model_dump(),
+                source_plan=source_plan,
+            )
+            plan_instruction = str(planner_output.get("conversationSummary") or planner_output.get("summary") or "")
+        else:
+            plan_instruction = str(payload.instruction or "").strip()
+            planner_output = runner.plan_revise_generation(
+                project_id=project_id,
+                generation_id=generation_id,
+                instruction=plan_instruction,
+                source_plan=source_plan,
+                session=session,
+            )
         runner._validate_edit_intents(list(planner_output.get("intents") or []))  # noqa: SLF001
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -552,7 +578,7 @@ def plan_revise_generation(
     plan = runner.enrich_revise_plan(
         planner_output,
         source_generation_id=generation_id,
-        instruction=payload.instruction,
+        instruction=plan_instruction,
         session_id=str(session["sessionId"]),
         turn_id=turn_id,
         source_plan=source_plan,
@@ -567,7 +593,7 @@ def plan_revise_generation(
         session,
         {
             "turnId": turn_id,
-            "instruction": payload.instruction,
+            "instruction": plan_instruction,
             "planId": plan["planId"],
             "planSummary": plan.get("summary"),
             "costTier": plan.get("costTier"),
