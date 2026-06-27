@@ -394,6 +394,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const [activeVariantGenerationId, setActiveVariantGenerationId] = useState<
     string | null
   >(null);
+  const [activeReviseGenerationId, setActiveReviseGenerationId] = useState<
+    string | null
+  >(null);
   const [activeGenerations, setActiveGenerations] = useState<ActiveGeneration[]>(
     [],
   );
@@ -1003,9 +1006,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const loadGenerationResults = useCallback(
-    async (currentGenerationId: string) => {
+    async (
+      currentGenerationId: string,
+      options?: { isReviseFork?: boolean },
+    ) => {
       setGenerationId(currentGenerationId);
       setActiveVariantGenerationId(currentGenerationId);
+      if (options?.isReviseFork) {
+        setActiveReviseGenerationId(currentGenerationId);
+        setActiveGenerationRunId(null);
+      } else {
+        setActiveReviseGenerationId(null);
+      }
       await loadGenerationIntoVariants(currentGenerationId);
     },
     [loadGenerationIntoVariants],
@@ -1244,7 +1256,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
               const { data } = await getGeneration(id);
               return data;
             });
-            await loadGenerationResults(forkId);
+            await loadGenerationResults(forkId, { isReviseFork: true });
             setPanel("result");
           })();
         }
@@ -2074,6 +2086,46 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     [handleRetryFailedTask, setPanel, setLastAction],
   );
 
+  const handleGenerationDeleted = useCallback(
+    async (deletedGenerationIds: string[]) => {
+      const deletedSet = new Set(deletedGenerationIds);
+      setVariantPlans((prev) => {
+        const next = { ...prev };
+        for (const id of deletedGenerationIds) {
+          delete next[id];
+        }
+        return next;
+      });
+      setActiveGenerations((prev) =>
+        prev.filter((entry) => !deletedSet.has(entry.generationId)),
+      );
+      setRenderVideoByGenerationId((prev) => {
+        const next = { ...prev };
+        for (const id of deletedGenerationIds) {
+          delete next[id];
+        }
+        return next;
+      });
+      const activeDeleted =
+        (activeVariantGenerationId &&
+          deletedSet.has(activeVariantGenerationId)) ||
+        (activeReviseGenerationId && deletedSet.has(activeReviseGenerationId));
+      if (activeDeleted) {
+        setActiveReviseGenerationId(null);
+        setActiveGenerationRunId(null);
+        setGenerationPlan(null);
+        setGenerationId(null);
+        setActiveVariantGenerationId(null);
+        await loadProjectResults();
+      }
+    },
+    [
+      activeReviseGenerationId,
+      activeVariantGenerationId,
+      loadProjectResults,
+    ],
+  );
+
   const variantResultTabs = (
     activeGenerations.length > 0
       ? activeGenerations.map((entry) => entry.generationId)
@@ -2586,12 +2638,19 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
             <GenerationRunHistoryPanel
               projectId={projectId}
               activeRunId={activeGenerationRunId}
-              activeReviseGenerationId={activeVariantGenerationId}
+              activeReviseGenerationId={activeReviseGenerationId}
+              activeVariantGenerationId={activeVariantGenerationId}
               retryBusy={busy}
+              deleteBusy={busy}
               onRetryTask={handleRetryGenerationFromResult}
-              onSelectReviseFork={(generationId) => {
-                setActiveGenerationRunId(null);
+              onDeleted={(deletedGenerationIds) => {
+                void handleGenerationDeleted(deletedGenerationIds);
+              }}
+              onSelectGeneration={(generationId) => {
                 void loadGenerationResults(generationId);
+              }}
+              onSelectReviseFork={(generationId) => {
+                void loadGenerationResults(generationId, { isReviseFork: true });
               }}
               onSelectRun={(runId) => {
                 void loadGenerationRunView(runId);

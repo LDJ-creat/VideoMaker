@@ -521,6 +521,18 @@ export async function listReviseGenerations(
   return apiFetch(`/api/projects/${projectId}/revise-generations?limit=${limit}`);
 }
 
+export async function deleteGeneration(
+  projectId: string,
+  generationId: string,
+  options?: { cascade?: boolean },
+): Promise<ApiResult<{ ok: boolean; deletedGenerationIds: string[] }>> {
+  const cascade = options?.cascade ?? true;
+  return apiFetch(
+    `/api/projects/${projectId}/generations/${generationId}?cascade=${cascade ? "true" : "false"}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function getGenerationRun(
   projectId: string,
   runId: string,
