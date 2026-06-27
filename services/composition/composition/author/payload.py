@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from composition.aspect_ratio import render_dimensions
 from composition.author.forbidden_copy_guard import FIELD_SEMANTICS, normalize_author_slot
@@ -37,6 +37,22 @@ def _resolve_render_policy(finish_brief: dict[str, Any] | None) -> dict[str, Any
     return policy
 
 
+_VIDEO_BODY_HTML_CAP = 24_000
+
+
+def _cap_existing_material_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    capped = dict(spec)
+    composition = capped.get("composition")
+    if not isinstance(composition, dict):
+        return capped
+    composition = dict(composition)
+    body_html = composition.get("bodyHtml")
+    if isinstance(body_html, str) and len(body_html) > _VIDEO_BODY_HTML_CAP:
+        composition["bodyHtml"] = body_html[:_VIDEO_BODY_HTML_CAP]
+    capped["composition"] = composition
+    return capped
+
+
 def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]:
     slot = normalize_author_slot(request.slot)
     payload: dict[str, Any] = {
@@ -71,4 +87,14 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
     }
     if isinstance(request.slot_timing, dict) and request.slot_timing:
         payload["slotTiming"] = request.slot_timing
+    if request.material_edit_mode in {"edit", "full"}:
+        payload["materialEditMode"] = request.material_edit_mode
+    if isinstance(request.edit_instruction, str) and request.edit_instruction.strip():
+        payload["editInstruction"] = request.edit_instruction.strip()
+    if (
+        request.material_edit_mode == "edit"
+        and isinstance(request.existing_material_spec, dict)
+        and request.existing_material_spec
+    ):
+        payload["existingMaterialSpec"] = _cap_existing_material_spec(request.existing_material_spec)
     return payload
