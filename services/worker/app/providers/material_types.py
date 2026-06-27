@@ -148,7 +148,7 @@ class MaterialContext:
     packaging_plan: dict[str, Any] | None = None
     material_state_path: Path | None = None
     storage_root: Path | None = field(default=None, repr=False)
-    sync_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    sync_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     gateway_factory: GatewayFactory | None = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
 

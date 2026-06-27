@@ -1000,6 +1000,22 @@ class P0DemoPipeline:
             plan = normalize_generation_plan(
                 json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
             )
+            if revise_context is not None:
+                from app.pipelines.revise_material_edit import rebind_plan_to_generation
+
+                source_id = str(
+                    json.loads((generation_root / "revise-context.json").read_text(encoding="utf-8")).get(
+                        "sourceGenerationId",
+                        generation_id,
+                    )
+                )
+                plan = rebind_plan_to_generation(
+                    plan,
+                    source_generation_id=source_id,
+                    target_generation_id=generation_id,
+                )
+            else:
+                plan["id"] = generation_id
             (generation_root / "generation-plan.json").write_text(
                 json.dumps(plan, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -1317,14 +1333,13 @@ class P0DemoPipeline:
             if revise_context is not None and revise_context.material_scope == "scoped"
             else None
         )
-        material_skipped = (
-            resume
-            and is_material_stage_done(generation_root, plan)
-            and slot_filter is None
+        material_skipped = resume and is_material_stage_done(
+            generation_root,
+            plan,
+            slot_filter=slot_filter,
         )
         if material_skipped:
-            if revise_context is not None and revise_context.material_scope == "none":
-                plan = sync_material_results_to_plan(plan, generation_root=generation_root)
+            plan = sync_material_results_to_plan(plan, generation_root=generation_root)
             emit(
                 status="running",
                 stage="generating_material",
@@ -1441,6 +1456,14 @@ class P0DemoPipeline:
             checkpoint.mark_stage_complete("building_timeline")
             checkpoint.save(checkpoint_path)
 
+        from app.pipelines.narration_timeline import refresh_timeline_clip_timing
+
+        plan = refresh_timeline_clip_timing(plan)
+        (generation_root / "generation-plan.json").write_text(
+            json.dumps(plan, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
         render_output = None
         if should_skip_generation_stage(
             "rendering",
@@ -1524,6 +1547,30 @@ class P0DemoPipeline:
 
             checkpoint.mark_stage_complete("rendering")
             checkpoint.save(checkpoint_path)
+
+        if revise_context is not None and plan is not None:
+            from app.pipelines.revise_material_edit import rebind_plan_to_generation
+
+            revise_context_path = generation_root / "revise-context.json"
+            source_id = generation_id
+            if revise_context_path.is_file():
+                source_id = str(
+                    json.loads(revise_context_path.read_text(encoding="utf-8")).get(
+                        "sourceGenerationId",
+                        generation_id,
+                    )
+                )
+            plan = normalize_generation_plan(
+                rebind_plan_to_generation(
+                    plan,
+                    source_generation_id=source_id,
+                    target_generation_id=generation_id,
+                )
+            )
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
         artifact_refs = render_output.artifact_refs if render_output is not None else []
         emit(

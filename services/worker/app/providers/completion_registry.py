@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from app.pipelines.narration_alignment import align_subtitles_to_voiceover, wav_duration_sec
-from app.pipelines.narration_timeline import sync_timeline_to_narration
+from app.pipelines.narration_timeline import refresh_timeline_clip_timing, sync_timeline_to_narration
+from app.pipelines.scene_timing import normalize_scene_start_end
 from app.pipelines.tts_mode import (
     MASTER_TTS_SLOT_ID,
     VO_MASTER_CLIP_ID,
@@ -459,10 +460,12 @@ def invalidate_material_for_slots(
     generated_root: Path,
     slot_ids: set[str],
     material_state_path: Path,
+    preserve_action_ids: set[str] | None = None,
 ) -> None:
     """Remove on-disk artifacts for targeted slots so material regen can resume selectively."""
     if not slot_ids:
         return
+    preserved = preserve_action_ids or set()
     quota, completed_ids = load_material_state(material_state_path)
     for action in actions:
         if not isinstance(action, dict):
@@ -471,6 +474,8 @@ def invalidate_material_for_slots(
         if slot_id not in slot_ids:
             continue
         action_id = str(action.get("id") or "")
+        if action_id and action_id in preserved:
+            continue
         output = expected_output_path(action, generated_root)
         if output.is_file():
             output.unlink()
@@ -514,9 +519,13 @@ def _scene_timing_by_slot(storyboard: list[Any]) -> dict[str, tuple[float, float
         if not isinstance(scene, dict):
             continue
         slot_id = str(scene.get("slotId", ""))
-        if not slot_id:
+        if not slot_id or "startSec" not in scene or "endSec" not in scene:
             continue
-        timing[slot_id] = (float(scene["startSec"]), float(scene["endSec"]))
+        start, end, _duration = normalize_scene_start_end(
+            float(scene.get("startSec", 0.0)),
+            float(scene.get("endSec", 0.0)),
+        )
+        timing[slot_id] = (start, end)
     return timing
 
 
@@ -664,6 +673,7 @@ def apply_material_results_to_plan(
         storyboard=plan.get("storyboard", []),
         tts_mode=tts_mode,
     )
+    plan = refresh_timeline_clip_timing(plan)
     plan = sync_timeline_to_narration(plan, render_root=render_root)
     packaging = plan.get("packagingPlan") if isinstance(plan.get("packagingPlan"), dict) else {}
     plan["timeline"] = align_subtitles_to_voiceover(

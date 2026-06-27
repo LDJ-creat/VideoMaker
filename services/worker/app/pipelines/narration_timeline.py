@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.pipelines.narration_alignment import wav_duration_sec
+from app.pipelines.scene_timing import normalize_scene_start_end
 from app.pipelines.tts_mode import (
     MASTER_TTS_SLOT_ID,
     MASTER_TTS_WAV_NAME,
@@ -181,14 +182,15 @@ def _apply_storyboard_to_timeline_clips(
     timeline: dict[str, Any],
     storyboard: list[dict[str, Any]],
 ) -> None:
-    timing_by_slot = {
-        str(scene.get("slotId", "")): (
+    timing_by_slot: dict[str, tuple[float, float]] = {}
+    for scene in storyboard:
+        if not isinstance(scene, dict) or not scene.get("slotId"):
+            continue
+        start, end, _duration = normalize_scene_start_end(
             float(scene.get("startSec", 0.0)),
             float(scene.get("endSec", 0.0)),
         )
-        for scene in storyboard
-        if isinstance(scene, dict) and scene.get("slotId")
-    }
+        timing_by_slot[str(scene.get("slotId", ""))] = (start, end)
     tracks = timeline.get("tracks", [])
     if not isinstance(tracks, list):
         return
@@ -224,6 +226,33 @@ def _apply_storyboard_to_timeline_clips(
                 continue
             clip["startSec"] = round(timing[0], 3)
             clip["endSec"] = round(timing[1], 3)
+
+
+def refresh_timeline_clip_timing(plan: dict[str, Any]) -> dict[str, Any]:
+    """Align video/image clip windows to storyboard timing without requiring narration WAV."""
+    storyboard = plan.get("storyboard")
+    timeline = plan.get("timeline")
+    if not isinstance(storyboard, list) or not isinstance(timeline, dict):
+        return plan
+
+    normalized_storyboard: list[Any] = []
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            normalized_storyboard.append(scene)
+            continue
+        merged = dict(scene)
+        if "startSec" in merged and "endSec" in merged:
+            start, end, _duration = normalize_scene_start_end(
+                float(merged.get("startSec", 0.0)),
+                float(merged.get("endSec", 0.0)),
+            )
+            merged["startSec"] = start
+            merged["endSec"] = end
+        normalized_storyboard.append(merged)
+
+    plan["storyboard"] = normalized_storyboard
+    _apply_storyboard_to_timeline_clips(timeline, normalized_storyboard)
+    return plan
 
 
 def _refresh_voiceover_clips(
@@ -359,6 +388,21 @@ def _hold_tail(
     new_duration = max(planned, narration_end)
     if new_duration <= planned + 0.01 and planned >= narration_end - 0.01:
         plan["timeline"]["durationSec"] = round(max(planned, narration_end), 3)
+        normalized_storyboard = [
+            dict(scene) if isinstance(scene, dict) else scene for scene in storyboard
+        ]
+        for index, scene in enumerate(normalized_storyboard):
+            if not isinstance(scene, dict) or "startSec" not in scene or "endSec" not in scene:
+                continue
+            start, end, _duration = normalize_scene_start_end(
+                float(scene.get("startSec", 0.0)),
+                float(scene.get("endSec", 0.0)),
+            )
+            scene["startSec"] = start
+            scene["endSec"] = end
+            normalized_storyboard[index] = scene
+        plan["storyboard"] = normalized_storyboard
+        _apply_storyboard_to_timeline_clips(timeline, normalized_storyboard)
         return
 
     scenes = _sorted_storyboard([s for s in storyboard if isinstance(s, dict)])

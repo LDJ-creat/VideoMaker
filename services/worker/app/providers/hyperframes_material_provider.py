@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.agents.material_author import run_material_author_with_runner
 from app.observability.acp_author_recorder import (
@@ -24,6 +24,71 @@ from composition.author.payload import has_video_asset_refs
 from composition.types import AuthorRequest, PatternDepositContext
 
 LOGGER = logging.getLogger(__name__)
+
+MaterialEditMode = Literal["edit", "full"]
+
+
+def _generation_root(ctx: MaterialContext) -> Path:
+    return ctx.generated_root.parent
+
+
+def _should_defer_pattern_deposit(ctx: MaterialContext) -> bool:
+    """Do not block material/revise hot path on optional pattern deposit."""
+    if (_generation_root(ctx) / "revise-context.json").is_file():
+        return True
+    raw = os.getenv("VIDEOMAKER_DEFER_PATTERN_DEPOSIT", "true").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _resolve_material_edit_author_state(
+    ctx: MaterialContext,
+    slot_id: str,
+) -> tuple[MaterialEditMode, str, dict[str, Any] | None, str | None]:
+    from app.pipelines.revise_material_edit import (
+        SlotChainKind,
+        edit_instruction_from_context,
+        load_archived_material_spec,
+        load_revise_material_edit_context,
+        material_edit_mode_for_slot,
+        restore_archived_upstream_media,
+        should_degrade_edit_to_full,
+    )
+
+    generation_root = _generation_root(ctx)
+    revise_context = load_revise_material_edit_context(generation_root)
+    if revise_context is None:
+        return "full", "", None, None
+
+    requested_mode = str(revise_context.get("materialEditMode") or "full")
+    effective_mode = material_edit_mode_for_slot(revise_context, slot_id)
+    instruction = edit_instruction_from_context(revise_context)
+
+    chain_kinds = revise_context.get("slotChainKinds")
+    chain_kind = SlotChainKind.UNKNOWN
+    if isinstance(chain_kinds, dict):
+        try:
+            chain_kind = SlotChainKind(str(chain_kinds.get(slot_id) or SlotChainKind.UNKNOWN.value))
+        except ValueError:
+            chain_kind = SlotChainKind.UNKNOWN
+
+    warning: str | None = None
+    if requested_mode == "edit" and effective_mode == "full" and should_degrade_edit_to_full(chain_kind):
+        warning = f"槽位 {slot_id} 无 HF spec 可微调，已按完全重生成处理"
+    elif requested_mode == "edit" and effective_mode == "edit":
+        restore_archived_upstream_media(
+            generation_root=generation_root,
+            generated_root=ctx.generated_root,
+            slot_id=slot_id,
+        )
+
+    existing_spec: dict[str, Any] | None = None
+    if effective_mode == "edit":
+        existing_spec = load_archived_material_spec(generation_root, slot_id)
+        if existing_spec is None:
+            effective_mode = "full"
+            warning = warning or f"槽位 {slot_id} 缺少归档 spec，已按完全重生成处理"
+
+    return effective_mode, instruction, existing_spec, warning
 
 def _legacy_fallback_spec(
     slot: dict[str, Any],
@@ -88,30 +153,73 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
 
 
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
+    from app.pipelines.revise_material_edit import (
+        load_revise_material_edit_context,
+        normalize_scene_start_end,
+        resolve_slot_timing_for_revise,
+    )
+
+    generation_root = _generation_root(ctx)
+    if load_revise_material_edit_context(generation_root) is not None:
+        timing = resolve_slot_timing_for_revise(
+            generation_root,
+            list(ctx.storyboard),
+            slot_id,
+        )
+        return float(timing["durationSec"])
     for scene in ctx.storyboard:
         if isinstance(scene, dict) and scene.get("slotId") == slot_id:
-            return max(0.5, float(scene["endSec"]) - float(scene["startSec"]))
+            _start, _end, duration = normalize_scene_start_end(
+                float(scene.get("startSec", 0.0)),
+                float(scene.get("endSec", 0.0)),
+            )
+            return duration
     return 4.0
 
 
 def _slot_timing_for_slot(ctx: MaterialContext, slot_id: str) -> dict[str, float]:
+    from app.pipelines.revise_material_edit import (
+        load_revise_material_edit_context,
+        normalize_scene_start_end,
+        resolve_slot_timing_for_revise,
+    )
+
+    generation_root = _generation_root(ctx)
+    if load_revise_material_edit_context(generation_root) is not None:
+        return resolve_slot_timing_for_revise(
+            generation_root,
+            list(ctx.storyboard),
+            slot_id,
+        )
     for scene in ctx.storyboard:
         if isinstance(scene, dict) and scene.get("slotId") == slot_id:
-            start = float(scene.get("startSec", 0.0))
-            end = float(scene.get("endSec", start))
-            duration = max(0.5, end - start)
+            start, end, duration = normalize_scene_start_end(
+                float(scene.get("startSec", 0.0)),
+                float(scene.get("endSec", 0.0)),
+            )
             return {
-                "startSec": round(start, 3),
-                "endSec": round(end, 3),
-                "durationSec": round(duration, 3),
+                "startSec": start,
+                "endSec": end,
+                "durationSec": duration,
             }
     duration = 4.0
     return {"startSec": 0.0, "endSec": duration, "durationSec": duration}
 
 
-def _enforce_spec_duration(spec: dict[str, Any], duration_sec: float) -> dict[str, Any]:
+def _enforce_spec_duration(
+    spec: dict[str, Any],
+    duration_sec: float,
+    *,
+    prefer_duration_sec: float | None = None,
+) -> dict[str, Any]:
+    from app.pipelines.revise_material_edit import resolve_spec_duration_sec
+
     merged = dict(spec)
-    merged["durationSec"] = round(max(0.5, float(duration_sec)), 3)
+    merged["durationSec"] = resolve_spec_duration_sec(
+        spec,
+        duration_sec,
+        prefer_duration_sec=prefer_duration_sec,
+    )
     return merged
 
 
@@ -214,10 +322,44 @@ def _author_spec(
     asset_refs: list[dict[str, Any]] | None,
     *,
     finish_brief: dict[str, Any] | None = None,
+    material_edit_mode: MaterialEditMode = "full",
+    edit_instruction: str = "",
+    existing_material_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from app.pipelines.revise_material_edit import (
+        build_edit_finish_brief,
+        load_revise_material_edit_context,
+        resolve_slot_timing_for_revise,
+    )
+
     author_slot = _material_author_slot(slot)
-    slot_timing = _slot_timing_for_slot(ctx, str(slot.get("id", "")))
+    slot_id = str(slot.get("id", ""))
+    author_finish_brief = finish_brief
+    if material_edit_mode == "edit" and edit_instruction:
+        author_finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
+    elif material_edit_mode == "full" and edit_instruction:
+        author_finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
+
+    generation_root = _generation_root(ctx)
+    if load_revise_material_edit_context(generation_root) is not None:
+        slot_timing = resolve_slot_timing_for_revise(
+            generation_root,
+            list(ctx.storyboard),
+            slot_id,
+            existing_spec=existing_material_spec,
+            finish_brief=author_finish_brief,
+        )
+    else:
+        slot_timing = _slot_timing_for_slot(ctx, slot_id)
     target_duration = float(slot_timing["durationSec"])
+    prefer_duration: float | None = None
+    if material_edit_mode == "edit":
+        if isinstance(existing_material_spec, dict) and existing_material_spec.get("durationSec") is not None:
+            prefer_duration = float(existing_material_spec["durationSec"])
+        elif isinstance(author_finish_brief, dict) and author_finish_brief.get("durationSec") is not None:
+            prefer_duration = float(author_finish_brief["durationSec"])
+        if prefer_duration is not None:
+            target_duration = max(target_duration, prefer_duration)
     started = time.perf_counter()
     errors: list[str] = []
     trace_dir: str | None = None
@@ -235,11 +377,15 @@ def _author_spec(
                     asset_refs=asset_refs,
                     visual_style_bible=ctx.visual_style_bible,
                     generation_id=ctx.generation_id,
-                    finish_brief=finish_brief,
+                    finish_brief=author_finish_brief,
                     aspect_ratio=ctx.aspect_ratio,
                     slot_timing=slot_timing,
+                    material_edit_mode=material_edit_mode,
+                    edit_instruction=edit_instruction or None,
+                    existing_material_spec=existing_material_spec,
                 ),
                 target_duration,
+                prefer_duration_sec=prefer_duration,
             )
         else:
             backend = _author_backend()
@@ -289,9 +435,12 @@ def _author_spec(
                             aspect_ratio=ctx.aspect_ratio,
                             slot_timing=slot_timing,
                             visual_style_bible=ctx.visual_style_bible,
-                            finish_brief=finish_brief,
+                            finish_brief=author_finish_brief,
                             task_id=ctx.task_context.task_id if ctx.task_context else None,
                             generation_id=ctx.generation_id,
+                            material_edit_mode=material_edit_mode,
+                            edit_instruction=edit_instruction or None,
+                            existing_material_spec=existing_material_spec,
                         ),
                         storage_root=ctx.storage_root,
                         generated_root=ctx.generated_root,
@@ -300,6 +449,7 @@ def _author_spec(
                         observability=acp_observability,
                     ),
                     target_duration,
+                    prefer_duration_sec=prefer_duration,
                 )
             else:
                 from composition.author.react_trace import FileReactTraceRecorder
@@ -330,13 +480,17 @@ def _author_spec(
                             aspect_ratio=ctx.aspect_ratio,
                             slot_timing=slot_timing,
                             visual_style_bible=ctx.visual_style_bible,
-                            finish_brief=finish_brief,
+                            finish_brief=author_finish_brief,
                             task_id=ctx.task_context.task_id if ctx.task_context else None,
                             generation_id=ctx.generation_id,
                             react_trace=react_trace,
+                            material_edit_mode=material_edit_mode,
+                            edit_instruction=edit_instruction or None,
+                            existing_material_spec=existing_material_spec,
                         )
                     ),
                     target_duration,
+                    prefer_duration_sec=prefer_duration,
                 )
         _record_material_author_run(
             ctx,
@@ -366,12 +520,23 @@ def _author_spec_with_retry(
     asset_refs: list[dict[str, Any]] | None,
     *,
     finish_brief: dict[str, Any] | None = None,
+    material_edit_mode: MaterialEditMode = "full",
+    edit_instruction: str = "",
+    existing_material_spec: dict[str, Any] | None = None,
     max_attempts: int = 2,
 ) -> dict[str, Any]:
     last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            return _author_spec(ctx, slot, asset_refs, finish_brief=finish_brief)
+            return _author_spec(
+                ctx,
+                slot,
+                asset_refs,
+                finish_brief=finish_brief,
+                material_edit_mode=material_edit_mode,
+                edit_instruction=edit_instruction,
+                existing_material_spec=existing_material_spec,
+            )
         except Exception as exc:
             last_exc = exc
             if attempt >= max_attempts:
@@ -419,6 +584,16 @@ class HyperFramesMaterialProvider:
             duration_sec=_duration_for_slot(ctx, slot_id),
         )
 
+        material_edit_mode, edit_instruction, existing_material_spec, edit_warning = (
+            _resolve_material_edit_author_state(ctx, slot_id)
+        )
+        if edit_instruction:
+            from app.pipelines.revise_material_edit import build_edit_finish_brief
+
+            finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
+        if edit_warning:
+            ctx.emit_progress("rendering_material", edit_warning)
+
         spec = action.get("materialSpec")
         if spec is None:
             if ctx.runner is None or ctx.task_context is None:
@@ -439,7 +614,15 @@ class HyperFramesMaterialProvider:
             else:
                 try:
                     author = _author_spec_with_retry if finish_action else _author_spec
-                    spec = author(ctx, slot, asset_refs, finish_brief=finish_brief)
+                    spec = author(
+                        ctx,
+                        slot,
+                        asset_refs,
+                        finish_brief=finish_brief,
+                        material_edit_mode=material_edit_mode,
+                        edit_instruction=edit_instruction,
+                        existing_material_spec=existing_material_spec,
+                    )
                 except Exception:
                     LOGGER.warning(
                         "material_author failed for action %s; falling back to legacy spec",
@@ -501,7 +684,8 @@ class HyperFramesMaterialProvider:
         resolved_lint_log = render_result.get("lintLogPath") or str(lint_log_path)
 
         if (
-            _composition_mode() != "legacy"
+            not _should_defer_pattern_deposit(ctx)
+            and _composition_mode() != "legacy"
             and composition_dir
             and lint_passed
             and not lint_skipped
@@ -526,6 +710,14 @@ class HyperFramesMaterialProvider:
                 LOGGER.info("composition pattern deposit skipped: %s", exc)
             except Exception:
                 LOGGER.exception("composition pattern deposit failed")
+
+        from app.pipelines.revise_material_edit import persist_material_spec_after_render
+
+        persist_material_spec_after_render(
+            spec=spec,
+            generated_root=ctx.generated_root,
+            action_id=action_id,
+        )
 
         return {
             "ok": True,

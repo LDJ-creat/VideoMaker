@@ -14,6 +14,13 @@ from app.pipelines.intent_applier import (
     compute_affected_stages,
 )
 from app.pipelines.revise_scope import MaterialScope, material_scope_preserves_generated
+from app.pipelines.revise_material_edit import (
+    apply_narration_preview_to_storyboard,
+    archive_slot_material,
+    collect_seed_invalidate_plan,
+    normalize_plan_storyboard_timing,
+    rebind_plan_to_generation,
+)
 from app.providers.completion_registry import invalidate_material_for_slots
 from app.runtime.checkpoint import GenerationCheckpoint, generation_artifact_root
 
@@ -81,6 +88,15 @@ def seed_revise_generation(
     source_plan: dict[str, Any] | None = None
     if plan_path.is_file():
         source_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        source_plan = rebind_plan_to_generation(
+            source_plan,
+            source_generation_id=source_generation_id,
+            target_generation_id=target_generation_id,
+        )
+        affected_slot_set = set(revise_context.affected_slot_ids or [])
+        if affected_slot_set:
+            apply_narration_preview_to_storyboard(target_root, source_plan, affected_slot_set)
+            normalize_plan_storyboard_timing(source_plan, affected_slot_set)
         snapshot: dict[str, Any] = {}
         if isinstance(source_plan.get("storyboard"), list):
             snapshot["storyboard"] = source_plan["storyboard"]
@@ -96,16 +112,44 @@ def seed_revise_generation(
                 encoding="utf-8",
             )
 
+    material_edit_mode = "full"
+    edit_instruction: str | None = None
+    for intent in intents:
+        if not isinstance(intent, dict):
+            continue
+        params = intent.get("params") if isinstance(intent.get("params"), dict) else {}
+        raw_mode = str(params.get("materialEditMode") or "").strip()
+        if raw_mode in {"edit", "full"}:
+            material_edit_mode = raw_mode
+        raw_instruction = str(params.get("editInstruction") or "").strip()
+        if raw_instruction:
+            edit_instruction = raw_instruction
+
     if revise_context.material_scope == "scoped" and revise_context.affected_slot_ids and source_plan:
         completion_actions = list(source_plan.get("completionActions") or [])
         generated_root = target_root / "generated"
         material_state_path = target_root / "material-state.json"
         if completion_actions and generated_root.is_dir():
+            slot_id_set = set(revise_context.affected_slot_ids)
+            if material_edit_mode == "edit":
+                for slot_id in sorted(slot_id_set):
+                    archive_slot_material(
+                        generation_root=target_root,
+                        generated_root=generated_root,
+                        actions=completion_actions,
+                        slot_id=slot_id,
+                    )
+            preserve_ids, slot_chain_kinds = collect_seed_invalidate_plan(
+                actions=completion_actions,
+                slot_ids=slot_id_set,
+                material_edit_mode=material_edit_mode,
+            )
             invalidate_material_for_slots(
                 actions=completion_actions,
                 generated_root=generated_root,
-                slot_ids=set(revise_context.affected_slot_ids),
+                slot_ids=slot_id_set,
                 material_state_path=material_state_path,
+                preserve_action_ids=preserve_ids,
             )
             source_plan["completionActions"] = completion_actions
             if "generation-plan.json" not in artifacts_to_clear:
@@ -113,6 +157,10 @@ def seed_revise_generation(
                     json.dumps(source_plan, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
+        else:
+            slot_chain_kinds = {}
+    else:
+        slot_chain_kinds = {}
 
     for artifact_name in artifacts_to_clear:
         artifact_path = target_root / artifact_name
@@ -139,6 +187,9 @@ def seed_revise_generation(
                 "affectedSlotIds": revise_context.affected_slot_ids,
                 "materialScope": revise_context.material_scope,
                 "preserveGenerated": revise_context.preserve_generated,
+                "materialEditMode": material_edit_mode,
+                "editInstruction": edit_instruction,
+                "slotChainKinds": slot_chain_kinds,
             },
             indent=2,
             ensure_ascii=False,

@@ -103,6 +103,9 @@ def run_material_author_with_runner(
     generation_id: str | None = None,
     aspect_ratio: str = "9:16",
     slot_timing: dict[str, Any] | None = None,
+    material_edit_mode: str | None = None,
+    edit_instruction: str | None = None,
+    existing_material_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     inputs: dict[str, Any] = {
         "slot": slot,
@@ -116,6 +119,12 @@ def run_material_author_with_runner(
         inputs["visualStyleBible"] = visual_style_bible
     if isinstance(finish_brief, dict):
         inputs["finishBrief"] = finish_brief
+    if material_edit_mode in {"edit", "full"}:
+        inputs["materialEditMode"] = material_edit_mode
+    if isinstance(edit_instruction, str) and edit_instruction.strip():
+        inputs["editInstruction"] = edit_instruction.strip()
+    if isinstance(existing_material_spec, dict) and existing_material_spec:
+        inputs["existingMaterialSpec"] = existing_material_spec
     return runner.run(
         "material_author",
         task=TASK_KEY,

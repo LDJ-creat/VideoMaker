@@ -297,6 +297,17 @@ def _build_prompt_text(request: AuthorRequest, repo_root: Path, *, scratch_dir: 
         template_mode=template_mode,
         agent=agent,
     )
+    if request.material_edit_mode == "edit" and isinstance(request.existing_material_spec, dict):
+        instructions += (
+            "\n\nScene edit mode: apply minimal diff on existingMaterialSpec in the user payload. "
+            "Do not rewrite from scratch unless editInstruction requires it. "
+            "Do not replace stock/base video — pipeline already preserved base media."
+        )
+    elif request.material_edit_mode == "full":
+        instructions += (
+            "\n\nScene full regen mode: you may rewrite the spec per editInstruction, "
+            "but do not attempt to re-search or swap stock footage inside this session."
+        )
     instructions += f"\n\n{user}"
     return system, instructions, composition_template
 

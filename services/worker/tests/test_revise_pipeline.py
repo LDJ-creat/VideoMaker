@@ -376,7 +376,7 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
         ],
     )
 
-    assert result["ok"] is True
+    assert result["ok"] is True, result.get("error")
     assert result["sourceGenerationId"] == source_id
     assert len(result["intents"]) == 2
 
@@ -474,3 +474,36 @@ def test_packaging_only_material_scope_skips_regen_when_actions_satisfied(tmp_pa
     assert is_material_stage_done(generation_root, plan) is True
     slot_filter = set(context.affected_slot_ids) if context.material_scope == "scoped" else None
     assert slot_filter is None
+
+
+def test_scoped_material_stage_done_only_checks_affected_slots(tmp_path: Path) -> None:
+    from app.pipelines.generation_pipeline import is_material_stage_done
+
+    project_id = "project-1"
+    generation_id = "gen-fork"
+    plan = _write_completed_generation(tmp_path, project_id=project_id, generation_id=generation_id)
+    plan["completionActions"] = [
+        {
+            "id": "action-slot-1",
+            "slotId": "slot-1",
+            "provider": "hyperframes_material",
+            "strategy": "hyperframes_material",
+        },
+        {
+            "id": "action-slot-6",
+            "slotId": "slot-6",
+            "provider": "hyperframes_material",
+            "strategy": "hyperframes_material",
+        },
+    ]
+    generation_root = tmp_path / "projects" / project_id / "generations" / generation_id
+    generated = generation_root / "generated"
+    generated.mkdir(parents=True, exist_ok=True)
+    fake_video = b"\x00" * 20_000
+    (generated / "action-slot-1.mp4").write_bytes(fake_video)
+    (generated / "action-slot-6.mp4").write_bytes(fake_video)
+
+    assert is_material_stage_done(generation_root, plan) is True
+    (generated / "action-slot-6.mp4").unlink()
+    assert is_material_stage_done(generation_root, plan) is False
+    assert is_material_stage_done(generation_root, plan, slot_filter={"slot-1"}) is True

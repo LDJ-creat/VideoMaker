@@ -305,4 +305,6 @@ def enrich_revise_plan(
         plan["affectedSceneIds"] = affected_scenes
     if affected_slots:
         plan["affectedSlotIds"] = affected_slots
+    if planner_output.get("planSource"):
+        plan["planSource"] = planner_output["planSource"]
     return plan
