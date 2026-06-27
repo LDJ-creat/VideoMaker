@@ -1,7 +1,7 @@
 "use client";
 
-import type { StoryboardScene } from "@videomaker/contracts";
-import { Film, ImageIcon } from "lucide-react";
+import type { SceneReviseRequest, StoryboardScene } from "@videomaker/contracts";
+import { Film, ImageIcon, Pencil } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
@@ -14,6 +14,8 @@ import {
 import type { StoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { scriptBelongsToMaster } from "@/features/master-narration/resolveMasterNarration";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { SceneRevisePanel } from "@/features/nl-revise/SceneRevisePanel";
 
 const KNOWN_MEDIA_PROVIDERS = new Set([
   "asset_reuse",
@@ -41,6 +43,9 @@ type StoryboardSceneCardProps = {
   completionProvider?: string | null;
   completionProviders?: string[];
   acpFailureSummary?: string | null;
+  reviseEnabled?: boolean;
+  reviseBusy?: boolean;
+  onPlanSceneRevise?: (request: SceneReviseRequest) => Promise<void>;
 };
 
 export function StoryboardSceneCard({
@@ -58,8 +63,12 @@ export function StoryboardSceneCard({
   completionProvider,
   completionProviders,
   acpFailureSummary,
+  reviseEnabled,
+  reviseBusy,
+  onPlanSceneRevise,
 }: StoryboardSceneCardProps) {
   const [mediaFailed, setMediaFailed] = useState(false);
+  const [reviseOpen, setReviseOpen] = useState(false);
   const script = scene.script.trim();
   const aligned = !script || !master || scriptBelongsToMaster(script, master);
   const showMedia = Boolean(media.url) && !mediaFailed;
@@ -94,8 +103,37 @@ export function StoryboardSceneCard({
             <Badge variant="destructive">与全片口播未对齐</Badge>
           ) : null}
         </div>
-        <span className="font-mono text-xs text-muted-foreground">{scene.slotId}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {reviseEnabled && onPlanSceneRevise ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={reviseBusy}
+              onClick={() => setReviseOpen((open) => !open)}
+              data-testid={`scene-revise-toggle-${scene.id}`}
+            >
+              <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
+              修改/重生成画面
+            </Button>
+          ) : null}
+          <span className="font-mono text-xs text-muted-foreground">{scene.slotId}</span>
+        </div>
       </div>
+
+      {reviseOpen && reviseEnabled && onPlanSceneRevise ? (
+        <SceneRevisePanel
+          sceneId={scene.id}
+          slotId={scene.slotId}
+          index={index}
+          disabled={reviseBusy}
+          busy={reviseBusy}
+          onSubmit={async (request) => {
+            await onPlanSceneRevise(request);
+            setReviseOpen(false);
+          }}
+        />
+      ) : null}
 
       {(visualIntent || scriptIntent || userAssetId || userAssetSummary || gapSummary) && (
         <dl className="mb-3 grid gap-2 rounded-md border border-border/60 bg-muted/10 p-3 text-sm">

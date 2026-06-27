@@ -16,6 +16,72 @@ export type ActiveGenerationEntry = {
   status?: string;
 };
 
+export type LatestGenerationSnapshot = {
+  generationId: string;
+  variant: string;
+  taskId?: string | null;
+  status?: string;
+  plan?: GenerationPlan | null;
+  renderVideoUrl?: string | null;
+};
+
+export type PreferredGenerationSelection = {
+  generationId?: string | null;
+  taskId?: string | null;
+  variant?: string | null;
+};
+
+export function mergeActiveGenerationsByVariant(
+  existing: ActiveGenerationEntry[],
+  incoming: ActiveGenerationEntry[],
+): ActiveGenerationEntry[] {
+  const byVariant = new Map<string, ActiveGenerationEntry>();
+  for (const entry of existing) {
+    byVariant.set(entry.variant, entry);
+  }
+  for (const entry of incoming) {
+    byVariant.set(entry.variant, entry);
+  }
+  return [...byVariant.values()];
+}
+
+export function pickPreferredGenerationEntry(
+  generations: LatestGenerationSnapshot[],
+  prefer?: PreferredGenerationSelection,
+): LatestGenerationSnapshot | undefined {
+  if (prefer?.generationId) {
+    const match = generations.find(
+      (entry) => entry.generationId === prefer.generationId && entry.plan,
+    );
+    if (match) return match;
+  }
+  if (prefer?.taskId) {
+    const match = generations.find(
+      (entry) => entry.taskId === prefer.taskId && entry.plan,
+    );
+    if (match) return match;
+  }
+  if (prefer?.variant) {
+    const match = generations.find(
+      (entry) => entry.variant === prefer.variant && entry.plan,
+    );
+    if (match) return match;
+  }
+  return generations.find((entry) => entry.plan != null) ?? generations[0];
+}
+
+export function activeGenerationEntryFromSnapshot(
+  entry: LatestGenerationSnapshot,
+): ActiveGenerationEntry {
+  return {
+    generationId: entry.generationId,
+    variant: entry.variant,
+    taskId: entry.taskId ?? "",
+    label: getVariantLabel(entry.variant),
+    status: entry.status,
+  };
+}
+
 export async function fetchGenerationRunPlans(
   entries: ActiveGenerationEntry[],
   fetchGeneration: (generationId: string) => Promise<GenerationResponse>,
@@ -31,6 +97,35 @@ export async function fetchGenerationRunPlans(
     }
   }
   return Object.keys(plans).length === entries.length ? plans : null;
+}
+
+export async function fetchGenerationPlanWithRetry(
+  generationId: string,
+  fetchGeneration: (generationId: string) => Promise<GenerationResponse>,
+  options?: { maxAttempts?: number; delayMs?: number },
+): Promise<GenerationResponse | null> {
+  const maxAttempts = options?.maxAttempts ?? 12;
+  const delayMs = options?.delayMs ?? 1500;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const data = await fetchGeneration(generationId);
+      if (data?.id && data?.timeline) {
+        return data;
+      }
+    } catch {
+      /* generation row or plan may not be ready yet */
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, delayMs);
+    });
+  }
+
+  try {
+    return await fetchGeneration(generationId);
+  } catch {
+    return null;
+  }
 }
 
 export async function reloadGenerationRunPlansWithRetry(

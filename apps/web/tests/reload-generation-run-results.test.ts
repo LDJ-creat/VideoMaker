@@ -5,8 +5,11 @@ import type { GenerationResponse } from "@/lib/apiClient";
 import {
   applyGenerationRunDetail,
   applyLatestGenerationPlans,
+  fetchGenerationPlanWithRetry,
   fetchGenerationRunPlans,
   generationRunPlansAreLoaded,
+  mergeActiveGenerationsByVariant,
+  pickPreferredGenerationEntry,
   reloadGenerationRunPlansWithRetry,
   type ActiveGenerationEntry,
 } from "@/lib/reloadGenerationRunResults";
@@ -137,6 +140,77 @@ describe("reloadGenerationRunResults", () => {
     expect(applied).toBe(true);
     expect(setGenerationId).toHaveBeenCalledWith("gen-a");
     expect(setGenerationPlan).toHaveBeenCalledWith(plan);
+  });
+
+  it("fetchGenerationPlanWithRetry waits until timeline is available", async () => {
+    vi.useFakeTimers();
+    const fetchGeneration = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...fixtureGenerationPlan,
+        id: "gen-fork",
+        timeline: undefined,
+      } as unknown as GenerationResponse)
+      .mockResolvedValueOnce({
+        ...fixtureGenerationPlan,
+        id: "gen-fork",
+      } satisfies GenerationResponse);
+
+    const promise = fetchGenerationPlanWithRetry("gen-fork", fetchGeneration, {
+      maxAttempts: 3,
+      delayMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    const plan = await promise;
+
+    expect(plan?.id).toBe("gen-fork");
+    expect(plan?.timeline).toBeTruthy();
+    expect(fetchGeneration).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("mergeActiveGenerationsByVariant keeps newest entry per variant", () => {
+    const merged = mergeActiveGenerationsByVariant(
+      [
+        {
+          generationId: "gen-old",
+          variant: "high_conversion",
+          taskId: "task-old",
+          label: "高转化版",
+        },
+      ],
+      [
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          label: "高转化版",
+        },
+      ],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.generationId).toBe("gen-fork");
+  });
+
+  it("pickPreferredGenerationEntry prefers revise task id", () => {
+    const picked = pickPreferredGenerationEntry(
+      [
+        {
+          generationId: "gen-a",
+          variant: "high_click",
+          taskId: "task-a",
+          plan: fixtureGenerationPlan,
+        },
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          plan: { ...fixtureGenerationPlan, id: "gen-fork", variant: "high_conversion" },
+        },
+      ],
+      { taskId: "task-fork" },
+    );
+    expect(picked?.generationId).toBe("gen-fork");
   });
 
   it("applyGenerationRunDetail hydrates all variants and prefers succeeded plan", () => {

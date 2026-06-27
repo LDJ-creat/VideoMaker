@@ -4,6 +4,7 @@ import {
   EMPTY_PARALLEL_MATERIAL_ACTIVITY,
   buildParallelMaterialSummary,
   buildUnifiedMaterialProgressSummary,
+  inferPostMaterialPipelineHint,
   mergeCompletedMaterialSlotIds,
   reconcileMaterialSlotProgress,
   reduceParallelMaterialActivity,
@@ -111,5 +112,18 @@ describe("parallelMaterialActivity", () => {
     );
     expect(summary.secondary).toContain("并行处理");
     expect(summary.secondary).toContain("已完成：slot-1");
+  });
+
+  it("shows post-material pipeline hint when slots done but stage still material", () => {
+    const activity = reduceParallelMaterialActivity(
+      EMPTY_PARALLEL_MATERIAL_ACTIVITY,
+      "HyperFrames material ready for slot slot-6",
+    );
+    const hint = inferPostMaterialPipelineHint(
+      activity,
+      "rendering_material",
+      "running",
+    );
+    expect(hint).toContain("合成完整视频");
   });
 });

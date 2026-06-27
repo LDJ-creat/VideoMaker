@@ -5,6 +5,7 @@ import type {
   GenerationPlan,
   RevisePlan,
   ReviseSession,
+  SceneReviseRequest,
   KnowledgeEntry,
   KnowledgeRecommendation,
   KnowledgeCategorySummary,
@@ -185,6 +186,19 @@ export type GenerationRunSummary = {
   provenanceId?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ReviseGenerationSummary = {
+  generationId: string;
+  variant?: string;
+  status?: string;
+  taskId?: string | null;
+  sourceGenerationId?: string | null;
+  instruction?: string | null;
+  affectedSlotIds?: string[];
+  materialScope?: string | null;
+  updatedAt?: string | null;
+  plan?: GenerationResponse;
 };
 
 export type StructureProvenanceSummary = {
@@ -500,6 +514,13 @@ export async function listGenerationRuns(
   return apiFetch(`/api/projects/${projectId}/generation-runs?limit=${limit}`);
 }
 
+export async function listReviseGenerations(
+  projectId: string,
+  limit = 20,
+): Promise<ApiResult<{ revisions: ReviseGenerationSummary[] }>> {
+  return apiFetch(`/api/projects/${projectId}/revise-generations?limit=${limit}`);
+}
+
 export async function getGenerationRun(
   projectId: string,
   runId: string,
@@ -725,6 +746,21 @@ export async function planReviseGeneration(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       instruction,
+      newSession: options?.newSession ?? false,
+    }),
+  });
+}
+
+export async function planReviseGenerationStructured(
+  generationId: string,
+  structured: SceneReviseRequest,
+  options?: { newSession?: boolean },
+): Promise<ApiResult<RevisePlanResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      structured,
       newSession: options?.newSession ?? false,
     }),
   });

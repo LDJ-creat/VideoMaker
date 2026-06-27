@@ -1,6 +1,12 @@
 "use client";
 
-import type { AgentRunLog, GapReport, GenerationPlan, VideoStructure } from "@videomaker/contracts";
+import type {
+  AgentRunLog,
+  GapReport,
+  GenerationPlan,
+  SceneReviseRequest,
+  VideoStructure,
+} from "@videomaker/contracts";
 import { Clock, Layers, Mic } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -30,12 +36,18 @@ type MasterNarrationPanelProps = {
   plan: GenerationPlan;
   structure?: VideoStructure | null;
   gapReport?: GapReport | null;
+  reviseEnabled?: boolean;
+  reviseBusy?: boolean;
+  onPlanSceneRevise?: (request: SceneReviseRequest) => Promise<void>;
 };
 
 export function MasterNarrationPanel({
   plan,
   structure,
   gapReport,
+  reviseEnabled,
+  reviseBusy,
+  onPlanSceneRevise,
 }: MasterNarrationPanelProps) {
   const master = resolveMasterNarration(plan);
   const scenes = [...plan.storyboard].sort(
@@ -155,6 +167,9 @@ export function MasterNarrationPanel({
                     completionProvider={migration?.completionProvider}
                     completionProviders={migration?.completionProviders}
                     acpFailureSummary={migration?.acpFailureSummary}
+                    reviseEnabled={reviseEnabled}
+                    reviseBusy={reviseBusy}
+                    onPlanSceneRevise={onPlanSceneRevise}
                   />
                 );
               })

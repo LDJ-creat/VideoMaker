@@ -30,6 +30,7 @@ import { scriptReviewGateLabel } from "@/lib/durationTargetLabels";
 import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
 import {
   buildUnifiedMaterialProgressSummary,
+  inferPostMaterialPipelineHint,
   mergeCompletedMaterialSlotIds,
   reconcileMaterialSlotProgress,
   shouldInferDiskCompletedSlots,
@@ -128,6 +129,11 @@ export function TaskProgressPanel({
     resolvedMaterialActivity,
     event?.message,
   );
+  const postMaterialHint = inferPostMaterialPipelineHint(
+    resolvedMaterialActivity,
+    event?.stage,
+    event?.status,
+  );
   const showCancel =
     Boolean(onCancel) && event != null && isTaskCancellable(event.status);
 
@@ -159,7 +165,9 @@ export function TaskProgressPanel({
       : getTaskStageLabel(event.stage);
   const statusLabel = getTaskStatusLabel(event.status);
   const message =
-    materialProgress.primary ?? formatTaskMessage(event.message);
+    materialProgress.primary ??
+    postMaterialHint ??
+    formatTaskMessage(event.message);
   const materialSummary = materialProgress.secondary;
   const showPollingNotice = sseFailureCount > 0 && mode === "polling";
   const progressLabel = Number.isInteger(displayProgress)

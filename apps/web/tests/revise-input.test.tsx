@@ -27,7 +27,7 @@ describe("ReviseInputBar", () => {
 
     const input = screen.getByLabelText("改片指令");
     await user.type(input, "  开头更抓人  ");
-    await user.click(screen.getByRole("button", { name: "提交改片" }));
+    await user.click(screen.getByRole("button", { name: "提交改片（AI 规划）" }));
 
     expect(onSubmit).toHaveBeenCalledWith("开头更抓人");
     expect(input).toHaveValue("");
@@ -36,7 +36,20 @@ describe("ReviseInputBar", () => {
   it("disables submit when instruction is empty", () => {
     render(<ReviseInputBar onSubmit={() => undefined} />);
 
-    expect(screen.getByRole("button", { name: "提交改片" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "提交改片（AI 规划）" })).toBeDisabled();
+  });
+
+  it("navigates to narration for per-scene revise", async () => {
+    const user = userEvent.setup();
+    const onGoToNarration = vi.fn();
+
+    render(
+      <ReviseInputBar onSubmit={() => undefined} onGoToNarration={onGoToNarration} />,
+    );
+
+    expect(screen.getByTestId("revise-input-guide")).toBeInTheDocument();
+    await user.click(screen.getByTestId("revise-go-to-narration"));
+    expect(onGoToNarration).toHaveBeenCalled();
   });
 });
 

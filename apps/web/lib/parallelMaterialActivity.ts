@@ -163,6 +163,30 @@ export function buildCompletedMaterialSummary(
   return `已完成：${labels}`;
 }
 
+export function inferPostMaterialPipelineHint(
+  activity: ParallelMaterialActivity,
+  stage: string | undefined,
+  status: string | undefined,
+): string | null {
+  if (status !== "running" && status !== "retrying") {
+    return null;
+  }
+  if (
+    stage !== "rendering_material" &&
+    stage !== "generating_material" &&
+    stage !== "producing_media"
+  ) {
+    return null;
+  }
+  if (activity.activeSlots.size > 0) {
+    return null;
+  }
+  if (activity.completedSlots.size === 0) {
+    return null;
+  }
+  return "槽位素材已就绪，正在写入计划并合成完整视频…";
+}
+
 export function buildUnifiedMaterialProgressSummary(
   activity: ParallelMaterialActivity,
   latestMessage?: string,
