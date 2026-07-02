@@ -65,6 +65,41 @@ describe("EditIntentList", () => {
     expect(screen.getByText("强化开头 hook")).toBeInTheDocument();
     expect(screen.getByText("减少字幕")).toBeInTheDocument();
     expect(screen.getByText("用户希望开头更抓人")).toBeInTheDocument();
+    expect(
+      screen.getByText(/AI 已从自然语言指令解析出以下结构化改片步骤/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows material_regen label for scene structured intents", () => {
+    render(
+      <EditIntentList
+        planSource="scene_structured"
+        intents={[
+          {
+            target: "generation_plan.storyboard",
+            operation: "change_packaging_style",
+            executionTool: "material_regen",
+            scope: "scene",
+            sceneIds: ["scene-slot-2"],
+            slotIds: ["slot-2"],
+            params: {
+              sceneId: "scene-slot-2",
+              slotId: "slot-2",
+              materialEditMode: "full",
+              editInstruction: "重新生成该分镜",
+              requiresMaterialRegen: true,
+            },
+            rationale: "重新生成该分镜",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("单镜完全重生成")).toBeInTheDocument();
+    expect(screen.queryByText("更换包装风格")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/规则生成，未调用改片规划 LLM/),
+    ).toBeInTheDocument();
   });
 });
 

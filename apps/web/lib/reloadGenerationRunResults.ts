@@ -49,25 +49,32 @@ export function pickPreferredGenerationEntry(
   generations: LatestGenerationSnapshot[],
   prefer?: PreferredGenerationSelection,
 ): LatestGenerationSnapshot | undefined {
+  const hasPayload = (entry: LatestGenerationSnapshot) =>
+    entry.plan != null || entry.status === "awaiting_review";
+
   if (prefer?.generationId) {
     const match = generations.find(
-      (entry) => entry.generationId === prefer.generationId && entry.plan,
+      (entry) => entry.generationId === prefer.generationId && hasPayload(entry),
     );
     if (match) return match;
   }
   if (prefer?.taskId) {
     const match = generations.find(
-      (entry) => entry.taskId === prefer.taskId && entry.plan,
+      (entry) => entry.taskId === prefer.taskId && hasPayload(entry),
     );
     if (match) return match;
   }
   if (prefer?.variant) {
     const match = generations.find(
-      (entry) => entry.variant === prefer.variant && entry.plan,
+      (entry) => entry.variant === prefer.variant && hasPayload(entry),
     );
     if (match) return match;
   }
-  return generations.find((entry) => entry.plan != null) ?? generations[0];
+  return (
+    generations.find((entry) => entry.status === "awaiting_review") ??
+    generations.find((entry) => entry.plan != null) ??
+    generations[0]
+  );
 }
 
 export function activeGenerationEntryFromSnapshot(

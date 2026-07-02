@@ -388,7 +388,7 @@ export function ScriptReviewPanel({
         <CardHeader>
           <CardTitle>脚本审核</CardTitle>
           <CardDescription>
-            当前没有变体处于审核暂停点。人类审核仅在生成流水线暂停于总脚本或分镜阶段时生效；已完成或失败的任务请在「进度」面板查看或重试。
+            当前没有变体处于审核暂停点。人类审核在总脚本、分镜或素材预览阶段暂停时生效；已完成或失败的任务请在「进度」面板查看或重试。
           </CardDescription>
         </CardHeader>
       </Card>

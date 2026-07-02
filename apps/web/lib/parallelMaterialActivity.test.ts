@@ -99,6 +99,21 @@ describe("parallelMaterialActivity", () => {
     expect(shouldInferDiskCompletedSlots("done")).toBe(true);
   });
 
+  it("tracks material review SSE messages", () => {
+    const activity = reduceParallelMaterialActivity(
+      EMPTY_PARALLEL_MATERIAL_ACTIVITY,
+      "Material review for slot hook-1",
+    );
+    expect(activity.activeSlots.get("hook-1")?.actionLabel).toBe("素材审阅");
+
+    const done = reduceParallelMaterialActivity(
+      activity,
+      "Material preview ready for slot hook-1",
+    );
+    expect(done.activeSlots.has("hook-1")).toBe(false);
+    expect(done.completedSlots.has("hook-1")).toBe(true);
+  });
+
   it("builds unified summary with active and completed slots", () => {
     const activity = reduceParallelMaterialActivityFromMessages([
       "Completing slot slot-1",

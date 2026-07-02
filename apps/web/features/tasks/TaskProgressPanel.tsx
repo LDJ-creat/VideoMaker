@@ -264,7 +264,9 @@ export function TaskProgressPanel({
               生成已暂停，等待您审核{stageLabel}后继续。
             </p>
             <Button type="button" variant="outline" onClick={onGoToScriptReview}>
-              前往脚本审核
+              {event.stage === "awaiting_material_review"
+                ? "前往素材审核"
+                : "前往脚本审核"}
             </Button>
           </div>
         ) : null}

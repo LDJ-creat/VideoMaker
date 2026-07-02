@@ -76,6 +76,29 @@ describe("TaskProgressPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows material review banner with dedicated CTA", () => {
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "awaiting_review",
+          stage: "awaiting_material_review",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onGoToScriptReview={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("script-review-gate-banner")).toHaveTextContent(
+      "素材预览",
+    );
+    expect(
+      screen.getByRole("button", { name: "前往素材审核" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows cancel when onCancel is provided for running tasks", async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

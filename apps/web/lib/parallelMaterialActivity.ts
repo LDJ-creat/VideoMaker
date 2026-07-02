@@ -15,6 +15,8 @@ const COMPLETING_SLOT = /Completing slot\s+(\S+)/i;
 const AUTHORING_HF =
   /Authoring HyperFrames material spec(?:\s+for\s+(\S+))?/i;
 const HF_READY = /HyperFrames material ready for slot\s+(\S+)/i;
+const MATERIAL_REVIEW = /Material review(?:\s+for\s+slot\s+(\S+))?/i;
+const MATERIAL_PREVIEW_READY = /Material preview ready(?:\s+for\s+slot\s+(\S+))?/i;
 const FALLBACK_SLOT = /Fallback\s+\S+\s+for slot\s+(\S+)/i;
 
 export const EMPTY_PARALLEL_MATERIAL_ACTIVITY: ParallelMaterialActivity = {
@@ -67,6 +69,26 @@ export function reduceParallelMaterialActivity(
   const hfReady = message.match(HF_READY);
   if (hfReady?.[1]) {
     const rawSlotId = hfReady[1];
+    const key = slotKey(rawSlotId);
+    const activeSlots = new Map(state.activeSlots);
+    activeSlots.delete(key);
+    const completedSlots = new Set(state.completedSlots);
+    completedSlots.add(key);
+    return { activeSlots, completedSlots };
+  }
+
+  const materialReview = message.match(MATERIAL_REVIEW);
+  if (materialReview?.[1]) {
+    const rawSlotId = materialReview[1];
+    const key = slotKey(rawSlotId);
+    const activeSlots = new Map(state.activeSlots);
+    activeSlots.set(key, { slotId: rawSlotId, actionLabel: "素材审阅" });
+    return { ...state, activeSlots };
+  }
+
+  const previewReady = message.match(MATERIAL_PREVIEW_READY);
+  if (previewReady?.[1]) {
+    const rawSlotId = previewReady[1];
     const key = slotKey(rawSlotId);
     const activeSlots = new Map(state.activeSlots);
     activeSlots.delete(key);

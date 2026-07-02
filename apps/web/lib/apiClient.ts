@@ -1171,4 +1171,49 @@ export async function approveStoryboardScript(
   });
 }
 
+export type MaterialReviewReviseContext = {
+  scope: string;
+  sourceGenerationId: string;
+  affectedSlotIds?: string[];
+};
+
+export type MaterialReviewResponse = {
+  state: import("@videomaker/contracts").MaterialReviewState;
+  reports: Record<string, import("@videomaker/contracts").MaterialReviewReport>;
+  slotPreviewUrls?: Record<string, string>;
+  reviseContext?: MaterialReviewReviseContext;
+};
+
+export async function resolveGenerationByTask(
+  taskId: string,
+): Promise<ApiResult<{ generationId: string; projectId: string }>> {
+  return apiFetch(`/api/generations/resolve/by-task/${taskId}`);
+}
+
+export async function fetchMaterialReview(
+  generationId: string,
+): Promise<ApiResult<MaterialReviewResponse>> {
+  return apiFetch(`/api/generations/${generationId}/material-review`);
+}
+
+export async function reviseMaterialSlot(
+  generationId: string,
+  slotId: string,
+  instruction: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; slotId: string; queued: boolean }>> {
+  return apiFetch(`/api/generations/${generationId}/material-slots/${slotId}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+}
+
+export async function approveMaterialReview(
+  generationId: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; state: import("@videomaker/contracts").MaterialReviewState }>> {
+  return apiFetch(`/api/generations/${generationId}/approve-material`, {
+    method: "POST",
+  });
+}
+
 export type { ApiMeta, ApiResult };

@@ -19,5 +19,6 @@ export function generationStrategyHint(_targetSec: number): string {
 export function scriptReviewGateLabel(stage: string | null | undefined): string {
   if (stage === "awaiting_master_review") return "总脚本审核";
   if (stage === "awaiting_storyboard_review") return "分镜脚本审核";
+  if (stage === "awaiting_material_review") return "素材预览";
   return "脚本审核";
 }

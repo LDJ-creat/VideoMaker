@@ -55,6 +55,7 @@ import { RevisePlanCard } from "@/features/nl-revise/RevisePlanCard";
 import { ReviseSessionPanel } from "@/features/nl-revise/ReviseSessionPanel";
 import { TimelineDiffSummary } from "@/features/nl-revise/TimelineDiffSummary";
 import { ScriptReviewPanel } from "@/features/script-review/ScriptReviewPanel";
+import { MaterialReviewPanel } from "@/features/material-review/MaterialReviewPanel";
 import { GenerationRunHistoryPanel } from "@/features/generation-runs/GenerationRunHistoryPanel";
 import { SampleBatchAnalysisProgress } from "@/features/project-input/SampleBatchAnalysisProgress";
 import {
@@ -146,6 +147,7 @@ import {
   saveProjectSession,
 } from "@/lib/project-session";
 import { resolveRenderVideoUrl } from "@/lib/resolveRenderVideoUrl";
+import { isGenerationReadyForSceneRevise } from "@/lib/sceneReviseReadiness";
 import {
   activeGenerationEntryFromSnapshot,
   applyLatestGenerationPlans,
@@ -153,6 +155,7 @@ import {
   fetchGenerationPlanWithRetry,
   generationRunPlansAreLoaded,
   mergeActiveGenerationsByVariant,
+  pickPreferredGenerationEntry,
   reloadGenerationRunPlansWithRetry,
   type ActiveGenerationEntry,
   type PreferredGenerationSelection,
@@ -1410,10 +1413,33 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     onAllTerminal: handleAllGenerationTerminal,
   });
 
-  const displayGenerationEvents = useMemo(
-    () => mergeTaskEvents(settledGenerationEvents, generationEvents),
-    [generationEvents, settledGenerationEvents],
-  );
+  const displayGenerationEvents = useMemo(() => {
+    const liveEvents = { ...generationEvents };
+    if (
+      event?.taskId &&
+      !showMultiVariantGenerationProgress &&
+      !isBatchAnalysisProgress
+    ) {
+      liveEvents[event.taskId] = event;
+    }
+    return mergeTaskEvents(settledGenerationEvents, liveEvents);
+  }, [
+    event,
+    generationEvents,
+    isBatchAnalysisProgress,
+    settledGenerationEvents,
+    showMultiVariantGenerationProgress,
+  ]);
+
+  useEffect(() => {
+    if (!event?.taskId || showMultiVariantGenerationProgress || isBatchAnalysisProgress) {
+      return;
+    }
+    setSettledGenerationEvents((previous) => {
+      const next = mergeTaskEventsIfChanged(previous, { [event.taskId]: event });
+      return next ?? previous;
+    });
+  }, [event, isBatchAnalysisProgress, showMultiVariantGenerationProgress]);
 
   const liveGenerationStatusByTaskId = useMemo(() => {
     const merged: Record<string, TaskStatus> = {};
@@ -1752,14 +1778,29 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   const sceneReviseEnabled = useMemo(() => {
     if (pendingRevisePlan || !activeResultPlan) return false;
     if (panel !== "result" && panel !== "narration") return false;
+    if (!activeResultPlan.storyboard?.length) return false;
+
     if (activeGenerations.length === 0) {
-      return Boolean(activeResultPlan.storyboard?.length);
+      return true;
     }
-    return allGenerationTasksSucceeded;
+
+    const activeEntry = activeGenerations.find(
+      (entry) => entry.generationId === activeResultGenerationId,
+    );
+    if (!activeEntry) {
+      return allGenerationTasksSucceeded;
+    }
+
+    return isGenerationReadyForSceneRevise(
+      displayGenerationEvents[activeEntry.taskId],
+      activeResultPlan,
+    );
   }, [
-    activeGenerations.length,
+    activeGenerations,
+    activeResultGenerationId,
     activeResultPlan,
     allGenerationTasksSucceeded,
+    displayGenerationEvents,
     panel,
     pendingRevisePlan,
   ]);
@@ -2269,13 +2310,67 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         .filter((entry) => {
           const stage = entry.taskEvent?.stage;
           return (
-            entry.taskEvent?.status === "awaiting_review" ||
-            stage === "awaiting_master_review" ||
-            stage === "awaiting_storyboard_review"
+            entry.taskEvent?.status === "awaiting_review" &&
+            (stage === "awaiting_master_review" ||
+              stage === "awaiting_storyboard_review")
           );
         }),
     [activeGenerations, displayGenerationEvents],
   );
+
+  const materialReviewPending = useMemo(() => {
+    for (const entry of activeGenerations) {
+      const taskEvent = displayGenerationEvents[entry.taskId];
+      if (
+        taskEvent?.status === "awaiting_review" &&
+        taskEvent.stage === "awaiting_material_review"
+      ) {
+        return {
+          generationId: entry.generationId,
+          taskId: entry.taskId,
+          stage: taskEvent.stage,
+        };
+      }
+    }
+    if (
+      event?.status === "awaiting_review" &&
+      event.stage === "awaiting_material_review" &&
+      event.taskId
+    ) {
+      const fromActive = activeGenerations.find(
+        (entry) => entry.taskId === event.taskId,
+      );
+      if (fromActive) {
+        return {
+          generationId: fromActive.generationId,
+          taskId: fromActive.taskId,
+          stage: event.stage,
+        };
+      }
+      return {
+        generationId: null,
+        taskId: event.taskId,
+        stage: event.stage,
+      };
+    }
+    return null;
+  }, [activeGenerations, displayGenerationEvents, event]);
+
+  useEffect(() => {
+    if (!autoNavEnabled || lastAction !== "revise") return;
+    if (OUTPUT_RESULT_PANELS.includes(panel)) return;
+    if (panel === "script-review") return;
+    if (materialReviewPending || scriptReviewVariants.length > 0) {
+      setPanel("script-review", "revise:awaiting-review");
+    }
+  }, [
+    autoNavEnabled,
+    lastAction,
+    materialReviewPending,
+    panel,
+    scriptReviewVariants.length,
+    setPanel,
+  ]);
 
   const handleSelectPanel = useCallback(
     (next: WorkbenchPanel) => {
@@ -2540,26 +2635,52 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
         )}
 
         {panel === "script-review" && (
-          <div className="lg:col-span-2">
-            <ScriptReviewPanel
-              projectId={projectId}
-              variants={scriptReviewVariants}
-              onApproved={() => {
-                const approvedTaskIds = activeGenerations
-                  .map((entry) => entry.taskId)
-                  .filter((id) => id.length > 0);
-                applyGenerationStatusOverrides((previous) => {
-                  const next = { ...previous };
-                  for (const id of approvedTaskIds) {
-                    next[id] = "retrying";
-                  }
-                  return next;
-                });
-                setDataError(null);
-                bumpTaskWatchKeys(approvedTaskIds);
-                setPanel("progress", "script-review:approved");
-              }}
-            />
+          <div className="lg:col-span-2 space-y-4">
+            {scriptReviewVariants.length > 0 ? (
+              <ScriptReviewPanel
+                projectId={projectId}
+                variants={scriptReviewVariants}
+                onApproved={() => {
+                  const approvedTaskIds = activeGenerations
+                    .map((entry) => entry.taskId)
+                    .filter((id) => id.length > 0);
+                  applyGenerationStatusOverrides((previous) => {
+                    const next = { ...previous };
+                    for (const id of approvedTaskIds) {
+                      next[id] = "retrying";
+                    }
+                    return next;
+                  });
+                  setDataError(null);
+                  bumpTaskWatchKeys(approvedTaskIds);
+                  setPanel("progress", "script-review:approved");
+                }}
+              />
+            ) : null}
+            {materialReviewPending ? (
+              <MaterialReviewPanel
+                projectId={projectId}
+                generationId={materialReviewPending.generationId}
+                taskId={materialReviewPending.taskId}
+                stage={materialReviewPending.stage}
+                refreshKey={taskWatchKeys[materialReviewPending.taskId] ?? 0}
+                onApproved={() => {
+                  const approvedTaskIds = [materialReviewPending.taskId];
+                  applyGenerationStatusOverrides((previous) => {
+                    const next = { ...previous };
+                    for (const id of approvedTaskIds) {
+                      next[id] = "retrying";
+                    }
+                    return next;
+                  });
+                  setDataError(null);
+                  bumpTaskWatchKeys(approvedTaskIds);
+                  setPanel("progress", "material-review:approved");
+                }}
+              />
+            ) : scriptReviewVariants.length === 0 ? (
+              <ScriptReviewPanel projectId={projectId} variants={[]} />
+            ) : null}
           </div>
         )}
 

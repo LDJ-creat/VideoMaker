@@ -213,6 +213,28 @@ describe("reloadGenerationRunResults", () => {
     expect(picked?.generationId).toBe("gen-fork");
   });
 
+  it("pickPreferredGenerationEntry matches awaiting_review fork without plan", () => {
+    const picked = pickPreferredGenerationEntry(
+      [
+        {
+          generationId: "gen-source",
+          variant: "high_conversion",
+          taskId: "task-source",
+          status: "succeeded",
+          plan: fixtureGenerationPlan,
+        },
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          status: "awaiting_review",
+        },
+      ],
+      { taskId: "task-fork" },
+    );
+    expect(picked?.generationId).toBe("gen-fork");
+  });
+
   it("applyGenerationRunDetail hydrates all variants and prefers succeeded plan", () => {
     const setVariantPlans = vi.fn();
     const setGenerationId = vi.fn();
