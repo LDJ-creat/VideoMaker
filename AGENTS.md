@@ -130,10 +130,14 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-08-sample-structure-output-v3-plan.md` | **p1-v3-only** VideoStructure, coercer v3 enrich, sample-analysis slim, promoteReady gate, four-track UI | `docs/superpowers/plans/2026-06-08-sample-structure-output-v3-plan.md` |
 | `2026-06-08-narration-alignment-plan.md` | Global TTS, subtitle–WAV alignment, timeline `hold_tail`, DashScope WAV header fallback | `docs/demos/narration-alignment-e2e-checklist.md` |
 | `2026-06-10-revise-cost-optimization-plan.md` | NL revise 三档降本：`packaging_scene_patch` in_place、scoped `material_regen`、packaging-only fork 保留素材 | `docs/demos/nl-revise-e2e-checklist.md` |
+| `2026-06-29-acp-material-review-resilience-plan.md` | ACP 分层超时、底片 normalize、scoped regen 默认 post-session review、partial harvest、overlay/hf_native lint | 本计划 § E2E |
 | `2026-06-08-ffmpeg-render-backend-plan.md` | Default FFmpeg final MP4; HF for slot material + preview fallback | `docs/demos/ffmpeg-render-e2e-checklist.md` |
 | `2026-06-08-composition-pattern-promote-plan.md` | Result 区 composition pattern 入库：skill + HTML 泛化 + relint；无 userScore | `docs/demos/composition-agent-e2e-checklist.md` § Pattern promote |
 | `2026-06-09-volcengine-tts-integration-plan.md` | 豆包 Seed TTS 2.0 V3 单向流式；`ttsPreferences` + `voProfile` 映射 | `docs/demos/p1-manual-test-guide.md` § G6 |
 | `2026-06-10-volcengine-seeddance-video-plan.md` | 火山方舟 SeedDance 2.0 生视频 driver `volcengine_seeddance`（t2v/i2v） | 本计划 § E2E |
+| `2026-06-29-material-review-gate-plan.md` | Visual slot 素材 agent review + 人工 gate；`awaiting_material_review` → `approve-material` → `assembling_final` | `docs/demos/material-review-gate-e2e-checklist.md` |
+| `2026-06-30-revise-material-review-gate-plan.md` | Fork 改片 `material_regen` 扩展 material gate；未改 slot 继承审核；`VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE` | `docs/demos/material-review-gate-e2e-checklist.md` § Revise fork |
+| `2026-06-29-material-review-observability-plan.md` | Material review LLM 落盘：`model-calls` / `agent-runs` / `tool-runs` + `report.json` `trace` 关联 | `docs/demos/material-review-gate-e2e-checklist.md` § Observability |
 | `2026-06-16-composition-author-brief-plan.md` | Storyboard `compositionAuthorBrief` → finishBrief → material_author 主 HF 规格 | `docs/demos/composition-author-brief-e2e-checklist.md` |
 | `2026-06-19-composition-acp-author-plan.md` | ACP 外部 agent（Claude/Codex/Cursor）可选 material author；Python MCP 工具桥；render 路径不变 | `docs/demos/composition-acp-author-e2e-checklist.md` |
 | `2026-06-19-acp-lint-cli-plan.md` | ACP session 内 lint 迭代 + `python -m composition.cli lint-spec` + spec hash 缓存加速 | `docs/demos/composition-acp-author-e2e-checklist.md` |
@@ -281,6 +285,9 @@ GET /api/generations/{generation_id}/script-draft
 PUT /api/generations/{generation_id}/script-draft
 POST /api/generations/{generation_id}/approve-master
 POST /api/generations/{generation_id}/approve-storyboard
+GET /api/generations/{generation_id}/material-review
+POST /api/generations/{generation_id}/material-slots/{slotId}/revise
+POST /api/generations/{generation_id}/approve-material
 POST /api/generations/{generation_id}/revise/plan
 POST /api/generations/{generation_id}/revise/execute
 GET /api/generations/{generation_id}/revise/session
@@ -292,7 +299,7 @@ GET /api/generations/{generation_id}/agent-runs
 
 **NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`: `subtitle_patch`, `timeline_scene_patch`, `packaging_scene_patch`) update the same `generationId`. Scoped `material_regen` forks a new generation but only invalidates/regenerates `affectedSlotIds`. Packaging-only fork (`packaging_agent`, `materialScope=none`) preserves `generated/` and skips AIGC. Full storyboard/hook forks still regenerate all materials. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
 
-Generation with human review (default): worker pauses at `awaiting_master_review` and `awaiting_storyboard_review` with task `status=awaiting_review`. After master approval, worker runs **preview TTS** (`preview/master.wav`) + Whisper alignment → `narration-preview.json` with per-slot `sceneTiming` before `storyboard_from_master`. Approve routes update `script-draft.json` and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Material stage reuses preview wav when `contentHash` matches. Fork revise re-runs skip human review gates (`human_review_mode=false`).
+Generation with human review (default): worker pauses at `awaiting_master_review`, `awaiting_storyboard_review`, and **`awaiting_material_review`** with task `status=awaiting_review`. After master approval, worker runs **preview TTS** (`preview/master.wav`) + Whisper alignment → `narration-preview.json` with per-slot `sceneTiming` before `storyboard_from_master`. After storyboard approval, **`generating_material` runs visual slots only**; HF terminal slots use in-session `render_material_preview` + `review_material_preview` (ReAct/ACP). When all visual previews are ready, worker pauses at **`awaiting_material_review`** until `approve-material`; then **`assembling_final`** runs global TTS + timeline + FFmpeg render. Gate内 slot NL revise: `POST .../material-slots/{slotId}/revise`. Approve routes update artifacts and call `POST /api/tasks/{task_id}/retry` (resume). Per-variant `script-draft.json` lives under `generations/{generationId}/`. Material stage reuses preview wav when `contentHash` matches. Fork revise re-runs skip master/storyboard gates (`human_review_mode=false`); **fork `material_regen`** (scoped/all, not `materialScope=none`) also pauses at **`awaiting_material_review`** when `VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE=true` (default): visual-only regen → LLM review → approve → assembly/render; unaffected slots inherit prior `agent_passed` from source copy. E2E: `docs/demos/material-review-gate-e2e-checklist.md`. Env: `VIDEOMAKER_MATERIAL_REVIEW_ENABLED` (default `true`), `VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE` (default `true`), `VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS`, `VIDEOMAKER_MATERIAL_REVIEW_MAX_FRAMES`, `VIDEOMAKER_MATERIAL_REVIEW_VIDEO_MAX_SEC`.
 
 Local dev server: `services/api/run-dev.ps1` (or `uvicorn` via project conventions).
 
