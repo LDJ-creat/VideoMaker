@@ -18,6 +18,8 @@ MASTER_TTS_SLOT_ID = "__master__"
 MIN_STOCK_VIDEO_BYTES = 100_000
 MIN_HYPERFRAMES_VIDEO_BYTES = 15_000
 
+MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES = frozenset({"agent_passed", "skipped", "review_unavailable"})
+
 
 def _min_video_bytes_for_path(path: Path) -> int:
     name = path.name.lower()
@@ -96,6 +98,56 @@ def infer_completed_slot_ids(
         if _slot_visual_complete(actions, generated_root):
             completed.append(slot_id)
     return sorted(completed)
+
+
+def collect_visual_slot_ids(completion_actions: list[dict[str, Any]]) -> set[str]:
+    visual_slot_ids: set[str] = set()
+    for action in completion_actions:
+        if not isinstance(action, dict):
+            continue
+        slot_id = str(action.get("slotId") or "").strip()
+        provider = str(action.get("provider") or action.get("strategy") or "")
+        if not slot_id or slot_id == MASTER_TTS_SLOT_ID or provider == "tts":
+            continue
+        if provider in MATERIAL_PROVIDERS or provider:
+            visual_slot_ids.add(slot_id)
+    return visual_slot_ids
+
+
+def terminal_visual_action_by_slot(
+    completion_actions: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    terminal: dict[str, dict[str, Any]] = {}
+    for action in completion_actions:
+        if not isinstance(action, dict):
+            continue
+        slot_id = str(action.get("slotId") or "").strip()
+        if slot_id and slot_id != MASTER_TTS_SLOT_ID:
+            terminal[slot_id] = action
+    return terminal
+
+
+def material_review_approvable(
+    *,
+    state: dict[str, Any],
+    completion_actions: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    slots_state = state.get("slots")
+    if not isinstance(slots_state, dict):
+        return False, "Material review slot state missing"
+
+    visual_slot_ids = collect_visual_slot_ids(completion_actions)
+    if not visual_slot_ids:
+        return True, ""
+
+    for slot_id in sorted(visual_slot_ids):
+        entry = slots_state.get(slot_id)
+        if not isinstance(entry, dict):
+            return False, f"Slot {slot_id} has no review state"
+        status = str(entry.get("status") or "")
+        if status not in MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES:
+            return False, f"Slot {slot_id} is not ready for approval (status={status or 'unknown'})"
+    return True, ""
 
 
 def _slot_visual_complete(actions: list[dict[str, Any]], generated_root: Path) -> bool:
