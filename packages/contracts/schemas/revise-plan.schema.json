@@ -137,6 +137,7 @@
     "planSource": {
       "type": "string",
       "enum": ["nl", "scene_structured"]
-    }
+    },
+    "materialReviewGateExpected": { "type": "boolean" }
   }
 }

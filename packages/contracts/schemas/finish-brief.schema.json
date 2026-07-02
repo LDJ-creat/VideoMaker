@@ -10,6 +10,10 @@
     },
     "finishIntent": { "type": "string" },
     "compositionAuthorBrief": { "$ref": "composition-author-brief.schema.json" },
+    "layoutDirective": {
+      "type": "string",
+      "description": "Expanded layout rule derived from compositionAuthorBrief.layoutAnchor for material author."
+    },
     "creativeBrief": {
       "type": "object",
       "properties": {

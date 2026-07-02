@@ -114,6 +114,7 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "conversationSummary": { "type": "string" }
+    "conversationSummary": { "type": "string" },
+    "materialReviewGateExpected": { "type": "boolean" }
   }
 }

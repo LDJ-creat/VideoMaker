@@ -48,8 +48,12 @@
         "generating_video",
         "generating_tts",
         "rendering_material",
+        "reviewing_material",
+        "awaiting_material_review",
+        "assembling_final",
         "parsing_edit_intent",
-        "applying_edit_intent"
+        "applying_edit_intent",
+        "applying_revise_patch"
       ]
     },
     "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
