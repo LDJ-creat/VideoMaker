@@ -52,6 +52,34 @@ type KnowledgeSelectionPanelProps = {
   refreshKey?: number;
 };
 
+async function loadKnowledgeEntries(
+  primaryId: string | null,
+  referenceIds: string[],
+): Promise<{ primaryEntry: KnowledgeEntry | null; referenceEntries: KnowledgeEntry[] }> {
+  if (!primaryId) {
+    return { primaryEntry: null, referenceEntries: [] };
+  }
+
+  const [primaryResult, ...referenceResults] = await Promise.all([
+    getKnowledgeEntry(primaryId),
+    ...referenceIds.map(async (entryId) => {
+      try {
+        const result = await getKnowledgeEntry(entryId);
+        return result.data;
+      } catch {
+        return null;
+      }
+    }),
+  ]);
+
+  return {
+    primaryEntry: primaryResult.data,
+    referenceEntries: referenceResults.filter(
+      (entry): entry is KnowledgeEntry => entry !== null,
+    ),
+  };
+}
+
 export const KnowledgeSelectionPanel = forwardRef<
   KnowledgeSelectionPanelHandle,
   KnowledgeSelectionPanelProps
@@ -70,7 +98,21 @@ export const KnowledgeSelectionPanel = forwardRef<
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  const loadRecommendations = useCallback(async () => {
+    setLoadingRecommendations(true);
+    setStatus(null);
+    try {
+      const recommendResponse = await recommendKnowledge(projectId);
+      setRecommendation(recommendResponse.data.recommendation);
+    } catch (error) {
+      setStatus(getErrorMessage(error));
+    } finally {
+      setLoadingRecommendations(false);
+    }
+  }, [projectId]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -95,41 +137,25 @@ export const KnowledgeSelectionPanel = forwardRef<
       setSampleReady(analyzedRealSample);
       setRecommendationReady(ready);
 
-      let recommendationResult: KnowledgeRecommendation | null = null;
-      if (ready) {
-        const recommendResponse = await recommendKnowledge(projectId);
-        recommendationResult = recommendResponse.data.recommendation;
-      } else {
+      if (!ready) {
         setExpanded(false);
+        setRecommendation(null);
+        setPrimaryEntry(null);
+        setReferenceEntries([]);
+        return;
       }
-      setRecommendation(recommendationResult);
 
-      const primaryId = ready
-        ? (currentSelection?.primaryEntryId ??
-          recommendationResult?.suggestedPrimaryId ??
-          null)
-        : (currentSelection?.primaryEntryId ?? null);
+      setRecommendation(currentSelection?.recommendationSnapshot ?? null);
 
+      const primaryId =
+        currentSelection?.primaryEntryId ??
+        currentSelection?.recommendationSnapshot?.suggestedPrimaryId ??
+        null;
       const referenceIds = currentSelection?.referenceEntryIds ?? [];
 
-      if (primaryId) {
-        const entryResult = await getKnowledgeEntry(primaryId);
-        setPrimaryEntry(entryResult.data);
-      } else {
-        setPrimaryEntry(null);
-      }
-
-      const refEntries = await Promise.all(
-        referenceIds.map(async (entryId) => {
-          try {
-            const result = await getKnowledgeEntry(entryId);
-            return result.data;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      setReferenceEntries(refEntries.filter((entry): entry is KnowledgeEntry => entry !== null));
+      const entries = await loadKnowledgeEntries(primaryId, referenceIds);
+      setPrimaryEntry(entries.primaryEntry);
+      setReferenceEntries(entries.referenceEntries);
     } catch (error) {
       setStatus(getErrorMessage(error));
     } finally {
@@ -144,17 +170,40 @@ export const KnowledgeSelectionPanel = forwardRef<
     void refresh();
   }, [refresh, refreshKey]);
 
+  useEffect(() => {
+    if (!expanded || !recommendationReady || recommendation || loadingRecommendations) {
+      return;
+    }
+    void loadRecommendations();
+  }, [
+    expanded,
+    recommendation,
+    recommendationReady,
+    loadingRecommendations,
+    loadRecommendations,
+  ]);
+
+  const applyLocalSelection = async (nextSelection: ProjectKnowledgeSelection) => {
+    setSelection(nextSelection);
+    const entries = await loadKnowledgeEntries(
+      nextSelection.primaryEntryId,
+      nextSelection.referenceEntryIds ?? [],
+    );
+    setPrimaryEntry(entries.primaryEntry);
+    setReferenceEntries(entries.referenceEntries);
+  };
+
   const persistSelection = async (body: {
-    primaryEntryId: string;
+    primaryEntryId: string | null;
     referenceEntryIds: string[];
     applyStructure?: boolean;
   }) => {
-    await updateKnowledgeSelection(projectId, {
+    const result = await updateKnowledgeSelection(projectId, {
       primaryEntryId: body.primaryEntryId,
       referenceEntryIds: body.referenceEntryIds,
       applyStructure: body.applyStructure ?? false,
     });
-    await refresh();
+    await applyLocalSelection(result.data.selection);
   };
 
   const handleSelectPrimary = async (entryId: string) => {
@@ -201,6 +250,21 @@ export const KnowledgeSelectionPanel = forwardRef<
     }
   };
 
+  const handleClearPrimary = async () => {
+    setLoading(true);
+    setStatus(null);
+    try {
+      await persistSelection({
+        primaryEntryId: null,
+        referenceEntryIds: [],
+      });
+    } catch (error) {
+      setStatus(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleApplyStructure = async (entryId: string) => {
     if (structureApplyBlocked) {
       return;
@@ -236,14 +300,21 @@ export const KnowledgeSelectionPanel = forwardRef<
     }
   };
 
-  const activeCandidate = recommendation?.candidates.find(
+  const handleExpandCandidates = () => {
+    setExpanded(true);
+  };
+
+  const recommendationSource = recommendation ?? selection?.recommendationSnapshot ?? null;
+  const activeCandidate = recommendationSource?.candidates.find(
     (item) => item.entryId === selection?.primaryEntryId,
   );
+  const candidateCount = recommendationSource?.candidates.length ?? 0;
 
   const applyStructureDisabled = loading || structureApplyBlocked;
   const applyStructureTitle = structureApplyBlocked
     ? KNOWLEDGE_STRUCTURE_APPLY_BLOCKED_HINT
     : "将知识条目的结构写入项目（无样例分析时可用）";
+  const showLoadingBanner = loading || loadingRecommendations;
 
   return (
     <Card>
@@ -255,7 +326,7 @@ export const KnowledgeSelectionPanel = forwardRef<
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {loading && (
+        {showLoadingBanner && (
           <KnowledgeRefreshStatus
             label={
               hasLoadedOnce
@@ -315,10 +386,21 @@ export const KnowledgeSelectionPanel = forwardRef<
                     {referenceEntries.map((entry) => (
                       <li
                         key={entry.id}
-                        className="rounded-lg border border-border/80 bg-background/40 px-3 py-2 text-sm"
+                        className="flex items-start justify-between gap-3 rounded-lg border border-border/80 bg-background/40 px-3 py-2 text-sm"
                       >
-                        <span className="font-medium">{entry.title}</span>
-                        <p className="mt-0.5 text-muted-foreground">{entry.summary}</p>
+                        <div>
+                          <span className="font-medium">{entry.title}</span>
+                          <p className="mt-0.5 text-muted-foreground">{entry.summary}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={loading}
+                          onClick={() => void toggleReference(entry.id)}
+                        >
+                          取消参考
+                        </Button>
                       </li>
                     ))}
                   </ul>
@@ -331,12 +413,14 @@ export const KnowledgeSelectionPanel = forwardRef<
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={loading}
-                onClick={() => setExpanded((v) => !v)}
+                disabled={loading || loadingRecommendations}
+                onClick={() => (expanded ? setExpanded(false) : handleExpandCandidates())}
               >
                 {expanded
                   ? "收起候选列表"
-                  : `查看其他推荐（${recommendation?.candidates.length ?? 0}）`}
+                  : candidateCount > 0
+                    ? `查看其他推荐（${candidateCount}）`
+                    : "查看其他推荐"}
               </Button>
               <Button
                 type="button"
@@ -346,6 +430,15 @@ export const KnowledgeSelectionPanel = forwardRef<
                 onClick={() => void handleReset()}
               >
                 恢复自动选用
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={loading}
+                onClick={() => void handleClearPrimary()}
+              >
+                取消主知识
               </Button>
               {selection?.primaryEntryId && (
                 <Button
@@ -366,13 +459,16 @@ export const KnowledgeSelectionPanel = forwardRef<
           </p>
         ) : null}
 
-        {expanded && recommendation && (
+        {expanded && (
           <SelectionCandidateZone
             title="推荐候选"
-            count={recommendation.candidates.length}
+            count={recommendationSource?.candidates.length ?? 0}
             onCollapse={() => setExpanded(false)}
           >
-            {recommendation.candidates.map((candidate) => {
+            {loadingRecommendations && !recommendationSource ? (
+              <p className="text-sm text-muted-foreground">加载推荐候选…</p>
+            ) : null}
+            {recommendationSource?.candidates.map((candidate) => {
               const isPrimary = candidate.entryId === selection?.primaryEntryId;
               const isReference = selection?.referenceEntryIds?.includes(candidate.entryId);
               const matchScore = formatKnowledgeMatchScore(candidate.score);
