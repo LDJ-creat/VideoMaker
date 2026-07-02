@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import time
+import uuid
 from typing import Any, Iterator
 
 from app.agents.failure_debug import format_validation_errors
@@ -24,6 +25,7 @@ class AgentRunner:
     prompt_loader: PromptLoader
     observability_sink: ObservabilitySink
     model_name: str = "fixture"
+    last_agent_run_id: str | None = field(default=None, init=False, repr=False)
 
     def _resolve_model_name(self, profile: str) -> str:
         if self.llm.fixture_mode:
@@ -115,6 +117,7 @@ class AgentRunner:
                 raise
             finally:
                 latency_ms = (time.perf_counter() - started) * 1000
+                run_id = str(uuid.uuid4())
                 payload = AgentRunLog(
                     agent_name=agent_name,
                     prompt_version=prompt_version,
@@ -127,8 +130,10 @@ class AgentRunner:
                     generation_id=generation_id,
                     validation_errors=errors,
                     token_usage=latest_token_usage_from_llm(self.llm),
+                    run_id=run_id,
                 ).to_payload()
                 payload["projectId"] = context.project_id
+                self.last_agent_run_id = run_id
                 self.observability_sink.record_agent_run(payload)
 
         assert output is not None

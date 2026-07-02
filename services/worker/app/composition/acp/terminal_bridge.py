@@ -47,8 +47,17 @@ class TerminalBridge:
         command: str,
         args: list[str] | None = None,
         cwd: str | None = None,
+        trace: Any | None = None,
     ) -> tuple[int, str, str]:
         if not is_terminal_command_allowed(command, args):
+            if trace is not None and hasattr(trace, "record_tool_call"):
+                trace.record_tool_call(
+                    {
+                        "kind": "terminal_denied",
+                        "command": command,
+                        "args": list(args or []),
+                    }
+                )
             raise PermissionError(f"terminal command not allowed: {command}")
         import asyncio
 

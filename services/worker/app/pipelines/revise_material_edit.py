@@ -28,6 +28,7 @@ MATERIAL_SPEC_FILENAME = "material-spec.json"
 _CENTER_KEYWORDS = ("居中", "中心", "中部", "核心区域", "center", "centre", "middle")
 
 NARRATION_PREVIEW_FILENAME = "narration-preview.json"
+GENERATION_PLAN_FILENAME = "generation-plan.json"
 _ROOT_DURATION_RE = re.compile(r'data-duration="([0-9.]+)"', re.IGNORECASE)
 _ROOT_INNER_HTML_RE = re.compile(
     r'id="root"[^>]*>\s*(.*?)\s*</div>\s*<script>',
@@ -250,30 +251,74 @@ def apply_narration_preview_to_storyboard(
         scene["endSec"] = timing["endSec"]
 
 
-def resolve_slot_timing_for_revise(
-    generation_root: Path,
+def load_generation_plan(generation_root: Path) -> dict[str, Any] | None:
+    plan_path = generation_root / GENERATION_PLAN_FILENAME
+    if not plan_path.is_file():
+        return None
+    try:
+        payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def resolve_slot_timing_from_storyboard(
     storyboard: list[Any],
     slot_id: str,
-    *,
-    existing_spec: dict[str, Any] | None = None,
-    finish_brief: dict[str, Any] | None = None,
-) -> dict[str, float]:
-    preview_timing = load_narration_preview_timing(generation_root, slot_id)
-    if preview_timing is not None:
-        timing = preview_timing
-    else:
-        timing = None
-        for scene in storyboard:
-            if not isinstance(scene, dict) or str(scene.get("slotId") or "") != slot_id:
-                continue
+) -> dict[str, float] | None:
+    for scene in storyboard:
+        if not isinstance(scene, dict) or str(scene.get("slotId") or "") != slot_id:
+            continue
+        nested = scene.get("slotTiming")
+        if isinstance(nested, dict):
+            duration_raw = nested.get("durationSec")
+            if isinstance(duration_raw, (int, float)) and float(duration_raw) > 0:
+                start_raw = nested.get("startSec", scene.get("startSec", 0.0))
+                end_raw = nested.get("endSec", scene.get("endSec", 0.0))
+                start, end, duration = normalize_scene_start_end(
+                    float(start_raw or 0.0),
+                    float(end_raw if end_raw is not None else float(start_raw or 0.0) + float(duration_raw)),
+                )
+                return {"startSec": start, "endSec": end, "durationSec": duration}
+        if "startSec" in scene or "endSec" in scene:
             start, end, duration = normalize_scene_start_end(
                 float(scene.get("startSec", 0.0)),
                 float(scene.get("endSec", 0.0)),
             )
-            timing = {"startSec": start, "endSec": end, "durationSec": duration}
-            break
-        if timing is None:
-            timing = {"startSec": 0.0, "endSec": 4.0, "durationSec": 4.0}
+            return {"startSec": start, "endSec": end, "durationSec": duration}
+    return None
+
+
+def resolve_slot_timing_from_generation_plan(
+    generation_root: Path,
+    slot_id: str,
+) -> dict[str, float] | None:
+    plan = load_generation_plan(generation_root)
+    if not isinstance(plan, dict):
+        return None
+    storyboard = plan.get("storyboard")
+    if not isinstance(storyboard, list):
+        return None
+    return resolve_slot_timing_from_storyboard(storyboard, slot_id)
+
+
+def resolve_slot_timing_for_material_author(
+    generation_root: Path,
+    slot_id: str,
+    *,
+    storyboard_fallback: list[Any] | None = None,
+    existing_spec: dict[str, Any] | None = None,
+    finish_brief: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    timing = resolve_slot_timing_from_generation_plan(generation_root, slot_id)
+    if timing is None:
+        preview_timing = load_narration_preview_timing(generation_root, slot_id)
+        if preview_timing is not None:
+            timing = preview_timing
+    if timing is None and storyboard_fallback:
+        timing = resolve_slot_timing_from_storyboard(storyboard_fallback, slot_id)
+    if timing is None:
+        timing = {"startSec": 0.0, "endSec": 4.0, "durationSec": 4.0}
 
     prefer_duration: float | None = None
     if isinstance(existing_spec, dict) and existing_spec.get("durationSec") is not None:
@@ -286,6 +331,23 @@ def resolve_slot_timing_for_revise(
         timing["durationSec"] = round(max(0.5, prefer_duration), 3)
         timing["endSec"] = round(timing["startSec"] + timing["durationSec"], 3)
     return timing
+
+
+def resolve_slot_timing_for_revise(
+    generation_root: Path,
+    storyboard: list[Any],
+    slot_id: str,
+    *,
+    existing_spec: dict[str, Any] | None = None,
+    finish_brief: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    return resolve_slot_timing_for_material_author(
+        generation_root,
+        slot_id,
+        storyboard_fallback=storyboard,
+        existing_spec=existing_spec,
+        finish_brief=finish_brief,
+    )
 
 
 def _load_json_spec(path: Path) -> dict[str, Any] | None:

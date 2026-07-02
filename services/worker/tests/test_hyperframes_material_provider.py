@@ -114,6 +114,53 @@ def test_hyperframes_provider_with_prefilled_spec(tmp_path: Path) -> None:
     ]
 
 
+def test_finish_resolves_normalized_stock_video_src(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "false")
+    structure = _load_structure_fixture()
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
+    slot_id = "seg-hook-hook_visual-1"
+    stock = ctx.generated_root / f"{slot_id}-stock.mp4"
+    stock.write_bytes(b"fake-mp4-bytes-xx")
+    spec = {
+        "template": "composition",
+        "durationSec": 7.0,
+        "composition": {
+            "bodyHtml": (
+                f'<video id="base-video" src="{slot_id}-stock-normalized.mp4" '
+                'muted playsinline></video><div class="overlay">hook</div>'
+            ),
+            "styles": "#root { position: relative; }",
+            "timelineScript": 'tl.set(".overlay", { autoAlpha: 1 }, 0);',
+        },
+    }
+    action = {
+        "id": f"action-{slot_id}-finish",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "sourceProvider": "stock_media_search",
+        "completionMode": "source_then_polish",
+        "materialSpec": spec,
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    alias = ctx.generated_root / f"{slot_id}-stock-normalized.mp4"
+    assert alias.is_file()
+    composition_dir = ctx.generated_root / f"action-{slot_id}-finish" / "composition"
+    index_html = composition_dir / "index.html"
+    assert index_html.is_file()
+    html = index_html.read_text(encoding="utf-8")
+    assert "<video" in html
+    assert f"{slot_id}-stock-normalized.mp4" in html
+    staged = composition_dir / f"{slot_id}-stock-normalized.mp4"
+    assert staged.is_file()
+    assert staged.stat().st_size == stock.stat().st_size
+
+
 def test_hyperframes_provider_runs_material_author_via_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

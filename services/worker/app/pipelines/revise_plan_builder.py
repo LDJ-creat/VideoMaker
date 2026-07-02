@@ -307,4 +307,19 @@ def enrich_revise_plan(
         plan["affectedSlotIds"] = affected_slots
     if planner_output.get("planSource"):
         plan["planSource"] = planner_output["planSource"]
+    source_timeline = (
+        source_plan.get("timeline") if isinstance(source_plan, dict) and isinstance(source_plan.get("timeline"), dict) else {}
+    )
+    from app.pipelines.intent_applier import apply_intents_to_context
+    from app.pipelines.material_review import use_material_review_gate
+
+    revise_ctx = apply_intents_to_context(
+        intents,
+        source_plan=source_plan if isinstance(source_plan, dict) else {},
+        source_timeline=source_timeline,
+    )
+    plan["materialReviewGateExpected"] = use_material_review_gate(
+        human_review=False,
+        revise_context=revise_ctx,
+    )
     return plan

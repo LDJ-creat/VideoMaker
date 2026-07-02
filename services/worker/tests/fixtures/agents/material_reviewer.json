@@ -1,0 +1,11 @@
+{
+  "approved": true,
+  "scores": {
+    "briefAlignment": 4,
+    "visualHierarchy": 4,
+    "copyPolicy": 5,
+    "motionQuality": 4
+  },
+  "issues": [],
+  "suggestions": []
+}

@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from app.gateway.chat_timeout import chat_timeout_sec
 from app.gateway.config import GatewayConfig
 from app.gateway.providers.base import GatewayError
 from app.gateway.providers.openai_compatible_chat import OpenAICompatibleChatProvider
@@ -102,9 +103,14 @@ class ModelGateway:
                 provider_config = self.config.video_understanding
             else:
                 provider_config = self.config.text
+            timeout_sec = chat_timeout_sec(profile)
+            client = self.client
+            if profile in {"video_understanding", "vision"} and client is not None:
+                client = None
             self._chat_providers[profile] = OpenAICompatibleChatProvider(
                 provider_config,
-                client=self.client,
+                client=client,
+                timeout_sec=timeout_sec,
             )
         return self._chat_providers[profile]
 

@@ -188,6 +188,14 @@ def _enrich_semantic_fields(
         }
 
     brief["constraints"] = _merge_constraints(brief.get("constraints") if isinstance(brief.get("constraints"), list) else None)
+    mode = str(brief.get("completionMode") or "").strip().lower()
+    cab = brief.get("compositionAuthorBrief")
+    if mode == "hf_native" or (isinstance(cab, dict) and str(cab.get("mode") or "").strip().lower() == "hf_native"):
+        brief["constraints"] = [
+            item
+            for item in brief.get("constraints") or []
+            if item not in {"do_not_replace_base_media", "keep_base_video_visible"}
+        ]
     return brief
 
 

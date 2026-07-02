@@ -153,57 +153,18 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
 
 
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
-    from app.pipelines.revise_material_edit import (
-        load_revise_material_edit_context,
-        normalize_scene_start_end,
-        resolve_slot_timing_for_revise,
-    )
-
-    generation_root = _generation_root(ctx)
-    if load_revise_material_edit_context(generation_root) is not None:
-        timing = resolve_slot_timing_for_revise(
-            generation_root,
-            list(ctx.storyboard),
-            slot_id,
-        )
-        return float(timing["durationSec"])
-    for scene in ctx.storyboard:
-        if isinstance(scene, dict) and scene.get("slotId") == slot_id:
-            _start, _end, duration = normalize_scene_start_end(
-                float(scene.get("startSec", 0.0)),
-                float(scene.get("endSec", 0.0)),
-            )
-            return duration
-    return 4.0
+    return float(_slot_timing_for_slot(ctx, slot_id)["durationSec"])
 
 
 def _slot_timing_for_slot(ctx: MaterialContext, slot_id: str) -> dict[str, float]:
-    from app.pipelines.revise_material_edit import (
-        load_revise_material_edit_context,
-        normalize_scene_start_end,
-        resolve_slot_timing_for_revise,
-    )
+    from app.pipelines.revise_material_edit import resolve_slot_timing_for_material_author
 
     generation_root = _generation_root(ctx)
-    if load_revise_material_edit_context(generation_root) is not None:
-        return resolve_slot_timing_for_revise(
-            generation_root,
-            list(ctx.storyboard),
-            slot_id,
-        )
-    for scene in ctx.storyboard:
-        if isinstance(scene, dict) and scene.get("slotId") == slot_id:
-            start, end, duration = normalize_scene_start_end(
-                float(scene.get("startSec", 0.0)),
-                float(scene.get("endSec", 0.0)),
-            )
-            return {
-                "startSec": start,
-                "endSec": end,
-                "durationSec": duration,
-            }
-    duration = 4.0
-    return {"startSec": 0.0, "endSec": duration, "durationSec": duration}
+    return resolve_slot_timing_for_material_author(
+        generation_root,
+        slot_id,
+        storyboard_fallback=list(ctx.storyboard),
+    )
 
 
 def _enforce_spec_duration(
@@ -232,10 +193,46 @@ def _resolve_material_asset_refs(
     refs = action.get("assetRefs")
     if isinstance(refs, list) and refs:
         return refs
+
+    generation_root = _generation_root(ctx)
+    from app.pipelines.revise_material_edit import SlotChainKind, load_revise_material_edit_context
+
+    revise_context = load_revise_material_edit_context(generation_root)
+    completion_mode = str(action.get("completionMode") or "").strip().lower()
+    if revise_context and isinstance(revise_context.get("slotChainKinds"), dict):
+        raw_kind = revise_context["slotChainKinds"].get(slot_id)
+        try:
+            chain_kind = SlotChainKind(str(raw_kind)) if raw_kind else SlotChainKind.UNKNOWN
+        except ValueError:
+            chain_kind = SlotChainKind.UNKNOWN
+        if chain_kind == SlotChainKind.HF_ONLY and completion_mode == "hf_native":
+            return None
+
     base = resolve_slot_base_media(slot_id, ctx.generated_root)
     if base is None:
         return None
     return [base]
+
+
+def _try_harvest_acp_partial_spec(ctx: MaterialContext, slot_id: str) -> dict[str, Any] | None:
+    generation_root = _generation_root(ctx)
+    scratch = generation_root / "acp-author" / slot_id
+    spec_path = scratch / "material-spec.json"
+    lint_marker = scratch / "material-spec.lint-passed"
+    if not spec_path.is_file() or not lint_marker.is_file():
+        return None
+    try:
+        payload = json.loads(spec_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("template") or "") != "composition":
+        return None
+    composition = payload.get("composition")
+    if not isinstance(composition, dict) or not str(composition.get("bodyHtml") or "").strip():
+        return None
+    return payload
 
 
 def _relative_asset_ref(base_media: dict[str, Any], generated_root: Path) -> dict[str, Any]:
@@ -328,7 +325,6 @@ def _author_spec(
 ) -> dict[str, Any]:
     from app.pipelines.revise_material_edit import (
         build_edit_finish_brief,
-        load_revise_material_edit_context,
         resolve_slot_timing_for_revise,
     )
 
@@ -341,16 +337,13 @@ def _author_spec(
         author_finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
 
     generation_root = _generation_root(ctx)
-    if load_revise_material_edit_context(generation_root) is not None:
-        slot_timing = resolve_slot_timing_for_revise(
-            generation_root,
-            list(ctx.storyboard),
-            slot_id,
-            existing_spec=existing_material_spec,
-            finish_brief=author_finish_brief,
-        )
-    else:
-        slot_timing = _slot_timing_for_slot(ctx, slot_id)
+    slot_timing = resolve_slot_timing_for_revise(
+        generation_root,
+        list(ctx.storyboard),
+        slot_id,
+        existing_spec=existing_material_spec,
+        finish_brief=author_finish_brief,
+    )
     target_duration = float(slot_timing["durationSec"])
     prefer_duration: float | None = None
     if material_edit_mode == "edit":
@@ -438,6 +431,7 @@ def _author_spec(
                             finish_brief=author_finish_brief,
                             task_id=ctx.task_context.task_id if ctx.task_context else None,
                             generation_id=ctx.generation_id,
+                            generation_root=_generation_root(ctx),
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
@@ -483,10 +477,12 @@ def _author_spec(
                             finish_brief=author_finish_brief,
                             task_id=ctx.task_context.task_id if ctx.task_context else None,
                             generation_id=ctx.generation_id,
+                            generation_root=_generation_root(ctx),
                             react_trace=react_trace,
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
+                            review_gateway=ctx.gateway,
                         )
                     ),
                     target_duration,
@@ -613,7 +609,7 @@ class HyperFramesMaterialProvider:
                     )
             else:
                 try:
-                    author = _author_spec_with_retry if finish_action else _author_spec
+                    author = _author_spec_with_retry
                     spec = author(
                         ctx,
                         slot,
@@ -629,24 +625,40 @@ class HyperFramesMaterialProvider:
                         action_id,
                         exc_info=True,
                     )
-                    spec, fallback_warning = _tiered_author_fallback(
-                        action,
-                        slot,
-                        asset_refs,
-                        duration_sec=_duration_for_slot(ctx, slot_id),
-                        finish_action=finish_action,
-                    )
-                    if fallback_warning:
+                    partial_spec = _try_harvest_acp_partial_spec(ctx, slot_id)
+                    if partial_spec is not None:
+                        spec = partial_spec
                         ctx.emit_progress(
                             "rendering_material",
-                            f"槽位 {slot_id}: {fallback_warning}",
+                            f"槽位 {slot_id} ACP 未完整结束，已采用 lint 通过的 composition spec",
                         )
+                    else:
+                        spec, fallback_warning = _tiered_author_fallback(
+                            action,
+                            slot,
+                            asset_refs,
+                            duration_sec=_duration_for_slot(ctx, slot_id),
+                            finish_action=finish_action,
+                        )
+                        if fallback_warning:
+                            ctx.emit_progress(
+                                "rendering_material",
+                                f"槽位 {slot_id}: {fallback_warning}",
+                            )
 
         output_dir = ctx.generated_root / action_id / "composition"
         output_clip = expected_hyperframes_output(action, ctx.generated_root)
         log_path = ctx.generated_root / f"{action_id}-render-log.json"
         lint_log_path = ctx.generated_root / f"{action_id}-render-log-lint.json"
         ctx.generated_root.mkdir(parents=True, exist_ok=True)
+
+        from composition.build.media_staging import ensure_base_video_aliases_in_asset_root
+
+        composition = spec.get("composition") if isinstance(spec, dict) else None
+        if isinstance(composition, dict):
+            body_html = str(composition.get("bodyHtml") or "")
+            if body_html.strip():
+                ensure_base_video_aliases_in_asset_root(body_html, ctx.generated_root)
 
         tool = self._tool or HyperFramesMaterialTool(emit_progress=ctx.emit_progress)
         render_result = tool.render_material(
@@ -717,6 +729,48 @@ class HyperFramesMaterialProvider:
             spec=spec,
             generated_root=ctx.generated_root,
             action_id=action_id,
+        )
+
+        from app.pipelines.material_review_finalize import persist_slot_material_review
+        from app.pipelines.revise_material_edit import (
+            resolve_slot_timing_from_generation_plan,
+            resolve_slot_timing_from_storyboard,
+        )
+
+        generation_root = _generation_root(ctx)
+        plan_path = generation_root / "generation-plan.json"
+        plan_payload: dict[str, Any] = {"completionActions": []}
+        if plan_path.is_file():
+            loaded = json.loads(plan_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                plan_payload = loaded
+        plan_storyboard = plan_payload.get("storyboard")
+        storyboard_source = (
+            list(plan_storyboard) if isinstance(plan_storyboard, list) else list(ctx.storyboard)
+        )
+        slot_timing = resolve_slot_timing_from_generation_plan(generation_root, slot_id)
+        if slot_timing is None:
+            slot_timing = resolve_slot_timing_from_storyboard(storyboard_source, slot_id)
+        persist_slot_material_review(
+            generation_root=generation_root,
+            generation_id=ctx.generation_id,
+            project_id=ctx.project_id,
+            variant=str(plan_payload.get("variant") or "default"),
+            action=action,
+            plan=plan_payload,
+            preview_path=output_clip,
+            spec_uri=f"generated/{action_id}/material-spec.json",
+            artifact_ref=registered if isinstance(registered, dict) else None,
+            slot_timing=slot_timing,
+            storyboard=list(plan_payload.get("storyboard") or ctx.storyboard),
+            gateway=ctx.gateway,
+            runner=ctx.runner,
+            task_context=ctx.task_context,
+            generated_root=ctx.generated_root,
+        )
+        ctx.emit_progress(
+            "reviewing_material",
+            f"Material preview ready for slot {slot_id}",
         )
 
         return {

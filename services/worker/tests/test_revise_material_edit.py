@@ -185,7 +185,38 @@ def test_normalize_scene_start_end_swaps_inverted_values() -> None:
     assert duration == pytest.approx(7.009, abs=0.001)
 
 
-def test_resolve_slot_timing_prefers_narration_preview(tmp_path: Path) -> None:
+def test_resolve_slot_timing_prefers_generation_plan_over_narration_preview(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    preview_path = generation_root / "narration-preview.json"
+    preview_path.write_text(
+        json.dumps(
+            {
+                "sceneTiming": [
+                    {"slotId": "slot-6", "startSec": 34.316, "endSec": 37.078},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (generation_root / "generation-plan.json").write_text(
+        json.dumps(
+            {
+                "storyboard": [
+                    {"slotId": "slot-6", "startSec": 21.332, "endSec": 28.986},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    storyboard = [{"slotId": "slot-6", "startSec": 41.325, "endSec": 34.316}]
+    timing = resolve_slot_timing_for_revise(generation_root, storyboard, "slot-6")
+    assert timing["durationSec"] == pytest.approx(7.654, abs=0.001)
+    assert timing["startSec"] == pytest.approx(21.332, abs=0.001)
+    assert timing["endSec"] == pytest.approx(28.986, abs=0.001)
+
+
+def test_resolve_slot_timing_falls_back_to_narration_preview_without_plan(tmp_path: Path) -> None:
     generation_root = tmp_path / "gen"
     generation_root.mkdir()
     preview_path = generation_root / "narration-preview.json"

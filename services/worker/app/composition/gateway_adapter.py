@@ -34,3 +34,7 @@ class ModelGatewayToolAdapter:
             self._gateway.observability.agent_name = "material_author"
             self._gateway.observability.turn = self._turn
         return self._gateway.complete_with_tools(messages, tools, task=task)
+
+    @property
+    def underlying_gateway(self) -> ModelGateway:
+        return self._gateway

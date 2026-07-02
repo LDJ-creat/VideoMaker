@@ -137,6 +137,8 @@ class AcpAuthorObservabilityContext:
         composition_template: bool,
         lint_repair_max: int,
         max_turns: int | None = None,
+        prompt_timeout_sec: float | None = None,
+        in_session_review_enabled: bool | None = None,
     ) -> None:
         self._emit_tool_run(
             tool_name="acp_session_start",
@@ -144,9 +146,11 @@ class AcpAuthorObservabilityContext:
             input_payload={
                 "agentCommand": _sanitize_agent_command(agent_command),
                 "acpTimeoutSec": acp_timeout_sec,
+                "promptTimeoutSec": prompt_timeout_sec,
                 "compositionTemplate": composition_template,
                 "lintRepairMax": lint_repair_max,
                 "maxTurns": max_turns or lint_repair_max + 1,
+                "inSessionReviewEnabled": in_session_review_enabled,
             },
         )
 
@@ -196,11 +200,48 @@ class AcpAuthorObservabilityContext:
             },
         )
 
-    def record_session_retry(self, *, attempt: int, error: str) -> None:
+    def record_turn_review_gate(
+        self,
+        *,
+        turn: int,
+        errors: list[str],
+        hard_gate_failed: bool,
+        approved: bool,
+        latency_ms: float = 0.0,
+    ) -> None:
+        self._emit_tool_run(
+            tool_name="acp_turn_review_gate",
+            event_kind="turn_review_gate",
+            latency_ms=latency_ms,
+            input_payload={
+                "turn": turn,
+                "errors": errors[:20],
+                "hardGateFailed": hard_gate_failed,
+                "approved": approved,
+            },
+            metadata={
+                "turn": turn,
+                "hardGateFailed": hard_gate_failed,
+                "approved": approved,
+                "repairAttempt": max(0, turn - 1),
+                "outputValid": not errors,
+            },
+        )
+
+    def record_session_retry(
+        self,
+        *,
+        attempt: int,
+        error: str,
+        agent_diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        input_payload: dict[str, Any] = {"attempt": attempt, "error": error[:500]}
+        if agent_diagnostics:
+            input_payload["agentDiagnostics"] = agent_diagnostics
         self._emit_tool_run(
             tool_name="acp_session_retry",
             event_kind="session_retry",
-            input_payload={"attempt": attempt, "error": error[:500]},
+            input_payload=input_payload,
             metadata={"sessionRetryAttempt": attempt},
         )
 
@@ -214,6 +255,7 @@ class AcpAuthorObservabilityContext:
         validation_errors: list[str] | None = None,
         turn_count: int | None = None,
         hint_codes: list[str] | None = None,
+        agent_diagnostics: dict[str, Any] | None = None,
     ) -> None:
         resolved_repair = self._last_repair_attempt if repair_attempt is None else repair_attempt
         resolved_lint_cached = self._last_lint_cached if lint_cached is None else lint_cached
@@ -235,6 +277,7 @@ class AcpAuthorObservabilityContext:
             input_payload={
                 "valid": valid,
                 "validationErrors": (validation_errors or [])[:10],
+                **({"agentDiagnostics": agent_diagnostics} if agent_diagnostics else {}),
             },
             metadata=metadata,
         )

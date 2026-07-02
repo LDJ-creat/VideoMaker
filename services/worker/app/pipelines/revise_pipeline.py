@@ -21,6 +21,11 @@ from app.pipelines.revise_material_edit import (
     normalize_plan_storyboard_timing,
     rebind_plan_to_generation,
 )
+from app.pipelines.material_review import material_review_enabled, material_review_on_revise_enabled
+from app.pipelines.material_review_revise import (
+    material_review_revise_context_payload,
+    reset_material_review_for_revise_fork,
+)
 from app.providers.completion_registry import invalidate_material_for_slots
 from app.runtime.checkpoint import GenerationCheckpoint, generation_artifact_root
 
@@ -169,31 +174,46 @@ def seed_revise_generation(
         elif artifact_path.is_dir():
             shutil.rmtree(artifact_path)
 
+    if material_review_enabled() and material_review_on_revise_enabled():
+        needs_material_review = "generating_material" in revise_context.affected_pipeline_stages
+        if needs_material_review and revise_context.material_scope != "none":
+            affected_slot_set = set(revise_context.affected_slot_ids or [])
+            full_reset = revise_context.material_scope == "all" and not affected_slot_set
+            reset_material_review_for_revise_fork(
+                target_root,
+                affected_slot_set,
+                full_reset=full_reset,
+            )
+
+    revise_context_payload: dict[str, Any] = {
+        "sourceGenerationId": source_generation_id,
+        "instruction": instruction,
+        "generationParams": revise_context.generation_params,
+        "agentOverrides": revise_context.agent_overrides,
+        "affectedStages": revise_context.affected_pipeline_stages,
+        "rerunStoryboard": revise_context.rerun_storyboard,
+        "rerunPackaging": revise_context.rerun_packaging,
+        "affectedSceneIds": revise_context.affected_scene_ids,
+        "affectedSlotIds": revise_context.affected_slot_ids,
+        "materialScope": revise_context.material_scope,
+        "preserveGenerated": revise_context.preserve_generated,
+        "materialEditMode": material_edit_mode,
+        "editInstruction": edit_instruction,
+        "slotChainKinds": slot_chain_kinds,
+    }
+    revise_context_payload.update(
+        material_review_revise_context_payload(
+            source_generation_id=source_generation_id,
+            revise_context=revise_context,
+        )
+    )
+
     (target_root / "edit-intent.json").write_text(
         json.dumps({"intents": intents}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     (target_root / "revise-context.json").write_text(
-        json.dumps(
-            {
-                "sourceGenerationId": source_generation_id,
-                "instruction": instruction,
-                "generationParams": revise_context.generation_params,
-                "agentOverrides": revise_context.agent_overrides,
-                "affectedStages": revise_context.affected_pipeline_stages,
-                "rerunStoryboard": revise_context.rerun_storyboard,
-                "rerunPackaging": revise_context.rerun_packaging,
-                "affectedSceneIds": revise_context.affected_scene_ids,
-                "affectedSlotIds": revise_context.affected_slot_ids,
-                "materialScope": revise_context.material_scope,
-                "preserveGenerated": revise_context.preserve_generated,
-                "materialEditMode": material_edit_mode,
-                "editInstruction": edit_instruction,
-                "slotChainKinds": slot_chain_kinds,
-            },
-            indent=2,
-            ensure_ascii=False,
-        ),
+        json.dumps(revise_context_payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -239,6 +259,10 @@ def load_revise_snapshot(generation_root: Path) -> dict[str, Any] | None:
 
 
 def is_revise_generation(generation_root: Path) -> bool:
+    if (generation_root / "edit-intent.json").is_file():
+        return True
+    if (generation_root / "revise-snapshot.json").is_file():
+        return True
     return (generation_root / "revise-context.json").is_file()
 
 

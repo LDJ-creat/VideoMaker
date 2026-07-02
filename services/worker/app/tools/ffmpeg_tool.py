@@ -199,6 +199,102 @@ class FFmpegTool:
             }
         return {"path": str(resolved_output)}
 
+    def normalize_for_composition_preview(
+        self,
+        video_path: str | Path,
+        output_path: str | Path,
+    ) -> dict[str, Any]:
+        """Re-encode with dense GOP for HyperFrames preview seek stability."""
+        resolved_input = Path(video_path).resolve()
+        resolved_output = Path(output_path).resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(resolved_input),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-g",
+            "30",
+            "-keyint_min",
+            "30",
+            "-sc_threshold",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            str(resolved_output),
+        ]
+        try:
+            result = self._command_runner(command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+        if result.returncode != 0:
+            return _retryable_tool_error(
+                "ffmpeg_normalize_failed",
+                "ffmpeg normalize failed",
+                {"stderr": result.stderr},
+            )
+        if not resolved_output.is_file() or resolved_output.stat().st_size == 0:
+            return {
+                "code": "ffmpeg_normalize_empty_output",
+                "message": "ffmpeg normalize produced no output",
+                "retryable": True,
+                "details": {},
+            }
+        return {"path": str(resolved_output)}
+
+    def extract_frame_at(
+        self,
+        video_path: str | Path,
+        output_path: str | Path,
+        *,
+        time_sec: float,
+    ) -> dict[str, Any]:
+        resolved_input = Path(video_path).resolve()
+        resolved_output = Path(output_path).resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = max(0.0, float(time_sec))
+        command = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(timestamp),
+            "-i",
+            str(resolved_input),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(resolved_output),
+        ]
+        try:
+            result = self._command_runner(command)
+        except FileNotFoundError:
+            return _retryable_tool_error("ffmpeg_missing", "ffmpeg is not installed")
+        if result.returncode != 0:
+            return _retryable_tool_error(
+                "ffmpeg_extract_frame_failed",
+                "ffmpeg frame extraction failed",
+                {"stderr": result.stderr},
+            )
+        if not resolved_output.is_file() or resolved_output.stat().st_size <= 0:
+            return {
+                "code": "ffmpeg_extract_frame_empty",
+                "message": "ffmpeg frame extraction produced no output",
+                "retryable": True,
+                "details": {},
+            }
+        return {"path": str(resolved_output), "timeSec": timestamp}
+
     def still_image_to_video(
         self,
         image_path: str | Path,

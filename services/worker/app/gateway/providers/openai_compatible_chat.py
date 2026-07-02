@@ -31,7 +31,14 @@ class OpenAICompatibleChatProvider:
     def _get_client(self) -> httpx.Client:
         if self._client is not None:
             return self._client
-        return httpx.Client(timeout=self._timeout_sec)
+        return httpx.Client(
+            timeout=httpx.Timeout(
+                connect=30.0,
+                read=self._timeout_sec,
+                write=max(120.0, self._timeout_sec),
+                pool=10.0,
+            )
+        )
 
     def complete_assistant_message(
         self,

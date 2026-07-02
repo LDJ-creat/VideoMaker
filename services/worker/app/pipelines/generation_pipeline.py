@@ -1221,6 +1221,52 @@ def is_material_stage_done(
     return True
 
 
+def is_visual_material_stage_done(
+    generation_root: Path,
+    plan: dict[str, Any],
+    *,
+    slot_filter: set[str] | None = None,
+) -> bool:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    actions = [
+        action
+        for action in actions
+        if str(action.get("slotId") or "") != MASTER_TTS_SLOT_ID
+    ]
+    if slot_filter:
+        actions = [
+            action
+            for action in actions
+            if str(action.get("slotId") or "") in slot_filter
+        ]
+    if not actions:
+        return True
+    generated_root = generation_root / "generated"
+    for action in actions:
+        if not action_artifact_satisfied(action, generated_root):
+            return False
+    return True
+
+
+def is_master_material_stage_done(
+    generation_root: Path,
+    plan: dict[str, Any],
+) -> bool:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    actions = [
+        action
+        for action in actions
+        if str(action.get("slotId") or "") == MASTER_TTS_SLOT_ID
+    ]
+    if not actions:
+        return True
+    generated_root = generation_root / "generated"
+    for action in actions:
+        if not action_artifact_satisfied(action, generated_root):
+            return False
+    return True
+
+
 def sync_material_results_to_plan(
     plan: dict[str, Any],
     *,
@@ -1246,6 +1292,19 @@ def sync_material_results_to_plan(
     )
 
 
+def _build_material_review_gateway_store(
+    database_path: Path | str | None,
+    storage_root: Path,
+) -> Any | None:
+    if database_path is None:
+        return None
+    from model_gateway.store import ModelGatewayStore
+
+    store = ModelGatewayStore(Path(database_path), Path(storage_root))
+    store.ensure_initialized()
+    return store
+
+
 def run_generating_material(
     *,
     plan: dict[str, Any],
@@ -1265,6 +1324,9 @@ def run_generating_material(
     brand_colors: dict[str, Any] | None = None,
     slot_filter: set[str] | None = None,
     gateway_factory: Any | None = None,
+    visual_only: bool = False,
+    master_only: bool = False,
+    database_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -1283,6 +1345,12 @@ def run_generating_material(
         )
 
     from app.providers.material_types import resolve_storage_root
+
+    material_review_storage = resolve_storage_root(generation_root=generation_root)
+    material_review_store = _build_material_review_gateway_store(
+        database_path,
+        material_review_storage,
+    )
 
     ctx = MaterialContext(
         project_id=str(plan.get("projectId", "")),
@@ -1324,6 +1392,10 @@ def run_generating_material(
         for action in actions
         if not material_action_done(action, generated_root)
     ]
+    if visual_only:
+        pending = [action for action in pending if str(action.get("slotId") or "") != MASTER_TTS_SLOT_ID]
+    if master_only:
+        pending = [action for action in pending if str(action.get("slotId") or "") == MASTER_TTS_SLOT_ID]
     if slot_filter:
         pending = [action for action in pending if str(action.get("slotId") or "") in slot_filter]
     if not pending:
@@ -1345,6 +1417,27 @@ def run_generating_material(
             quota=ctx.quota,
             completed_action_ids=ctx.completed_action_ids,
         )
+        if visual_only:
+            from app.pipelines.material_review import material_review_enabled
+
+            if material_review_enabled():
+                from app.pipelines.material_review_finalize import finalize_visual_material_reviews
+
+                finalize_visual_material_reviews(
+                    generation_root=generation_root,
+                    plan=plan,
+                    project_id=str(plan.get("projectId") or ctx.project_id),
+                    variant=str(plan.get("variant") or "default"),
+                    structure=ctx.structure,
+                    storyboard=list(plan.get("storyboard") or ctx.storyboard),
+                    generated_root=generated_root,
+                    gateway=ctx.gateway,
+                    runner=ctx.runner,
+                    task_context=ctx.task_context,
+                    store=material_review_store,
+                    database_path=database_path,
+                    storage_root=material_review_storage,
+                )
         return plan, sync_results
 
     results = execute_completion_plan(pending, ctx, fail_fast=True)
@@ -1386,6 +1479,27 @@ def run_generating_material(
         quota=ctx.quota,
         completed_action_ids=ctx.completed_action_ids,
     )
+    if visual_only:
+        from app.pipelines.material_review import material_review_enabled
+
+        if material_review_enabled():
+            from app.pipelines.material_review_finalize import finalize_visual_material_reviews
+
+            finalize_visual_material_reviews(
+                generation_root=generation_root,
+                plan=updated_plan,
+                project_id=str(plan.get("projectId") or ctx.project_id),
+                variant=str(updated_plan.get("variant") or "default"),
+                structure=ctx.structure,
+                storyboard=list(updated_plan.get("storyboard") or ctx.storyboard),
+                generated_root=generated_root,
+                gateway=ctx.gateway,
+                runner=ctx.runner,
+                task_context=ctx.task_context,
+                store=material_review_store,
+                database_path=database_path,
+                storage_root=material_review_storage,
+            )
     return updated_plan, results
 
 

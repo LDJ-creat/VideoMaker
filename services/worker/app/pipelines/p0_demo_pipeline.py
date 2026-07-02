@@ -36,6 +36,8 @@ from app.pipelines.generation_pipeline import (
     draft_storyboard_script,
     is_fixture_material_gateway,
     is_material_stage_done,
+    is_visual_material_stage_done,
+    is_master_material_stage_done,
     run_agent_generation,
     run_generating_material,
     run_mapping_and_gap,
@@ -992,6 +994,10 @@ class P0DemoPipeline:
                 )
                 return {"ok": False, "error": str(exc)}
 
+            (generation_root / "asset-inventory.json").write_text(
+                json.dumps(inventory, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
             checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.save(checkpoint_path)
 
@@ -1328,17 +1334,53 @@ class P0DemoPipeline:
         checkpoint.generationStrategy = str(plan.get("generationStrategy") or "")
 
         material_state_path = generation_root / "material-state.json"
+        from app.pipelines.material_review import use_material_review_gate
+        from app.pipelines.material_review_state import material_is_approved
+        from app.pipelines.material_slot_revise import (
+            clear_material_gate_revise_context,
+            consume_material_slot_revise_queue,
+            prepare_material_slot_revise,
+        )
+
+        use_material_gate = use_material_review_gate(
+            human_review=human_review,
+            revise_context=revise_context,
+        )
         slot_filter = (
             set(revise_context.affected_slot_ids)
             if revise_context is not None and revise_context.material_scope == "scoped"
             else None
         )
-        material_skipped = resume and is_material_stage_done(
-            generation_root,
-            plan,
-            slot_filter=slot_filter,
-        )
-        if material_skipped:
+        if use_material_gate:
+            revise_queue = consume_material_slot_revise_queue(generation_root)
+            if revise_queue is not None:
+                slot_id = str(revise_queue.get("slotId") or "")
+                instruction = str(revise_queue.get("instruction") or "")
+                plan, slot_filter = prepare_material_slot_revise(
+                    generation_root=generation_root,
+                    plan=plan,
+                    slot_id=slot_id,
+                    instruction=instruction,
+                )
+                (generation_root / "generation-plan.json").write_text(
+                    json.dumps(plan, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+
+        if use_material_gate:
+            visual_material_skipped = resume and is_visual_material_stage_done(
+                generation_root,
+                plan,
+                slot_filter=slot_filter,
+            )
+        else:
+            visual_material_skipped = resume and is_material_stage_done(
+                generation_root,
+                plan,
+                slot_filter=slot_filter,
+            )
+
+        if visual_material_skipped and (not use_material_gate or material_is_approved(generation_root)):
             plan = sync_material_results_to_plan(plan, generation_root=generation_root)
             emit(
                 status="running",
@@ -1353,7 +1395,7 @@ class P0DemoPipeline:
             )
             checkpoint.mark_stage_complete("generating_material")
             checkpoint.save(checkpoint_path)
-        else:
+        elif not visual_material_skipped:
             emit(
                 status="running",
                 stage="generating_material",
@@ -1399,6 +1441,8 @@ class P0DemoPipeline:
                     task_context=context,
                     variant_overrides=load_variant_material_execution_overrides(str(plan.get("variant", variant))),
                     slot_filter=slot_filter,
+                    visual_only=use_material_gate,
+                    database_path=self._database_path,
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")
@@ -1429,6 +1473,91 @@ class P0DemoPipeline:
                 message="AIGC materials generated",
                 artifact_refs=list(context.artifact_refs),
             )
+
+        if use_material_gate:
+            clear_material_gate_revise_context(generation_root)
+
+        if use_material_gate and not material_is_approved(generation_root):
+            return _pause_for_review(
+                emit,
+                checkpoint,
+                checkpoint_path,
+                gate="material_review",
+                stage="awaiting_material_review",
+                message="Review slot material previews before final assembly",
+                progress=72,
+            )
+
+        if use_material_gate and not (
+            resume and is_master_material_stage_done(generation_root, plan)
+        ):
+            emit(
+                status="running",
+                stage="assembling_final",
+                progress=74,
+                message="Generating global narration and assembling final timeline",
+                artifact_refs=list(context.artifact_refs),
+            )
+
+            def assemble_progress(stage: str, message: str) -> None:
+                emit(
+                    status="running",
+                    stage=stage,
+                    progress=74,
+                    message=message,
+                    artifact_refs=list(context.artifact_refs),
+                )
+
+            gap_report_path = generation_root / "gap-report.json"
+            assemble_gap_report = None
+            if gap_report_path.is_file():
+                assemble_gap_report = json.loads(gap_report_path.read_text(encoding="utf-8"))
+            try:
+                material_gateway = self._build_material_gateway()
+                plan, _master_results = run_generating_material(
+                    plan=plan,
+                    inventory=inventory,
+                    slot_matches=slot_matches,
+                    structure=structure,
+                    generation_root=generation_root,
+                    render_root=render_root,
+                    gateway=material_gateway,
+                    gateway_factory=self._build_material_gateway_factory(
+                        context=context,
+                        generation_id=generation_id,
+                    ),
+                    emit_progress=assemble_progress,
+                    register_artifact=context.register_artifact,
+                    material_state_path=material_state_path,
+                    gap_report=assemble_gap_report,
+                    runner=runner,
+                    task_context=context,
+                    variant_overrides=load_variant_material_execution_overrides(str(plan.get("variant", variant))),
+                    master_only=True,
+                    database_path=self._database_path,
+                )
+            except ToolError as exc:
+                checkpoint.mark_failed("assembling_final")
+                checkpoint.save(checkpoint_path)
+                emit(
+                    status="failed",
+                    stage="assembling_final",
+                    progress=74,
+                    message="Final assembly failed",
+                    error={
+                        "code": exc.code,
+                        "message": exc.message,
+                        "retryable": exc.retryable,
+                    },
+                )
+                return {"ok": False, "error": str(exc)}
+
+            (generation_root / "generation-plan.json").write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            checkpoint.mark_stage_complete("assembling_final")
+            checkpoint.save(checkpoint_path)
 
         if revise_context is not None and is_revise_generation(generation_root):
             from app.pipelines.revise_patch_executor import apply_fork_packaging_scene_patches

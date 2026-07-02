@@ -97,30 +97,30 @@ class AcpAuthorTraceRecorder:
         turn_count: int | None = None,
         hint_codes: list[str] | None = None,
         hint_code: str | None = None,
+        agent_diagnostics: dict[str, Any] | None = None,
     ) -> None:
         resolved_turn = turn_count if turn_count is not None else repair_attempt + 1
         resolved_hints = list(hint_codes or [])
         if hint_code and hint_code not in resolved_hints:
             resolved_hints.append(hint_code)
+        outcome: dict[str, Any] = {
+            "valid": valid,
+            "validationErrors": validation_errors,
+            "totalLatencyMs": round(total_latency_ms, 2),
+            "specPath": spec_path,
+            "repairAttempt": repair_attempt,
+            "finalTurn": resolved_turn,
+            "turnCount": resolved_turn,
+            "hintCodes": resolved_hints,
+            "hintCode": resolved_hints[0] if resolved_hints else hint_code,
+            "lintCached": lint_cached,
+            "recordedAt": _utc_now_iso(),
+            "backend": "acp",
+            "acpAgent": self.acp_agent,
+        }
+        if agent_diagnostics:
+            outcome["agentDiagnostics"] = agent_diagnostics
         (self.trace_dir / "outcome.json").write_text(
-            json.dumps(
-                {
-                    "valid": valid,
-                    "validationErrors": validation_errors,
-                    "totalLatencyMs": round(total_latency_ms, 2),
-                    "specPath": spec_path,
-                    "repairAttempt": repair_attempt,
-                    "finalTurn": resolved_turn,
-                    "turnCount": resolved_turn,
-                    "hintCodes": resolved_hints,
-                    "hintCode": resolved_hints[0] if resolved_hints else hint_code,
-                    "lintCached": lint_cached,
-                    "recordedAt": _utc_now_iso(),
-                    "backend": "acp",
-                    "acpAgent": self.acp_agent,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps(outcome, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
