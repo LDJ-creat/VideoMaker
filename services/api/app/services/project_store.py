@@ -652,7 +652,13 @@ class ProjectStore:
                     plan_json IS NOT NULL
                     OR (
                       task_id IS NOT NULL
-                      AND status IN ('failed', 'running', 'pending', 'cancelled')
+                      AND status IN (
+                        'failed',
+                        'running',
+                        'pending',
+                        'cancelled',
+                        'awaiting_review'
+                      )
                     )
                   )
                 ORDER BY updated_at DESC

@@ -391,6 +391,7 @@ def test_plan_revise_structured_edit_mode(
     assert plan["intents"][0]["params"]["materialEditMode"] == "edit"
     assert plan["intents"][0]["params"]["editInstruction"] == "字幕居中，样式保持不变"
     assert plan["affectedSlotIds"] == ["slot-1"]
+    assert plan.get("materialReviewGateExpected") is True
 
 
 def test_plan_revise_structured_full_mode(
