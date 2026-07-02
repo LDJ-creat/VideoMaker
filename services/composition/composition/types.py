@@ -23,7 +23,9 @@ class AuthorRequest:
     validation_errors: list[str] = field(default_factory=list)
     task_id: str | None = None
     generation_id: str | None = None
+    generation_root: Path | None = None
     react_trace: Any | None = None
+    review_gateway: Any | None = None
 
 
 @dataclass

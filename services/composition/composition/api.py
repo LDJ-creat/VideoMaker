@@ -73,7 +73,15 @@ class CompositionEngine:
             validation_errors=request.validation_errors,
             task_id=request.task_id,
             generation_id=request.generation_id,
+            generation_root=request.generation_root,
             react_trace=request.react_trace,
+            finish_brief=request.finish_brief,
+            slot_timing=request.slot_timing,
+            visual_style_bible=request.visual_style_bible,
+            material_edit_mode=request.material_edit_mode,
+            edit_instruction=request.edit_instruction,
+            existing_material_spec=request.existing_material_spec,
+            review_gateway=request.review_gateway,
         )
         return author_material_spec(
             enriched,

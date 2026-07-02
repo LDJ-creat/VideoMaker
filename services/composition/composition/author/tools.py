@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from composition.lint_pipeline import LintContext, lint_material_spec_full, spec_lint_result_to_json
+from composition.material_review.preview import (
+    render_material_preview_spec,
+    review_material_preview_tool,
+)
+from composition.material_review.session import validate_review_marker, write_review_marker
 from composition.registry.installer import load_registry_catalog
 from composition.render.hyperframes_cli import HyperFramesCli
 from composition.skills.runtime import SkillRuntime
 from composition.types import BuildContext
 
 
+def _material_review_tools_enabled() -> bool:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def tool_definitions() -> list[dict[str, Any]]:
-    return [
+    tools: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
@@ -54,6 +65,37 @@ def tool_definitions() -> list[dict[str, Any]]:
                 },
             },
         },
+    ]
+    if _material_review_tools_enabled():
+        tools.extend(
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "render_material_preview",
+                        "description": "Render a preview MP4 from MaterialSpec in scratch.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"spec_json": {"type": "object"}},
+                            "required": ["spec_json"],
+                        },
+                    },
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "review_material_preview",
+                        "description": "Review rendered preview against brief; returns MaterialReviewReport.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"spec_json": {"type": "object"}},
+                            "required": ["spec_json"],
+                        },
+                    },
+                },
+            ]
+        )
+    tools.append(
         {
             "type": "function",
             "function": {
@@ -65,8 +107,9 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "required": ["spec_json"],
                 },
             },
-        },
-    ]
+        }
+    )
+    return tools
 
 
 class CompositionToolExecutor:
@@ -79,6 +122,7 @@ class CompositionToolExecutor:
         hyperframes_cli: HyperFramesCli | None = None,
         repo_root: Path | None = None,
         author_payload: dict[str, Any] | None = None,
+        review_gateway: Any | None = None,
     ) -> None:
         self._runtime = skill_runtime
         self._build_ctx = build_ctx
@@ -86,6 +130,8 @@ class CompositionToolExecutor:
         self._repo_root = repo_root
         self._cli = hyperframes_cli or HyperFramesCli(repo_root=repo_root)
         self._author_payload = author_payload or {}
+        self._review_gateway = review_gateway
+        self._last_review_report: dict[str, Any] | None = None
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         if name == "skill_view":
@@ -138,6 +184,67 @@ class CompositionToolExecutor:
             if errors:
                 payload["errors"] = errors
             return json.dumps(payload, ensure_ascii=False)
+        if name == "render_material_preview":
+            spec = arguments.get("spec_json")
+            if not isinstance(spec, dict):
+                return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+            from composition.paths import detect_repo_root
+
+            repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
+            payload = render_material_preview_spec(
+                spec,
+                scratch_dir=self._lint_root.resolve(),
+                repo_root=repo,
+                aspect_ratio=self._build_ctx.aspect_ratio,
+                asset_root=self._build_ctx.asset_root,
+            )
+            return json.dumps(payload, ensure_ascii=False)
+        if name == "review_material_preview":
+            spec = arguments.get("spec_json")
+            if not isinstance(spec, dict):
+                return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+            from composition.paths import detect_repo_root
+
+            repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
+            observation = review_material_preview_tool(
+                spec_json=spec,
+                scratch_dir=self._lint_root.resolve(),
+                repo_root=repo,
+                author_payload=self._author_payload,
+                aspect_ratio=self._build_ctx.aspect_ratio,
+                asset_root=self._build_ctx.asset_root,
+                review_gateway=self._review_gateway,
+            )
+            try:
+                parsed = json.loads(observation)
+                if isinstance(parsed, dict) and isinstance(parsed.get("report"), dict):
+                    self._last_review_report = parsed["report"]
+                    if parsed.get("ok"):
+                        write_review_marker(
+                            self._lint_root.resolve(),
+                            spec=spec,
+                            report=parsed["report"],
+                        )
+            except json.JSONDecodeError:
+                pass
+            return observation
         if name == "submit_material_spec":
-            return json.dumps({"accepted": True, "spec": arguments.get("spec_json")})
+            spec = arguments.get("spec_json")
+            if not isinstance(spec, dict):
+                return json.dumps(
+                    {"accepted": False, "error": "spec_json must be object"},
+                    ensure_ascii=False,
+                )
+            if _material_review_tools_enabled():
+                review_error = validate_review_marker(self._lint_root.resolve(), spec)
+                if review_error:
+                    return json.dumps(
+                        {
+                            "accepted": False,
+                            "error": review_error,
+                            "reviewReport": self._last_review_report,
+                        },
+                        ensure_ascii=False,
+                    )
+            return json.dumps({"accepted": True, "spec": spec})
         return json.dumps({"error": f"unknown tool {name}"})

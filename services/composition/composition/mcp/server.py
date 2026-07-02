@@ -6,6 +6,8 @@ from composition.mcp.context import McpSessionContext
 from composition.mcp.handlers import (
     handle_composition_lint_draft,
     handle_registry_list,
+    handle_render_material_preview,
+    handle_review_material_preview,
     handle_skill_view,
     handle_write_material_spec,
 )
@@ -33,6 +35,18 @@ def registry_list(category: str | None = None, role: str | None = None) -> str:
 def composition_lint_draft(spec_json: dict) -> str:
     """Build composition from MaterialSpec and run hyperframes lint."""
     return handle_composition_lint_draft(_ctx(), spec_json=spec_json)
+
+
+@mcp.tool()
+def render_material_preview(spec_json: dict) -> str:
+    """Render a scratch preview MP4 from MaterialSpec for material review."""
+    return handle_render_material_preview(_ctx(), spec_json=spec_json)
+
+
+@mcp.tool()
+def review_material_preview(spec_json: dict) -> str:
+    """Run material_reviewer against the scratch preview and return a review report."""
+    return handle_review_material_preview(_ctx(), spec_json=spec_json)
 
 
 @mcp.tool()

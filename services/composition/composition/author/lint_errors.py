@@ -11,6 +11,8 @@ def classify_lint_error(message: str) -> str:
         return "forbidden_copy"
     if "html" in lowered or "composition.bodyhtml" in lowered or "safety" in lowered:
         return "html_safety"
+    if "standalone composition" in lowered or "autoalpha:1 hold" in lowered or 'id="root"' in lowered:
+        return "standalone_canvas"
     if "schema" in lowered or "invalid materialspec" in lowered:
         return "schema_invalid"
     if "lint failed" in lowered or "hyperframes" in lowered:
@@ -30,6 +32,10 @@ def fix_recipe_for_hint(hint_code: str) -> str:
         "hf_lint_failed": "Read lint-log.json in lint-draft, fix HTML/GSAP/video tags, re-run composition_lint_draft",
         "forbidden_copy": "Only use strings from renderPolicy.allowedDisplayCopy; never render voiceover verbatim",
         "html_safety": "Fix composition fragment: no script injection, valid GSAP timeline using shell tl",
+        "standalone_canvas": (
+            "Use opaque --vm-bg on #root, avoid id=\"root\" in bodyHtml, and end timeline with "
+            "tl.set(..., { autoAlpha: 1 }) when content starts hidden"
+        ),
         "missing_spec": "Call write_material_spec once with a valid MaterialSpec JSON object",
         "unknown": "Fix validation errors, run composition_lint_draft, then write_material_spec",
     }

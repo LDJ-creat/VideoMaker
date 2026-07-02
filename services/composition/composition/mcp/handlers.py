@@ -14,6 +14,11 @@ from composition.lint_pipeline import (
     validate_spec_gate,
 )
 from composition.mcp.context import McpSessionContext
+from composition.material_review.preview import (
+    render_material_preview_spec,
+    review_material_preview_tool,
+)
+from composition.material_review.session import validate_review_marker, write_review_marker
 from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_runner
 from composition.schema_loader import validate_contract
 from composition.skills.runtime import SkillRuntime
@@ -113,9 +118,66 @@ def lint_material_spec(
     return errors
 
 
+def handle_render_material_preview(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+    payload = render_material_preview_spec(
+        spec_json,
+        scratch_dir=ctx.scratch_dir,
+        repo_root=ctx.repo_root,
+        aspect_ratio=ctx.aspect_ratio,
+        asset_root=ctx.asset_root,
+    )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _material_review_gate_enabled() -> bool:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    in_session = os.getenv("VM_ACP_IN_SESSION_REVIEW", "true").strip().lower()
+    return in_session not in {"0", "false", "no", "off"}
+
+
+def handle_review_material_preview(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+    if not _material_review_gate_enabled():
+        return json.dumps(
+            {
+                "ok": True,
+                "skipped": True,
+                "reason": "in_session_review_disabled",
+                "report": {"approved": True, "issues": [], "suggestions": []},
+            },
+            ensure_ascii=False,
+        )
+    observation = review_material_preview_tool(
+        spec_json=spec_json,
+        scratch_dir=ctx.scratch_dir,
+        repo_root=ctx.repo_root,
+        author_payload=ctx.author_payload,
+        aspect_ratio=ctx.aspect_ratio,
+        asset_root=ctx.asset_root,
+    )
+    if _material_review_gate_enabled():
+        try:
+            parsed = json.loads(observation)
+            if isinstance(parsed, dict) and parsed.get("ok") and isinstance(parsed.get("report"), dict):
+                write_review_marker(ctx.scratch_dir, spec=spec_json, report=parsed["report"])
+        except json.JSONDecodeError:
+            pass
+    return observation
+
+
 def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
     if not isinstance(spec_json, dict):
         return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
+
+    if _material_review_gate_enabled():
+        review_error = validate_review_marker(ctx.scratch_dir, spec_json)
+        if review_error:
+            return json.dumps({"ok": False, "errors": [review_error]}, ensure_ascii=False)
 
     gate_errors = validate_spec_gate(spec_json, ctx.author_payload)
     if gate_errors:

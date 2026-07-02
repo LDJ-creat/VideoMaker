@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from composition.author.forbidden_copy_guard import check_forbidden_copy_in_spec
+from composition.author.overlay_canvas_guard import (
+    check_hf_native_no_external_base_video,
+    check_source_then_polish_overlay_composition,
+)
+from composition.author.standalone_canvas_guard import check_hf_native_standalone_composition
 from composition.build.composition_builder import build_composition
 from composition.build.html_safety import HtmlSafetyError, validate_composition_fragment
 from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_runner, resolve_hyperframes_argv
@@ -82,6 +87,9 @@ def validate_spec_gate(spec: dict[str, Any], author_payload: dict[str, Any]) -> 
     result = validate_contract("material-spec", spec)
     errors = [f"{item.path}: {item.message}" for item in result.errors]
     errors.extend(check_forbidden_copy_in_spec(spec, author_payload))
+    errors.extend(check_hf_native_standalone_composition(spec, author_payload))
+    errors.extend(check_source_then_polish_overlay_composition(spec, author_payload))
+    errors.extend(check_hf_native_no_external_base_video(spec, author_payload))
 
     if str(spec.get("template", "")) == "composition":
         composition = spec.get("composition")

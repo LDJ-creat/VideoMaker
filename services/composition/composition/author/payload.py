@@ -97,4 +97,12 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
         and request.existing_material_spec
     ):
         payload["existingMaterialSpec"] = _cap_existing_material_spec(request.existing_material_spec)
+    if request.project_id:
+        payload["projectId"] = request.project_id
+    if request.task_id:
+        payload["taskId"] = request.task_id
+    if request.generation_id:
+        payload["generationId"] = request.generation_id
+    if request.generation_root:
+        payload["generationRoot"] = str(request.generation_root)
     return payload

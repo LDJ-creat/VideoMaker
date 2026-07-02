@@ -14,7 +14,7 @@ from composition.build.legacy_scaffold import (
     ensure_paths_in_project_sandbox,
     validate_material_spec,
 )
-from composition.build.media_staging import normalize_and_stage_composition_media
+from composition.build.media_staging import MediaStagingError, normalize_and_stage_composition_media
 from composition.registry.installer import install_registry_blocks
 from composition.schema_loader import validate_contract
 
@@ -84,11 +84,14 @@ def _build_composition_template(
     if not timeline_script.strip():
         timeline_script = 'tl.set("#root", { autoAlpha: 1 }, 0);'
     write_hyperframes_json(output_dir)
-    body_html = normalize_and_stage_composition_media(
-        output_dir,
-        asset_root=asset_root,
-        html=body_html,
-    )
+    try:
+        body_html = normalize_and_stage_composition_media(
+            output_dir,
+            asset_root=asset_root,
+            html=body_html,
+        )
+    except MediaStagingError as exc:
+        raise MaterialScaffoldError(str(exc)) from exc
     write_index_html(
         composition_dir=output_dir,
         body_html=body_html,

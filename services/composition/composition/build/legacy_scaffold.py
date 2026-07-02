@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from composition.build.media_staging import normalize_and_stage_composition_media
+from composition.build.media_staging import MediaStagingError, normalize_and_stage_composition_media
 
 from composition.aspect_ratio import render_dimensions
 from composition.build.composition_shell import write_hyperframes_json, write_index_html
@@ -386,11 +386,14 @@ def build_composition(
         canvas_height=canvas_height,
     )
     _write_hyperframes_json(output_dir)
-    body_html = normalize_and_stage_composition_media(
-        output_dir,
-        asset_root=asset_root,
-        html=body_html,
-    )
+    try:
+        body_html = normalize_and_stage_composition_media(
+            output_dir,
+            asset_root=asset_root,
+            html=body_html,
+        )
+    except MediaStagingError as exc:
+        raise MaterialScaffoldError(str(exc)) from exc
     _write_index_html(
         composition_dir=output_dir,
         body_html=body_html,

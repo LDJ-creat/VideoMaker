@@ -39,6 +39,15 @@ def _validate_spec(spec: dict[str, Any]) -> list[str]:
     return [f"{item.path}: {item.message}" for item in result.errors]
 
 
+def _resolve_review_gateway(request: AuthorRequest, gateway: ToolGateway | None) -> Any | None:
+    if request.review_gateway is not None:
+        return request.review_gateway
+    underlying = getattr(gateway, "underlying_gateway", None)
+    if underlying is not None:
+        return underlying
+    return None
+
+
 def _append_assistant_tool_call(messages: list[dict[str, Any]], call: dict[str, Any]) -> None:
     messages.append(
         {
@@ -105,6 +114,7 @@ def author_material_spec(
         hyperframes_cli=hyperframes_cli,
         repo_root=root,
         author_payload=author_payload,
+        review_gateway=_resolve_review_gateway(request, gateway),
     )
     messages: list[dict[str, Any]] = [
         {
