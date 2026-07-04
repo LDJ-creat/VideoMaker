@@ -17,6 +17,11 @@ from material_review_revise_context import load_material_review_revise_context
 from pydantic import BaseModel, Field, model_validator
 
 from app.services.agent_runs import list_agent_runs_for_generation
+from app.services.evaluation import (
+    build_run_evaluation_summary,
+    get_or_build_generation_evaluation,
+    load_run_evaluation_summary,
+)
 from app.services.model_calls import list_model_calls_for_generation
 from app.services.generation_responses import build_generation_plan_response
 from app.services.pipeline_runner import PipelineRunner
@@ -229,6 +234,61 @@ def get_generation_model_calls(
         kind=kind,
     )
     return {"calls": calls}
+
+
+@router.get("/{generation_id}/evaluation")
+def get_generation_evaluation(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = record.get("taskId")
+    task_events = None
+    if task_id:
+        task_events = _task_events(request).list_events(str(task_id))
+
+    try:
+        report = get_or_build_generation_evaluation(
+            storage_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=str(task_id) if task_id else None,
+            variant_id=record.get("variant"),
+            task_events=task_events,
+            rebuild=False,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Evaluation report not found") from exc
+    return {"report": report}
+
+
+@router.post("/{generation_id}/evaluation/rebuild")
+def rebuild_generation_evaluation(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = record.get("taskId")
+    task_events = None
+    if task_id:
+        task_events = _task_events(request).list_events(str(task_id))
+
+    report = get_or_build_generation_evaluation(
+        storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+        task_id=str(task_id) if task_id else None,
+        variant_id=record.get("variant"),
+        task_events=task_events,
+        rebuild=True,
+    )
+    return {"report": report, "rebuilt": True}
 
 
 @router.get("/{generation_id}/composition-patterns")

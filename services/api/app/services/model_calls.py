@@ -20,6 +20,8 @@ class ModelCallSummary(TypedDict, total=False):
     createdAt: str
     taskId: str
     generationId: str
+    tokenUsage: dict[str, Any]
+    usageUnits: dict[str, Any]
 
 
 def list_model_calls_for_generation(
@@ -119,4 +121,8 @@ def _to_summary(payload: dict[str, Any]) -> ModelCallSummary:
     ):
         if payload.get(key) is not None:
             summary[key] = payload[key]  # type: ignore[literal-required]
+    if isinstance(payload.get("tokenUsage"), dict):
+        summary["tokenUsage"] = payload["tokenUsage"]  # type: ignore[typeddict-unknown-key]
+    if isinstance(payload.get("usageUnits"), dict):
+        summary["usageUnits"] = payload["usageUnits"]  # type: ignore[typeddict-unknown-key]
     return summary

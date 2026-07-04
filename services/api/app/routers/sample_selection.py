@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, 
 from pydantic import BaseModel, Field
 
 from app.services.artifact_store import ArtifactStore
+from app.services.evaluation import build_run_evaluation_summary, load_run_evaluation_summary
 from app.services.generation_responses import build_generation_plan_response
 from app.services.generation_run_store import GenerationRunStore
 from app.services.pipeline_runner import PipelineRunner
@@ -392,3 +393,71 @@ def get_generation_run(project_id: str, run_id: str, request: Request) -> dict[s
         provenance_id=run.get("provenanceId"),
     )
     return {"run": run, "generations": generations, "provenance": provenance}
+
+
+@router.get("/{project_id}/generation-runs/{run_id}/evaluation-summary")
+def get_generation_run_evaluation_summary(
+    project_id: str,
+    run_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    _ensure_project(_project_store(request), project_id)
+    run = _run_store(request).get_run(run_id)
+    if run is None or run["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="Generation run not found")
+
+    storage_root: Path = request.app.state.storage_root
+    cached = load_run_evaluation_summary(storage_root, project_id=project_id, run_id=run_id)
+    if cached is not None:
+        return {"summary": cached}
+
+    task_events_by_generation: dict[str, list[dict[str, Any]]] = {}
+    store = _project_store(request)
+    events = TaskEventService(request.app.state.db)
+    for generation_id in run["generationIds"]:
+        record = store.get_generation(generation_id)
+        if record is None or not record.get("taskId"):
+            continue
+        task_events_by_generation[generation_id] = events.list_events(str(record["taskId"]))
+
+    summary = build_run_evaluation_summary(
+        storage_root,
+        project_id=project_id,
+        run_id=run_id,
+        generation_ids=list(run["generationIds"]),
+        task_events_by_generation=task_events_by_generation,
+        rebuild=False,
+    )
+    return {"summary": summary}
+
+
+@router.post("/{project_id}/generation-runs/{run_id}/evaluation-summary/rebuild")
+def rebuild_generation_run_evaluation_summary(
+    project_id: str,
+    run_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    _ensure_project(_project_store(request), project_id)
+    run = _run_store(request).get_run(run_id)
+    if run is None or run["projectId"] != project_id:
+        raise HTTPException(status_code=404, detail="Generation run not found")
+
+    storage_root: Path = request.app.state.storage_root
+    task_events_by_generation: dict[str, list[dict[str, Any]]] = {}
+    store = _project_store(request)
+    events = TaskEventService(request.app.state.db)
+    for generation_id in run["generationIds"]:
+        record = store.get_generation(generation_id)
+        if record is None or not record.get("taskId"):
+            continue
+        task_events_by_generation[generation_id] = events.list_events(str(record["taskId"]))
+
+    summary = build_run_evaluation_summary(
+        storage_root,
+        project_id=project_id,
+        run_id=run_id,
+        generation_ids=list(run["generationIds"]),
+        task_events_by_generation=task_events_by_generation,
+        rebuild=True,
+    )
+    return {"summary": summary, "rebuilt": True}
