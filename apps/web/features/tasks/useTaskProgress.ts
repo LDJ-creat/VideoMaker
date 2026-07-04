@@ -50,14 +50,14 @@ export function useTaskProgress({
   onTerminalRef.current = onTerminal;
   onMilestoneRef.current = onMilestone;
 
-  const applyEvent = useCallback((next: TaskEvent) => {
+  const applyEvent = useCallback((next: TaskEvent): boolean => {
     const previous = eventRef.current;
     if (!shouldAcceptTaskEventUpdate(previous, next)) {
-      return;
+      return false;
     }
     const merged = preferTaskError(previous, next);
     if (previous && taskEventEquals(previous, merged)) {
-      return;
+      return false;
     }
     eventRef.current = merged;
     setEvent(merged);
@@ -78,6 +78,7 @@ export function useTaskProgress({
     ) {
       onTerminalRef.current?.(merged);
     }
+    return true;
   }, []);
 
   const prevWatchKeyRef = useRef(watchKey);

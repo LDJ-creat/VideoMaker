@@ -16,7 +16,8 @@ export type TaskWatchStopReason = "terminal" | "dispose" | "fallback";
 
 export type StartTaskWatchOptions = {
   taskId: string;
-  applyEvent: (event: TaskEvent) => void;
+  /** Returns true when the snapshot was applied to client state. */
+  applyEvent: (event: TaskEvent) => boolean;
   setMode: Dispatch<SetStateAction<TaskProgressMode>>;
   setSseFailureCount: Dispatch<SetStateAction<number>>;
   setError: Dispatch<SetStateAction<string | null>>;
@@ -114,16 +115,19 @@ export function startTaskWatch({
   };
 
   const pollOnce = async () => {
-    if (isDisposed() || taskStopped) return;
+    if (isDisposed() || taskStopped) return false;
     recordDevProgressMetric("taskPoll");
     try {
       const { data } = await getTask(taskId);
-      applyEvent(data);
-      if (isTaskTerminalStatus(data.status)) {
+      const applied = applyEvent(data);
+      if (isTaskTerminalStatus(data.status) && applied) {
         stopTaskWatch("terminal");
+        return true;
       }
+      return applied;
     } catch (err) {
       setError(err instanceof Error ? err.message : "轮询任务失败");
+      return false;
     }
   };
 
@@ -166,10 +170,10 @@ export function startTaskWatch({
         if (typeof parsed.eventId === "number") {
           lastEventId = Math.max(lastEventId, parsed.eventId);
         }
-        applyEvent(parsed);
+        const applied = applyEvent(parsed);
         failures = 0;
         resetSseFailure(taskId, setSseFailureCount, setSseFailureCounts);
-        if (isTaskTerminalStatus(parsed.status)) {
+        if (isTaskTerminalStatus(parsed.status) && applied) {
           stopTaskWatch("terminal");
         }
       } catch {

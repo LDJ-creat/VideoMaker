@@ -93,7 +93,7 @@ describe("useTaskProgress", () => {
     expect(apiClient.getTask).toHaveBeenCalled();
   });
 
-  it("ignores stale failed snapshots replayed after running", async () => {
+  it("accepts terminal failed snapshots even when timestamp is older than running", async () => {
     vi.mocked(apiClient.getTask).mockResolvedValue({
       data: {
         ...fixtureTaskEvent,
@@ -129,8 +129,8 @@ describe("useTaskProgress", () => {
       });
     });
 
-    expect(result.current.event?.status).toBe("running");
-    expect(result.current.event?.error).toBeUndefined();
+    expect(result.current.event?.status).toBe("failed");
+    expect(result.current.event?.error?.code).toBe("direct_multimodal_failed");
   });
 
   it("invokes onMilestone for status changes", async () => {

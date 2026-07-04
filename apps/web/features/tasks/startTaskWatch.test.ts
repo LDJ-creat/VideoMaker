@@ -95,7 +95,7 @@ describe("startTaskWatch", () => {
 
   it("does not count SSE failures after intentional terminal close", async () => {
     const setSseFailureCount = vi.fn();
-    const applyEvent = vi.fn();
+    const applyEvent = vi.fn(() => true);
     const cleanup = startTaskWatch({
       taskId: "task-terminal",
       applyEvent,

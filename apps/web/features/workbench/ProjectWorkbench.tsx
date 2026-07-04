@@ -1422,10 +1422,23 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     ) {
       liveEvents[event.taskId] = event;
     }
-    return mergeTaskEvents(settledGenerationEvents, liveEvents);
+    const merged = mergeTaskEvents(settledGenerationEvents, liveEvents);
+    const effective: Record<string, TaskEvent> = { ...merged };
+    for (const entry of activeGenerations) {
+      const taskId = entry.taskId;
+      if (!taskId || !merged[taskId]) continue;
+      const overridden = applyTaskStatusOverride(
+        merged[taskId],
+        generationStatusOverrides[taskId],
+      );
+      effective[taskId] = overridden;
+    }
+    return effective;
   }, [
+    activeGenerations,
     event,
     generationEvents,
+    generationStatusOverrides,
     isBatchAnalysisProgress,
     settledGenerationEvents,
     showMultiVariantGenerationProgress,
@@ -1486,6 +1499,15 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
           override === "retrying" &&
           live !== "awaiting_review" &&
           (live === "running" || live === "retrying")
+        ) {
+          delete next[taskId];
+          changed = true;
+          continue;
+        }
+        if (
+          live === "failed" ||
+          live === "cancelled" ||
+          live === "succeeded"
         ) {
           delete next[taskId];
           changed = true;
@@ -2676,6 +2698,16 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   setDataError(null);
                   bumpTaskWatchKeys(approvedTaskIds);
                   setPanel("progress", "material-review:approved");
+                }}
+                onReviseStarted={(reviseTaskId) => {
+                  applyGenerationStatusOverrides((previous) => {
+                    const next = { ...previous };
+                    delete next[reviseTaskId];
+                    next[reviseTaskId] = "retrying";
+                    return next;
+                  });
+                  bumpTaskWatchKey(reviseTaskId);
+                  setPanel("progress", "material-review:slot-revise");
                 }}
               />
             ) : scriptReviewVariants.length === 0 ? (

@@ -19,6 +19,8 @@ type MaterialReviewPanelProps = {
   stage: string | undefined;
   refreshKey?: number;
   onApproved?: () => void;
+  /** Fired after slot NL revise is queued so progress SSE/polling resets. */
+  onReviseStarted?: (taskId: string) => void;
 };
 
 export function MaterialReviewPanel({
@@ -28,6 +30,7 @@ export function MaterialReviewPanel({
   stage,
   refreshKey = 0,
   onApproved,
+  onReviseStarted,
 }: MaterialReviewPanelProps) {
   const [state, setState] = useState<MaterialReviewState | null>(null);
   const [reports, setReports] = useState<Record<string, MaterialReviewReport>>({});
@@ -150,11 +153,14 @@ export function MaterialReviewPanel({
     setBusy(true);
     setError(null);
     try {
-      await reviseMaterialSlot(
+      const result = await reviseMaterialSlot(
         effectiveGenerationId,
         selectedSlotId,
         instruction.trim(),
       );
+      if (result.data.taskId) {
+        onReviseStarted?.(result.data.taskId);
+      }
       setInstruction("");
       setAwaitingSlotRegen(true);
     } catch (err) {

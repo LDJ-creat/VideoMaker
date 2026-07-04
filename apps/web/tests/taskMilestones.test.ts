@@ -71,4 +71,15 @@ describe("taskMilestones", () => {
     expect(resolveLiveTaskStatus(event, "queued")).toBe("awaiting_review");
     expect(isEffectiveReviewMilestone(event, "queued")).toBe(true);
   });
+
+  it("does not let optimistic retrying override mask failed status", () => {
+    const event = {
+      ...fixtureTaskEvent,
+      status: "failed" as TaskStatus,
+      stage: "generating_material",
+      message: "ACP author failed",
+    };
+    expect(resolveLiveTaskStatus(event, "retrying")).toBe("failed");
+    expect(applyTaskStatusOverride(event, "retrying").status).toBe("failed");
+  });
 });

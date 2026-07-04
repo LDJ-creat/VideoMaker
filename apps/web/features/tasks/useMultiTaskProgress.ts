@@ -95,14 +95,14 @@ export function useMultiTaskProgress({
   const watchKeysByTaskRef = useRef<Record<string, number>>({});
   const prevTaskIdsKeyRef = useRef<string>("");
 
-  const applyEvent = useCallback((next: TaskEvent) => {
+  const applyEvent = useCallback((next: TaskEvent): boolean => {
     const previous = eventsRef.current[next.taskId] ?? null;
     if (!shouldAcceptTaskEventUpdate(previous, next)) {
-      return;
+      return false;
     }
     const mergedEvent = preferTaskError(previous, next);
     if (previous && taskEventEquals(previous, mergedEvent)) {
-      return;
+      return false;
     }
     const merged = { ...eventsRef.current, [next.taskId]: mergedEvent };
     eventsRef.current = merged;
@@ -140,6 +140,7 @@ export function useMultiTaskProgress({
       allTerminalNotifiedRef.current = true;
       onAllTerminalRef.current?.(eventsRef.current);
     }
+    return true;
   }, []);
 
   useEffect(() => {
@@ -207,7 +208,8 @@ export function useMultiTaskProgress({
         existingEvent &&
         isTaskTerminalStatus(existingEvent.status) &&
         watchKeysByTaskRef.current[taskId] === watchKeyForTask &&
-        cleanupByTaskRef.current[taskId]
+        cleanupByTaskRef.current[taskId] &&
+        notifiedTerminalRef.current.has(taskId)
       ) {
         continue;
       }
@@ -224,9 +226,12 @@ export function useMultiTaskProgress({
       if (previousWatchKey !== undefined && previousWatchKey !== watchKeyForTask) {
         notifiedTerminalRef.current.delete(taskId);
         allTerminalNotifiedRef.current = false;
-        delete eventsRef.current[taskId];
-        lastEventIdByTaskRef.current[taskId] = 0;
-        setEvents({ ...eventsRef.current });
+        const previousEvent = eventsRef.current[taskId];
+        if (previousEvent && isTaskTerminalStatus(previousEvent.status)) {
+          delete eventsRef.current[taskId];
+          lastEventIdByTaskRef.current[taskId] = 0;
+          setEvents({ ...eventsRef.current });
+        }
       }
       watchKeysByTaskRef.current[taskId] = watchKeyForTask;
       cleanupByTaskRef.current[taskId] = startTaskWatch({

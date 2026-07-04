@@ -23,12 +23,19 @@ export function isReviewMilestone(event: TaskEvent): boolean {
   return event.status === "awaiting_review";
 }
 
+const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
 /** Merge optimistic overrides without masking live task progress. */
 export function resolveLiveTaskStatus(
   event: TaskEvent,
   override?: TaskStatus,
 ): TaskStatus {
   if (!override || override === event.status) return event.status;
+  if (TERMINAL_TASK_STATUSES.has(event.status)) return event.status;
   if (override === "retrying" || override === "running") return override;
   if (override === "queued" && event.status !== "queued") return event.status;
   return override;

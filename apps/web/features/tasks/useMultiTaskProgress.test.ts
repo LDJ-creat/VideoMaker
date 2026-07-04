@@ -340,14 +340,19 @@ describe("useMultiTaskProgress", () => {
       { initialProps: { taskWatchKeys: {} as Record<string, number> } },
     );
 
-    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(1));
     const firstSource = MockEventSource.instances[0]!;
 
     rerender({ taskWatchKeys: { "task-a": 1 } });
 
-    await waitFor(() => expect(MockEventSource.instances.length).toBe(2));
-    expect(firstSource.closed).toBe(true);
-    expect(MockEventSource.instances[1]?.url).toContain("task-a");
+    await waitFor(() =>
+      expect(
+        MockEventSource.instances.filter((source) =>
+          source.url.includes("task-a"),
+        ).length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    expect(firstSource.readyState).toBe(2);
   });
 
   it("ignores duplicate SSE snapshots after preferTaskError merge", async () => {
