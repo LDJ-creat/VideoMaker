@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/evaluation-report.schema.json",
+  "title": "EvaluationReport",
+  "type": "object",
+  "required": [
+    "version",
+    "generationId",
+    "evaluatedAt",
+    "profile",
+    "verdict",
+    "observability"
+  ],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "generationId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string" },
+    "evaluatedAt": { "type": "string", "format": "date-time" },
+    "partial": { "type": "boolean" },
+    "profile": { "$ref": "https://videomaker.local/schemas/evaluation-profile.schema.json" },
+    "verdict": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pass", "warn", "block", "partial"]
+        },
+        "blockingIssues": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "scores": {
+      "type": "object",
+      "properties": {
+        "core": {
+          "type": "object",
+          "properties": {
+            "weighted": { "type": "number", "minimum": 0, "maximum": 100 },
+            "technical": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+            "plan": { "type": "number", "minimum": 0, "maximum": 100 },
+            "perceptual": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": false
+        },
+        "migration": {
+          "type": "object",
+          "properties": {
+            "weighted": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": true
+        },
+        "knowledgeFit": {
+          "type": "object",
+          "properties": {
+            "weighted": { "type": "number", "minimum": 0, "maximum": 100 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "observability": { "$ref": "https://videomaker.local/schemas/observability-summary.schema.json" }
+  },
+  "additionalProperties": false
+}

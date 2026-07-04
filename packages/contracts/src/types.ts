@@ -384,7 +384,8 @@ export type ModelCallLog = {
   output?: unknown;
   outputValid: boolean;
   latencyMs: number;
-  tokenUsage?: { prompt: number; completion: number };
+  tokenUsage?: { prompt: number; completion: number; total?: number };
+  usageUnits?: import("./evaluation-types").UsageUnits;
   error?: { code?: string; message?: string; retryable?: boolean };
   createdAt: string;
 };

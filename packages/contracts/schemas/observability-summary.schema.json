@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/observability-summary.schema.json",
+  "title": "ObservabilitySummary",
+  "type": "object",
+  "required": ["usageByCategory", "timing"],
+  "properties": {
+    "incomplete": { "type": "boolean" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "usageByCategory": {
+      "type": "object",
+      "properties": {
+        "text_chat": { "$ref": "#/$defs/categoryUsage" },
+        "vision_chat": { "$ref": "#/$defs/categoryUsage" },
+        "tts": { "$ref": "#/$defs/categoryUsage" },
+        "image_gen": { "$ref": "#/$defs/categoryUsage" },
+        "video_gen": { "$ref": "#/$defs/videoCategoryUsage" }
+      },
+      "additionalProperties": false
+    },
+    "timing": {
+      "type": "object",
+      "required": ["wallClock", "stages", "modelLatency"],
+      "properties": {
+        "wallClock": {
+          "type": "object",
+          "required": ["totalMs"],
+          "properties": {
+            "totalMs": { "type": "number", "minimum": 0 },
+            "queuedMs": { "type": "number", "minimum": 0 },
+            "activeMs": { "type": "number", "minimum": 0 },
+            "humanWaitMs": { "type": "number", "minimum": 0 },
+            "startedAt": { "type": "string" },
+            "endedAt": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "https://videomaker.local/schemas/stage-timing.schema.json" }
+        },
+        "modelLatency": {
+          "type": "object",
+          "properties": {
+            "text_chat": { "type": "number", "minimum": 0 },
+            "vision_chat": { "type": "number", "minimum": 0 },
+            "tts": { "type": "number", "minimum": 0 },
+            "image_gen": { "type": "number", "minimum": 0 },
+            "video_gen": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "estimatedCostUsd": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "number", "minimum": 0 },
+        "byCategory": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0 }
+        },
+        "priceSource": { "type": "string" },
+        "confidence": {
+          "type": "string",
+          "enum": ["estimate", "partial", "unknown"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "categoryUsage": {
+      "type": "object",
+      "required": ["billingUnit", "calls", "latencyMs"],
+      "properties": {
+        "billingUnit": {
+          "type": "string",
+          "enum": ["tokens", "chars", "images"]
+        },
+        "calls": { "type": "integer", "minimum": 0 },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "promptTokens": { "type": "number", "minimum": 0 },
+        "completionTokens": { "type": "number", "minimum": 0 },
+        "totalTokens": { "type": "number", "minimum": 0 },
+        "totalChars": { "type": "number", "minimum": 0 },
+        "successfulImages": { "type": "integer", "minimum": 0 },
+        "failedCalls": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "videoCategoryUsage": {
+      "type": "object",
+      "required": ["billingUnit", "successfulJobs", "totalDurationSec", "latencyMs"],
+      "properties": {
+        "billingUnit": { "type": "string", "const": "video_seconds" },
+        "successfulJobs": { "type": "integer", "minimum": 0 },
+        "totalDurationSec": { "type": "number", "minimum": 0 },
+        "requestedDurationSec": { "type": "number", "minimum": 0 },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["jobId", "latencyMs"],
+            "properties": {
+              "jobId": { "type": "string", "minLength": 1 },
+              "slotId": { "type": "string" },
+              "model": { "type": "string" },
+              "requestedDurationSec": { "type": "number", "minimum": 0 },
+              "actualDurationSec": { "type": "number", "minimum": 0 },
+              "outputBytes": { "type": "integer", "minimum": 0 },
+              "latencyMs": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

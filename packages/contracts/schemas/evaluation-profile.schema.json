@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/evaluation-profile.schema.json",
+  "title": "EvaluationProfile",
+  "type": "object",
+  "required": ["inputMode", "enabledModules"],
+  "properties": {
+    "inputMode": {
+      "type": "string",
+      "enum": ["sample_migration", "knowledge_guided", "greenfield"]
+    },
+    "enabledModules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["core", "migration", "knowledge_fit"]
+      },
+      "minItems": 1
+    },
+    "referenceStructureId": { "type": "string" },
+    "knowledgeEntryId": { "type": "string" },
+    "variantId": { "type": "string" }
+  },
+  "additionalProperties": false
+}

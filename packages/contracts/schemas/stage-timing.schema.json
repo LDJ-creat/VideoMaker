@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/stage-timing.schema.json",
+  "title": "StageTiming",
+  "type": "object",
+  "required": ["stage", "durationMs", "status"],
+  "properties": {
+    "stage": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "endedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "paused", "failed", "running"]
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["active", "human_gate"]
+    },
+    "breakdown": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "durationMs"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "durationMs": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

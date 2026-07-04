@@ -42,10 +42,12 @@
       "required": ["prompt", "completion"],
       "properties": {
         "prompt": { "type": "number", "minimum": 0 },
-        "completion": { "type": "number", "minimum": 0 }
+        "completion": { "type": "number", "minimum": 0 },
+        "total": { "type": "number", "minimum": 0 }
       },
       "additionalProperties": false
     },
+    "usageUnits": { "$ref": "https://videomaker.local/schemas/usage-units.schema.json" },
     "error": {
       "type": "object",
       "properties": {
