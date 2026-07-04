@@ -1,0 +1,9 @@
+version: static_v1
+rates:
+  text_prompt_per_1k_tokens: 0.002
+  text_completion_per_1k_tokens: 0.006
+  vision_prompt_per_1k_tokens: 0.003
+  vision_completion_per_1k_tokens: 0.009
+  tts_per_1k_chars: 0.01
+  image_per_image: 0.04
+  video_per_second: 0.05
