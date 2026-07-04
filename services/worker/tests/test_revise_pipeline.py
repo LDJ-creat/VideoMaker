@@ -376,7 +376,7 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
         ],
     )
 
-    assert result["ok"] is True
+    assert result["ok"] is True, result.get("error")
     assert result["sourceGenerationId"] == source_id
     assert len(result["intents"]) == 2
 
@@ -474,3 +474,300 @@ def test_packaging_only_material_scope_skips_regen_when_actions_satisfied(tmp_pa
     assert is_material_stage_done(generation_root, plan) is True
     slot_filter = set(context.affected_slot_ids) if context.material_scope == "scoped" else None
     assert slot_filter is None
+
+
+def test_scoped_material_stage_done_only_checks_affected_slots(tmp_path: Path) -> None:
+    from app.pipelines.generation_pipeline import is_material_stage_done
+
+    project_id = "project-1"
+    generation_id = "gen-fork"
+    plan = _write_completed_generation(tmp_path, project_id=project_id, generation_id=generation_id)
+    plan["completionActions"] = [
+        {
+            "id": "action-slot-1",
+            "slotId": "slot-1",
+            "provider": "hyperframes_material",
+            "strategy": "hyperframes_material",
+        },
+        {
+            "id": "action-slot-6",
+            "slotId": "slot-6",
+            "provider": "hyperframes_material",
+            "strategy": "hyperframes_material",
+        },
+    ]
+    generation_root = tmp_path / "projects" / project_id / "generations" / generation_id
+    generated = generation_root / "generated"
+    generated.mkdir(parents=True, exist_ok=True)
+    fake_video = b"\x00" * 20_000
+    (generated / "action-slot-1.mp4").write_bytes(fake_video)
+    (generated / "action-slot-6.mp4").write_bytes(fake_video)
+
+    assert is_material_stage_done(generation_root, plan) is True
+    (generated / "action-slot-6.mp4").unlink()
+    assert is_material_stage_done(generation_root, plan) is False
+    assert is_material_stage_done(generation_root, plan, slot_filter={"slot-1"}) is True
+
+
+def _write_source_for_scoped_material_regen(
+    storage_root: Path,
+    *,
+    project_id: str,
+    generation_id: str,
+) -> dict[str, Any]:
+    plan = _write_completed_generation(storage_root, project_id=project_id, generation_id=generation_id)
+    generation_root = storage_root / "projects" / project_id / "generations" / generation_id
+    plan["storyboard"] = [
+        {"id": "scene-1", "slotId": "slot-1", "startSec": 0, "endSec": 3, "visual": "v1", "script": "s1", "source": "user_asset"},
+        {"id": "scene-6", "slotId": "slot-6", "startSec": 3, "endSec": 8, "visual": "v6", "script": "s6", "source": "aigc"},
+    ]
+    plan["completionActions"] = [
+        {
+            "id": "action-slot-1",
+            "slotId": "slot-1",
+            "provider": "hyperframes_material",
+            "artifactRef": {"uri": "generated/action-slot-1.mp4"},
+        },
+        {
+            "id": "action-slot-6",
+            "slotId": "slot-6",
+            "provider": "hyperframes_material",
+            "artifactRef": {"uri": "generated/action-slot-6.mp4"},
+        },
+    ]
+    (generation_root / "generation-plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    generated = generation_root / "generated"
+    generated.mkdir(parents=True, exist_ok=True)
+    (generated / "action-slot-1.mp4").write_bytes(b"keep")
+    (generated / "action-slot-6.mp4").write_bytes(b"drop")
+    (generation_root / "material-review-state.json").write_text(
+        json.dumps(
+            {
+                "generationId": generation_id,
+                "projectId": project_id,
+                "variant": "high_click",
+                "status": "approved",
+                "slots": {
+                    "slot-1": {
+                        "status": "agent_passed",
+                        "latestReportUri": "material-reviews/slot-1/report.json",
+                    },
+                    "slot-6": {
+                        "status": "agent_passed",
+                        "latestReportUri": "material-reviews/slot-6/report.json",
+                    },
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    for slot_id in ("slot-1", "slot-6"):
+        report_dir = generation_root / "material-reviews" / slot_id
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "report.json").write_text('{"approved": true}', encoding="utf-8")
+    return plan
+
+
+def test_run_revise_scoped_material_regen_pauses_at_material_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE", "true")
+
+    render_called = {"value": False}
+
+    class _FakeRenderBackend:
+        def render(self, options):  # noqa: ANN001, ARG002
+            render_called["value"] = True
+            from app.render.backend import RenderOutput
+
+            return RenderOutput(artifact_refs=[])
+
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        lambda *args, **kwargs: _FakeRenderBackend(),
+    )
+
+    def _fake_run_generating_material(**kwargs):  # noqa: ANN001
+        generation_root = kwargs["generation_root"]
+        state_path = generation_root / "material-review-state.json"
+        if state_path.is_file():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["status"] = "draft"
+            slots = dict(state.get("slots") or {})
+            slot_filter = kwargs.get("slot_filter")
+            if slot_filter:
+                for affected in slot_filter:
+                    slots[affected] = {
+                        "status": "agent_passed",
+                        "latestReportUri": f"material-reviews/{affected}/report.json",
+                    }
+            state["slots"] = slots
+            state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        return kwargs["plan"], []
+
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        _fake_run_generating_material,
+    )
+
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_source_for_scoped_material_regen(tmp_path, project_id=project_id, generation_id=source_id)
+
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    events: list[dict[str, Any]] = []
+
+    def emit(**kwargs: Any) -> dict[str, Any]:
+        events.append(kwargs)
+        return kwargs
+
+    structure = _load_structure_fixture()
+    result = pipeline.run_revise(
+        project_id=project_id,
+        task_id="task-revise",
+        source_generation_id=source_id,
+        generation_id=target_id,
+        instruction="单镜 slot-6 完全重生成，更明快",
+        structure=structure,
+        user_brief={"topic": "果汁机", "sellingPoints": ["便携"], "mustMention": [], "avoidMention": []},
+        assets=[
+            {
+                "id": "asset-1",
+                "type": "text",
+                "uri": "storage://caption.txt",
+                "description": "caption",
+                "tags": ["卖点"],
+            }
+        ],
+        emit=emit,
+        intents=[
+            {
+                "target": "generation_plan.storyboard",
+                "operation": "change_packaging_style",
+                "executionTool": "material_regen",
+                "scope": "scene",
+                "sceneIds": ["scene-6"],
+                "slotIds": ["slot-6"],
+                "params": {
+                    "sceneId": "scene-6",
+                    "slotId": "slot-6",
+                    "materialEditMode": "full",
+                    "editInstruction": "更明快",
+                    "requiresMaterialRegen": True,
+                },
+                "rationale": "单镜重生成",
+            }
+        ],
+    )
+
+    assert result.get("ok") is True, result.get("error")
+    assert result.get("paused") is True
+    assert result.get("gate") == "material_review"
+    stages = [event.get("stage") for event in events]
+    assert "awaiting_material_review" in stages
+    assert render_called["value"] is False
+
+    target_root = tmp_path / "projects" / project_id / "generations" / target_id
+    checkpoint = json.loads((target_root / "checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint.get("awaitingGate") == "material_review"
+    state = json.loads((target_root / "material-review-state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "draft"
+    assert state["slots"]["slot-1"]["status"] == "agent_passed"
+    assert state["slots"]["slot-6"]["status"] == "agent_passed"
+
+
+def test_run_revise_scoped_material_regen_skips_gate_when_on_revise_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE", "false")
+
+    render_called = {"value": False}
+
+    class _FakeRenderBackend:
+        def render(self, options):  # noqa: ANN001, ARG002
+            render_called["value"] = True
+            from app.render.backend import RenderOutput
+
+            render_root = (
+                options.storage_root
+                / "projects"
+                / options.project_id
+                / "generations"
+                / options.generation_id
+                / "renders"
+            )
+            render_root.mkdir(parents=True, exist_ok=True)
+            output_path = render_root / "preview.mp4"
+            output_path.write_bytes(b"mock-mp4")
+            return RenderOutput(artifact_refs=[{"type": "video", "uri": str(output_path)}])
+
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        lambda *args, **kwargs: _FakeRenderBackend(),
+    )
+    monkeypatch.setattr(
+        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        lambda **kwargs: (kwargs["plan"], []),
+    )
+
+    project_id = "project-1"
+    source_id = "gen-source"
+    target_id = "gen-target"
+    _write_source_for_scoped_material_regen(tmp_path, project_id=project_id, generation_id=source_id)
+
+    fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
+    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    events: list[dict[str, Any]] = []
+
+    def emit(**kwargs: Any) -> dict[str, Any]:
+        events.append(kwargs)
+        return kwargs
+
+    result = pipeline.run_revise(
+        project_id=project_id,
+        task_id="task-revise",
+        source_generation_id=source_id,
+        generation_id=target_id,
+        instruction="单镜 slot-6 完全重生成",
+        structure=_load_structure_fixture(),
+        user_brief={"topic": "果汁机", "sellingPoints": ["便携"], "mustMention": [], "avoidMention": []},
+        assets=[
+            {
+                "id": "asset-1",
+                "type": "text",
+                "uri": "storage://caption.txt",
+                "description": "caption",
+                "tags": ["卖点"],
+            }
+        ],
+        emit=emit,
+        intents=[
+            {
+                "target": "generation_plan.storyboard",
+                "operation": "change_packaging_style",
+                "executionTool": "material_regen",
+                "scope": "scene",
+                "sceneIds": ["scene-6"],
+                "slotIds": ["slot-6"],
+                "params": {
+                    "sceneId": "scene-6",
+                    "slotId": "slot-6",
+                    "requiresMaterialRegen": True,
+                },
+                "rationale": "单镜重生成",
+            }
+        ],
+    )
+
+    assert result.get("ok") is True, result.get("error")
+    assert result.get("paused") is not True
+    stages = [event.get("stage") for event in events]
+    assert "awaiting_material_review" not in stages
+    assert render_called["value"] is True

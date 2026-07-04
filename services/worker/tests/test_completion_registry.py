@@ -147,9 +147,11 @@ def test_second_video_generation_raises_quota_error(tmp_path: Path) -> None:
     ]
 
     results = execute_completion_plan(actions, ctx)
-    assert results[0]["ok"] is True
-    assert results[1]["ok"] is False
-    assert results[1]["error"]["code"] == "video_quota_exceeded"
+    successes = [r for r in results if r.get("ok")]
+    failures = [r for r in results if not r.get("ok")]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert failures[0]["error"]["code"] == "video_quota_exceeded"
     assert ctx.quota.used == 1
 
 

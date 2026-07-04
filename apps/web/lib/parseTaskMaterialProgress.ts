@@ -2,6 +2,7 @@ export type TaskMaterialProgressHint = {
   slotId: string | null;
   actionLabel: string | null;
   summary: string | null;
+  kind: "active" | "completed" | null;
 };
 
 const COMPLETING_SLOT = /Completing slot\s+(\S+)/i;
@@ -13,7 +14,7 @@ export function parseTaskMaterialProgress(
   message: string | undefined,
 ): TaskMaterialProgressHint {
   if (!message) {
-    return { slotId: null, actionLabel: null, summary: null };
+    return { slotId: null, actionLabel: null, summary: null, kind: null };
   }
 
   const completing = message.match(COMPLETING_SLOT);
@@ -23,6 +24,7 @@ export function parseTaskMaterialProgress(
       slotId,
       actionLabel: "素材补全",
       summary: slotId ? `正在处理：${slotId} · 素材补全` : null,
+      kind: "active",
     };
   }
 
@@ -35,6 +37,7 @@ export function parseTaskMaterialProgress(
       summary: slotId
         ? `正在处理：${slotId} · HyperFrames 包装分镜`
         : "正在处理：HyperFrames 包装分镜",
+      kind: "active",
     };
   }
 
@@ -44,9 +47,10 @@ export function parseTaskMaterialProgress(
     return {
       slotId,
       actionLabel: "HyperFrames 渲染",
-      summary: slotId ? `正在处理：${slotId} · HyperFrames 渲染` : null,
+      summary: slotId ? `${slotId} 素材已就绪` : "素材已就绪",
+      kind: "completed",
     };
   }
 
-  return { slotId: null, actionLabel: null, summary: null };
+  return { slotId: null, actionLabel: null, summary: null, kind: null };
 }

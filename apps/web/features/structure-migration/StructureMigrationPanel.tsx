@@ -47,8 +47,31 @@ type StructureMigrationPanelProps = {
   collapsible?: boolean;
   compact?: boolean;
   activeSlotId?: string | null;
+  activeSlotIds?: Iterable<string> | null;
   "data-testid"?: string;
 };
+
+function resolveActiveSlotIdSet(
+  activeSlotId?: string | null,
+  activeSlotIds?: Iterable<string> | null,
+): Set<string> {
+  const resolved = new Set<string>();
+  if (activeSlotIds) {
+    for (const slotId of activeSlotIds) {
+      const normalized = normalizeMigrationSlotId(slotId);
+      if (normalized) {
+        resolved.add(normalized);
+      }
+    }
+  }
+  if (resolved.size === 0 && activeSlotId) {
+    const normalized = normalizeMigrationSlotId(activeSlotId);
+    if (normalized) {
+      resolved.add(normalized);
+    }
+  }
+  return resolved;
+}
 
 export function StructureMigrationPanel({
   rows,
@@ -58,10 +81,12 @@ export function StructureMigrationPanel({
   collapsible = true,
   compact = false,
   activeSlotId = null,
+  activeSlotIds = null,
   "data-testid": testId = "structure-migration-panel",
 }: StructureMigrationPanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const summary = description ?? migrationSummaryFromRows(rows);
+  const activeSlotIdSet = resolveActiveSlotIdSet(activeSlotId, activeSlotIds);
 
   return (
     <Card data-testid={testId}>
@@ -105,10 +130,9 @@ export function StructureMigrationPanel({
                 key={row.slotId}
                 row={row}
                 index={index}
-                isActive={
-                  activeSlotId != null &&
-                  normalizeMigrationSlotId(row.slotId) === activeSlotId
-                }
+                isActive={activeSlotIdSet.has(
+                  normalizeMigrationSlotId(row.slotId) ?? row.slotId,
+                )}
               />
             ))
           )}
@@ -160,16 +184,23 @@ function SlotMigrationRowCard({
             row.userAssetId && row.userAssetSummary ? row.userAssetSummary : undefined
           }
         />
-        {(row.gapSummary || row.completionProvider) && (
+        {(row.gapSummary || row.completionProvider || row.acpFailureSummary) && (
           <MigrationStep
             label="视觉补全"
             value={row.completionReason ?? row.gapSummary ?? "按结构要求自动补全"}
             accessory={
-              row.completionProvider &&
-              row.completionProvider !== "tts" ? (
-                <GeneratedAssetBadge provider={row.completionProvider} />
+              row.completionProvider && row.completionProvider !== "tts" ? (
+                <GeneratedAssetBadge
+                  provider={row.completionProvider}
+                  providers={
+                    row.completionProviders.length > 0
+                      ? row.completionProviders
+                      : undefined
+                  }
+                />
               ) : null
             }
+            hint={row.acpFailureSummary ?? undefined}
           />
         )}
         {(row.resolvedVisual || row.script) && (

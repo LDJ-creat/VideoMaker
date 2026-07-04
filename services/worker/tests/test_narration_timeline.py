@@ -85,6 +85,105 @@ def test_hold_tail_extends_last_scene_and_duration(tmp_path: Path) -> None:
     assert video_clips[-1]["endSec"] == 12.0
 
 
+def test_hold_tail_syncs_inverted_clip_times_on_early_return(tmp_path: Path) -> None:
+    render_root = tmp_path / "render"
+    _write_wav(render_root / "materials" / "master.wav", seconds=34.316)
+
+    plan = {
+        "ttsMode": "global",
+        "generationStrategy": "long_form_composed",
+        "storyboard": [
+            {
+                "id": "scene-6",
+                "slotId": "slot-6",
+                "startSec": 21.4,
+                "endSec": 24.2,
+                "script": "center scene",
+                "visual": "generated/action-slot-6.mp4",
+                "source": "generated",
+            },
+        ],
+        "timeline": {
+            "durationSec": 34.316,
+            "tracks": [
+                {
+                    "id": "track-video",
+                    "type": "video",
+                    "clips": [
+                        {
+                            "id": "clip-slot-6",
+                            "startSec": 41.325,
+                            "endSec": 34.316,
+                            "sourceRef": "generated/action-slot-6.mp4",
+                        }
+                    ],
+                },
+                {
+                    "id": "track-voiceover",
+                    "type": "voiceover",
+                    "clips": [
+                        {
+                            "id": "vo-master",
+                            "startSec": 0.0,
+                            "endSec": 34.316,
+                            "sourceRef": "materials/master.wav",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+    updated = sync_timeline_to_narration(plan, render_root=render_root, mode="hold_tail")
+    clip = next(
+        clip
+        for track in updated["timeline"]["tracks"]
+        if track["type"] == "video"
+        for clip in track["clips"]
+        if clip["id"] == "clip-slot-6"
+    )
+    assert clip["startSec"] == pytest.approx(21.4, abs=0.001)
+    assert clip["endSec"] == pytest.approx(24.2, abs=0.001)
+    assert clip["startSec"] < clip["endSec"]
+
+
+def test_refresh_timeline_clip_timing_without_narration_wav() -> None:
+    from app.pipelines.narration_timeline import refresh_timeline_clip_timing
+
+    plan = {
+        "storyboard": [
+            {
+                "id": "scene-slot-6",
+                "slotId": "slot-6",
+                "startSec": 21.409,
+                "endSec": 24.171,
+            }
+        ],
+        "timeline": {
+            "durationSec": 34.316,
+            "tracks": [
+                {
+                    "id": "track-video",
+                    "type": "video",
+                    "clips": [
+                        {
+                            "id": "clip-slot-6",
+                            "startSec": 41.325,
+                            "endSec": 34.316,
+                            "sourceRef": "materials/action-slot-6.mp4",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+    updated = refresh_timeline_clip_timing(plan)
+    clip = updated["timeline"]["tracks"][0]["clips"][0]
+    assert clip["startSec"] == pytest.approx(21.409, abs=0.001)
+    assert clip["endSec"] == pytest.approx(24.171, abs=0.001)
+
+
 def test_hold_tail_auto_global_ripple_when_preview_deviation_exceeds_threshold(tmp_path: Path) -> None:
     render_root = tmp_path / "render"
     _write_wav(render_root / "materials" / "master.wav", seconds=12.0)

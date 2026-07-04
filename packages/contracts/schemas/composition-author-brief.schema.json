@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/composition-author-brief.schema.json",
+  "title": "CompositionAuthorBrief",
+  "type": "object",
+  "required": ["mode", "authorPrompt"],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["hf_native", "source_then_polish", "polish_only", "packaging_only"]
+    },
+    "authorPrompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    },
+    "layoutAnchor": {
+      "type": "string",
+      "enum": ["center", "lower_third", "upper_third"],
+      "description": "Vertical placement of the primary HF content. hf_native uses center; source_then_polish overlays use lower_third (cta) or upper_third (hook)."
+    },
+    "templatePreference": {
+      "type": "string",
+      "enum": ["composition", "benefit-card", "title-lower-third", "ken-burns"]
+    },
+    "displayCopyPolicy": {
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -87,3 +87,36 @@ def test_user_payload_includes_field_semantics_and_render_policy() -> None:
     assert "scriptIntent" not in payload["slot"]
     assert payload["renderPolicy"]["forbidVoiceoverText"] is True
     assert payload["renderPolicy"]["allowedDisplayCopy"] == ["Go"]
+
+
+def test_payload_includes_composition_author_brief() -> None:
+    payload = build_material_author_user_payload(
+        AuthorRequest(
+            slot={"role": "benefit_card"},
+            finish_brief={
+                "compositionAuthorBrief": {
+                    "mode": "hf_native",
+                    "authorPrompt": "竖屏卖点卡，无口播文字。",
+                }
+            },
+        )
+    )
+    assert payload["compositionAuthorBrief"]["mode"] == "hf_native"
+    assert payload["compositionAuthorBrief"]["authorPrompt"] == "竖屏卖点卡，无口播文字。"
+    assert "compositionAuthorBrief" in payload["fieldSemantics"]
+
+
+def test_collect_forbidden_copy_includes_author_prompt() -> None:
+    payload = build_material_author_user_payload(
+        AuthorRequest(
+            slot={"role": "benefit_card"},
+            finish_brief={
+                "compositionAuthorBrief": {
+                    "mode": "hf_native",
+                    "authorPrompt": "竖屏卖点卡，三行 stagger 揭示",
+                }
+            },
+        )
+    )
+    phrases = collect_forbidden_copy_phrases(payload)
+    assert "竖屏卖点卡，三行 stagger 揭示" in phrases

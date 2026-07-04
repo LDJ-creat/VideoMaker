@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
+from app.agents.failure_debug import format_validation_errors
 from app.agents.runner import AgentRunner
 from app.agents.segment_proposer import segment_keyframes
 from app.agents.structure_inputs import _encode_keyframes
 from app.gateway.model_gateway import ModelGateway
+from app.observability.agent_run_recorder import record_live_agent_run
+from app.observability.gateway_context import agent_observability_scope
+from app.observability.model_call_recorder import invalidate_last_model_call
 from app.perception.digest_coverage import resolve_segment_vision_policy
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError
@@ -298,6 +303,10 @@ def run_segment_analyst(
         if attempt > 0 and last_error is not None:
             attempt_inputs["validationErrors"] = [str(last_error)]
 
+        started = time.perf_counter()
+        valid = True
+        errors: list[str] = []
+        profile = "vision" if encoded else "text"
         try:
             if runner.llm.fixture_mode:
                 raw_payload = runner.run(
@@ -307,7 +316,7 @@ def run_segment_analyst(
                     inputs=attempt_inputs,
                     context=context,
                     progress=progress,
-                    profile="vision" if encoded else "text",
+                    profile=profile,
                     post_validate=lambda payload: _validate_segment_payload(
                         payload,
                         segment_id=segment_id,
@@ -317,26 +326,63 @@ def run_segment_analyst(
                 gateway = runner.llm.gateway
                 if gateway is None:
                     raise LLMToolConfigError("No ModelGateway configured for segment analyst")
-                system_prompt = runner.prompt_loader.load("segment_analyst")
-                text_payload = {"systemPrompt": system_prompt, "inputs": attempt_inputs}
-                messages = ModelGateway.build_structure_messages(
-                    system_prompt=system_prompt,
-                    text_payload=text_payload,
-                    keyframes=encoded if encoded else None,
-                )
-                raw_payload = gateway.complete_json_messages(
-                    messages,
-                    profile="vision" if encoded else "text",
-                )
-                raw_payload = LLMTool._unwrap_schema_payload(raw_payload, SCHEMA_NAME)
-                raw_payload = _validate_segment_payload(raw_payload, segment_id=segment_id)
+                with agent_observability_scope(gateway, "segment_analyst"):
+                    system_prompt = runner.prompt_loader.load("segment_analyst")
+                    text_payload = {"systemPrompt": system_prompt, "inputs": attempt_inputs}
+                    messages = ModelGateway.build_structure_messages(
+                        system_prompt=system_prompt,
+                        text_payload=text_payload,
+                        keyframes=encoded if encoded else None,
+                    )
+                    raw_payload = gateway.complete_json_messages(
+                        messages,
+                        profile=profile,
+                    )
+                    raw_payload = LLMTool._unwrap_schema_payload(raw_payload, SCHEMA_NAME)
+                    raw_payload = _validate_segment_payload(raw_payload, segment_id=segment_id)
 
             payload = dict(raw_payload)
             payload.setdefault("segmentId", segment_id)
             return payload
-        except (LLMToolValidationError, LLMToolConfigError) as exc:
+        except LLMToolValidationError as exc:
+            valid = False
+            errors = format_validation_errors(exc.validation_errors)
             last_error = exc
+            if not runner.llm.fixture_mode and runner.llm.gateway is not None:
+                invalidate_last_model_call(
+                    runner.llm.gateway,
+                    validation_errors=errors,
+                )
             if attempt >= _MAX_LIVE_RETRIES:
                 raise
+        except LLMToolConfigError as exc:
+            valid = False
+            errors = [str(exc)]
+            last_error = exc
+            if not runner.llm.fixture_mode and runner.llm.gateway is not None:
+                invalidate_last_model_call(
+                    runner.llm.gateway,
+                    validation_errors=errors,
+                )
+            if attempt >= _MAX_LIVE_RETRIES:
+                raise
+        finally:
+            if not runner.llm.fixture_mode:
+                record_live_agent_run(
+                    runner,
+                    agent_name="segment_analyst",
+                    task=TASK_KEY,
+                    input_summary={
+                        "agent": "segment_analyst",
+                        "segmentId": segment_id,
+                        "visionPolicy": inputs.get("visionPolicy"),
+                        "attempt": attempt,
+                    },
+                    valid=valid,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                    context=context,
+                    validation_errors=errors,
+                    profile=profile,
+                )
 
     raise AssertionError("segment analyst retry loop exited without result")

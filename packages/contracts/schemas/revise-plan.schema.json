@@ -133,6 +133,11 @@
     "createdAt": { "type": "string", "minLength": 1 },
     "executedAt": { "type": "string" },
     "resultGenerationId": { "type": "string" },
-    "resultTaskId": { "type": "string" }
+    "resultTaskId": { "type": "string" },
+    "planSource": {
+      "type": "string",
+      "enum": ["nl", "scene_structured"]
+    },
+    "materialReviewGateExpected": { "type": "boolean" }
   }
 }

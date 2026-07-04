@@ -1,6 +1,6 @@
 "use client";
 
-import type { EditIntentItem } from "@videomaker/contracts";
+import type { EditIntentItem, RevisePlanSource } from "@videomaker/contracts";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,16 +13,22 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  EDIT_INTENT_OPERATION_LABELS,
   EDIT_INTENT_TARGET_LABELS,
+  resolveEditIntentDisplayLabel,
+  resolveEditIntentListDescription,
 } from "./intentLabels";
 
 type EditIntentListProps = {
   intents: EditIntentItem[];
+  planSource?: RevisePlanSource;
   className?: string;
 };
 
-export function EditIntentList({ intents, className }: EditIntentListProps) {
+export function EditIntentList({
+  intents,
+  planSource,
+  className,
+}: EditIntentListProps) {
   if (intents.length === 0) {
     return null;
   }
@@ -31,7 +37,9 @@ export function EditIntentList({ intents, className }: EditIntentListProps) {
     <Card className={cn("border-ai/20", className)} data-testid="edit-intent-list">
       <CardHeader>
         <CardTitle>改片意图</CardTitle>
-        <CardDescription>AI 已从自然语言指令解析出以下结构化改片步骤</CardDescription>
+        <CardDescription>
+          {resolveEditIntentListDescription(planSource)}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {intents.map((intent, index) => (
@@ -42,8 +50,7 @@ export function EditIntentList({ intents, className }: EditIntentListProps) {
           >
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <Badge variant="ai">
-                {EDIT_INTENT_OPERATION_LABELS[intent.operation] ??
-                  intent.operation}
+                {resolveEditIntentDisplayLabel(intent)}
               </Badge>
               <Badge variant="outline">
                 {EDIT_INTENT_TARGET_LABELS[intent.target] ?? intent.target}

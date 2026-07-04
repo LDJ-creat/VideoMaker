@@ -5,6 +5,7 @@ import type {
   GenerationPlan,
   RevisePlan,
   ReviseSession,
+  SceneReviseRequest,
   KnowledgeEntry,
   KnowledgeRecommendation,
   KnowledgeCategorySummary,
@@ -185,6 +186,19 @@ export type GenerationRunSummary = {
   provenanceId?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ReviseGenerationSummary = {
+  generationId: string;
+  variant?: string;
+  status?: string;
+  taskId?: string | null;
+  sourceGenerationId?: string | null;
+  instruction?: string | null;
+  affectedSlotIds?: string[];
+  materialScope?: string | null;
+  updatedAt?: string | null;
+  plan?: GenerationResponse;
 };
 
 export type StructureProvenanceSummary = {
@@ -500,6 +514,25 @@ export async function listGenerationRuns(
   return apiFetch(`/api/projects/${projectId}/generation-runs?limit=${limit}`);
 }
 
+export async function listReviseGenerations(
+  projectId: string,
+  limit = 20,
+): Promise<ApiResult<{ revisions: ReviseGenerationSummary[] }>> {
+  return apiFetch(`/api/projects/${projectId}/revise-generations?limit=${limit}`);
+}
+
+export async function deleteGeneration(
+  projectId: string,
+  generationId: string,
+  options?: { cascade?: boolean },
+): Promise<ApiResult<{ ok: boolean; deletedGenerationIds: string[] }>> {
+  const cascade = options?.cascade ?? true;
+  return apiFetch(
+    `/api/projects/${projectId}/generations/${generationId}?cascade=${cascade ? "true" : "false"}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function getGenerationRun(
   projectId: string,
   runId: string,
@@ -581,6 +614,40 @@ export async function saveBrief(
 
 export async function retryTask(taskId: string): Promise<ApiResult<TaskEvent>> {
   return apiFetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
+}
+
+export async function cancelTask(taskId: string): Promise<ApiResult<TaskEvent>> {
+  await apiFetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+  return getTask(taskId);
+}
+
+export async function fetchTaskEventHistory(
+  taskId: string,
+): Promise<TaskEvent[]> {
+  const response = await fetch(`/api/tasks/${taskId}/events?once=true`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load task events (${response.status})`);
+  }
+
+  const events: TaskEvent[] = [];
+  const body = await response.text();
+  for (const line of body.split("\n")) {
+    if (!line.startsWith("data: ")) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(line.slice(6)) as TaskEvent & {
+        eventId?: number;
+      };
+      const { eventId: _eventId, ...event } = parsed;
+      events.push(event);
+    } catch {
+      // Ignore malformed SSE payloads.
+    }
+  }
+  return events;
 }
 
 export async function startSampleAnalysis(
@@ -696,6 +763,21 @@ export async function planReviseGeneration(
   });
 }
 
+export async function planReviseGenerationStructured(
+  generationId: string,
+  structured: SceneReviseRequest,
+  options?: { newSession?: boolean },
+): Promise<ApiResult<RevisePlanResponse>> {
+  return apiFetch(`/api/generations/${generationId}/revise/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      structured,
+      newSession: options?.newSession ?? false,
+    }),
+  });
+}
+
 export async function executeRevisePlan(
   generationId: string,
   planId: string,
@@ -794,8 +876,12 @@ export async function getSampleKeyframes(
   return apiFetch(`/api/samples/${sampleId}/keyframes`);
 }
 
-export function getTaskEventsUrl(taskId: string): string {
-  return `/api/tasks/${taskId}/events`;
+export function getTaskEventsUrl(taskId: string, afterId?: number): string {
+  const base = `/api/tasks/${taskId}/events`;
+  if (afterId != null && afterId > 0) {
+    return `${base}?after_id=${afterId}`;
+  }
+  return base;
 }
 
 export { artifactDisplayUrl } from "@/lib/artifactUrl";
@@ -1081,6 +1167,51 @@ export async function approveStoryboardScript(
   generationId: string,
 ): Promise<ApiResult<{ generationId: string; taskId: string; draft: ScriptDraft }>> {
   return apiFetch(`/api/generations/${generationId}/approve-storyboard`, {
+    method: "POST",
+  });
+}
+
+export type MaterialReviewReviseContext = {
+  scope: string;
+  sourceGenerationId: string;
+  affectedSlotIds?: string[];
+};
+
+export type MaterialReviewResponse = {
+  state: import("@videomaker/contracts").MaterialReviewState;
+  reports: Record<string, import("@videomaker/contracts").MaterialReviewReport>;
+  slotPreviewUrls?: Record<string, string>;
+  reviseContext?: MaterialReviewReviseContext;
+};
+
+export async function resolveGenerationByTask(
+  taskId: string,
+): Promise<ApiResult<{ generationId: string; projectId: string }>> {
+  return apiFetch(`/api/generations/resolve/by-task/${taskId}`);
+}
+
+export async function fetchMaterialReview(
+  generationId: string,
+): Promise<ApiResult<MaterialReviewResponse>> {
+  return apiFetch(`/api/generations/${generationId}/material-review`);
+}
+
+export async function reviseMaterialSlot(
+  generationId: string,
+  slotId: string,
+  instruction: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; slotId: string; queued: boolean }>> {
+  return apiFetch(`/api/generations/${generationId}/material-slots/${slotId}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+}
+
+export async function approveMaterialReview(
+  generationId: string,
+): Promise<ApiResult<{ generationId: string; taskId: string; state: import("@videomaker/contracts").MaterialReviewState }>> {
+  return apiFetch(`/api/generations/${generationId}/approve-material`, {
     method: "POST",
   });
 }

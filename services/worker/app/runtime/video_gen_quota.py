@@ -110,6 +110,22 @@ class VideoGenQuota:
         self.consumed_slots[slot_id] = self.consumed_slots.get(slot_id, 0) + 1
         return True
 
+    def reserve(self, slot_id: str = "__legacy__") -> bool:
+        """Atomically claim quota for a slot (call ``release`` if generation fails)."""
+        return self.consume(slot_id)
+
+    def release(self, slot_id: str = "__legacy__") -> None:
+        """Return a previously reserved slot quota after a failed generation."""
+        if not slot_id:
+            return
+        count = int(self.consumed_slots.get(slot_id, 0))
+        if count <= 0:
+            return
+        if count == 1:
+            self.consumed_slots.pop(slot_id, None)
+        else:
+            self.consumed_slots[slot_id] = count - 1
+
     @classmethod
     def from_env(cls) -> VideoGenQuota:
         legacy = os.getenv("VIDEOMAKER_VIDEO_GEN_QUOTA", "").strip()

@@ -1,4 +1,5 @@
 import type {
+  AgentRunLog,
   CompletionAction,
   GapReport,
   GenerationPlan,
@@ -11,6 +12,8 @@ import { structureSlotRoleLabel } from "@/lib/structureSlotLabels";
 
 import type { MigrationStageGroup } from "@/features/structure-migration/generationMigrationStages";
 import { pickVisualCompletionAction } from "@/features/structure-migration/pickVisualCompletionAction";
+import { resolveCompletionProviderChain } from "@/features/structure-migration/resolveCompletionProviderChain";
+import { resolveMaterialAuthorFailureSummary } from "@/features/structure-migration/resolveMaterialAuthorFailureSummary";
 import { resolveStoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
 import { normalizeMigrationSlotId } from "@/lib/migrationSlotId";
@@ -38,8 +41,11 @@ export type SlotMigrationRow = {
   userAssetSummary: string | null;
   gapSummary: string | null;
   completionProvider: string | null;
+  completionProviders: string[];
   completionStrategy: string | null;
   completionReason: string | null;
+  finishIntent: string | null;
+  acpFailureSummary: string | null;
   resolvedVisual: string | null;
   script: string | null;
   timeRange: string | null;
@@ -56,17 +62,47 @@ function classifyMatch(match: SlotMatch | undefined): "matched" | "weak" | "none
 function gapEntryForSlot(
   gapReport: GapReport | null | undefined,
   slotId: string,
-): { reason: string; suggestedFixes: string[] } | null {
+): { reason: string; suggestedFixes: string[]; finishIntent?: string } | null {
   if (!gapReport) return null;
   const weak = gapReport.weakSlots.find((entry) => entry.slotId === slotId);
   if (weak) {
-    return { reason: weak.reason, suggestedFixes: weak.suggestedFixes };
+    return {
+      reason: weak.reason,
+      suggestedFixes: weak.suggestedFixes,
+      finishIntent: weak.finishIntent,
+    };
   }
   const missing = gapReport.missingSlots.find((entry) => entry.slotId === slotId);
   if (missing) {
-    return { reason: missing.reason, suggestedFixes: missing.suggestedFixes };
+    return {
+      reason: missing.reason,
+      suggestedFixes: missing.suggestedFixes,
+      finishIntent: missing.finishIntent,
+    };
   }
   return null;
+}
+
+function resolveActiveSlotIds(
+  activeSlotId?: string | null,
+  activeSlotIds?: Iterable<string> | null,
+): Set<string> {
+  const resolved = new Set<string>();
+  if (activeSlotIds) {
+    for (const slotId of activeSlotIds) {
+      const normalized = normalizeMigrationSlotId(slotId);
+      if (normalized) {
+        resolved.add(normalized);
+      }
+    }
+  }
+  if (resolved.size === 0 && activeSlotId) {
+    const normalized = normalizeMigrationSlotId(activeSlotId);
+    if (normalized) {
+      resolved.add(normalized);
+    }
+  }
+  return resolved;
 }
 
 function resolveRowStatus(input: {
@@ -74,6 +110,7 @@ function resolveRowStatus(input: {
   slotId: string;
   progressGroup?: MigrationStageGroup;
   activeSlotId?: string | null;
+  activeSlotIds?: Iterable<string> | null;
   completedSlotIds?: Set<string>;
   hasCompletion: boolean;
   hasGap: boolean;
@@ -85,7 +122,7 @@ function resolveRowStatus(input: {
   }
 
   const normalizedSlot = normalizeMigrationSlotId(input.slotId) ?? input.slotId;
-  const normalizedActive = normalizeMigrationSlotId(input.activeSlotId);
+  const activeSlots = resolveActiveSlotIds(input.activeSlotId, input.activeSlotIds);
 
   switch (input.progressGroup) {
     case "pending":
@@ -98,7 +135,7 @@ function resolveRowStatus(input: {
       if (input.completedSlotIds?.has(normalizedSlot)) {
         return "completed";
       }
-      if (normalizedActive && normalizedSlot === normalizedActive) {
+      if (activeSlots.has(normalizedSlot)) {
         return "completing";
       }
       return "planned";
@@ -119,7 +156,9 @@ export function buildSlotMigrationRows(input: {
   mode: "result" | "progress";
   progressGroup?: MigrationStageGroup;
   activeSlotId?: string | null;
+  activeSlotIds?: Iterable<string> | null;
   completedActionIds?: string[];
+  completedSlotIds?: Set<string>;
   taskSucceeded?: boolean;
 }): SlotMigrationRow[] {
   const matchesBySlot = new Map(
@@ -143,10 +182,12 @@ export function buildSlotMigrationRows(input: {
   const scenesBySlot = new Map(
     (input.storyboard ?? []).map((scene) => [scene.slotId, scene]),
   );
-  const completedSlotIds = deriveCompletedSlotIds(
-    input.completionActions ?? [],
-    input.completedActionIds,
-  );
+  const completedSlotIds =
+    input.completedSlotIds ??
+    deriveCompletedSlotIds(
+      input.completionActions ?? [],
+      input.completedActionIds,
+    );
 
   return input.structure.slots.map((slot) => {
     const match = matchesBySlot.get(slot.id);
@@ -179,6 +220,7 @@ export function buildSlotMigrationRows(input: {
         slotId: slot.id,
         progressGroup: input.progressGroup,
         activeSlotId: input.activeSlotId,
+        activeSlotIds: input.activeSlotIds,
         completedSlotIds,
         hasCompletion: Boolean(completion),
         hasGap: Boolean(gap),
@@ -193,8 +235,14 @@ export function buildSlotMigrationRows(input: {
         completion?.strategy ??
         gap?.suggestedFixes[0] ??
         null,
+      completionProviders: [],
       completionStrategy: completion?.strategy ?? null,
       completionReason: completion?.reason ?? completion?.rationale ?? null,
+      finishIntent:
+        completion?.finishIntent?.trim() ||
+        gap?.finishIntent?.trim() ||
+        null,
+      acpFailureSummary: null,
       resolvedVisual: scene?.visual ?? null,
       script: scene?.script ?? null,
       timeRange:
@@ -207,6 +255,7 @@ export function buildSlotMigrationRowsFromPlan(
   structure: VideoStructure,
   plan: GenerationPlan,
   gapReport?: GapReport | null,
+  agentRuns?: AgentRunLog[] | null,
 ): SlotMigrationRow[] {
   const rows = buildSlotMigrationRows({
     structure,
@@ -222,21 +271,27 @@ export function buildSlotMigrationRowsFromPlan(
     const scene = plan.storyboard.find((entry) => entry.slotId === row.slotId);
     if (!scene) return row;
 
-    const media = resolveStoryboardSceneMedia(plan, scene);
+    const providerChain = resolveCompletionProviderChain(plan.completionActions, row.slotId);
     const visualAction = pickVisualCompletionAction(plan.completionActions, row.slotId);
     const visualProvider =
-      media.provider && media.provider !== scene.source
-        ? media.provider
-        : visualAction?.provider ?? visualAction?.strategy ?? null;
+      providerChain[providerChain.length - 1] ??
+      (() => {
+        const media = resolveStoryboardSceneMedia(plan, scene);
+        return media.provider && media.provider !== scene.source
+          ? media.provider
+          : visualAction?.provider ?? visualAction?.strategy ?? null;
+      })();
 
     return {
       ...row,
       completionProvider: visualProvider,
+      completionProviders: providerChain,
       completionStrategy: visualAction?.strategy ?? null,
       completionReason:
         visualAction?.rationale ??
         visualAction?.reason ??
         row.gapSummary,
+      acpFailureSummary: resolveMaterialAuthorFailureSummary(agentRuns, row.slotId),
     };
   });
 }

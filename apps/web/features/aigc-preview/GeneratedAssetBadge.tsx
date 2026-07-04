@@ -25,6 +25,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 type GeneratedAssetBadgeProps = {
   provider: GeneratedAssetProvider | string;
+  providers?: Array<GeneratedAssetProvider | string>;
   generatedBy?: string | GeneratedBy;
   className?: string;
 };
@@ -56,11 +57,21 @@ function formatTooltip(
 
 export function GeneratedAssetBadge({
   provider,
+  providers,
   generatedBy,
   className,
 }: GeneratedAssetBadgeProps) {
-  const label = PROVIDER_LABELS[provider] ?? provider;
+  const chain = providers?.length
+    ? providers
+    : provider
+      ? [provider]
+      : [];
+  const label = chain
+    .map((item) => PROVIDER_LABELS[item] ?? item)
+    .join(" + ");
   const tooltip = formatTooltip(provider, generatedBy);
+
+  if (!label) return null;
 
   return (
     <Badge

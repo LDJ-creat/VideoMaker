@@ -63,3 +63,10 @@ export function getErrorMessage(err: unknown): string {
   }
   return "请求失败，请稍后重试";
 }
+
+/** Transient 404 while worker persists generation-plan.json after task terminal. */
+export function isGenerationPlanNotReadyError(err: unknown): boolean {
+  if (!(err instanceof ApiClientError)) return false;
+  if (err.status !== 404) return false;
+  return err.message.includes("Generation plan not ready");
+}

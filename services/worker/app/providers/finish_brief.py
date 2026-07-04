@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.pipelines.composition_brief import (
+    infer_composition_brief_mode,
+    infer_layout_anchor,
+    layout_directive_for_anchor,
+    merge_display_copy_from_packaging,
+)
+
 _DEFAULT_CONSTRAINTS = (
     "do_not_replace_base_media",
     "keep_base_video_visible",
@@ -105,6 +112,7 @@ def _enrich_semantic_fields(
     slot: dict[str, Any],
     storyboard_scene: dict[str, Any] | None,
     packaging_overlay: dict[str, Any] | None,
+    gap_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     visual = str((storyboard_scene or {}).get("visual") or "").strip()
     script_line = str((storyboard_scene or {}).get("script") or "").strip()
@@ -112,8 +120,31 @@ def _enrich_semantic_fields(
     finish_intent = str(brief.get("finishIntent") or "").strip()
     packaging_requirements = list(brief.get("packagingRequirements") or slot.get("packagingRequirements") or [])
 
+    composition_brief: dict[str, Any] | None = None
+    if isinstance(storyboard_scene, dict):
+        raw_brief = storyboard_scene.get("compositionAuthorBrief")
+        if isinstance(raw_brief, dict):
+            composition_brief = merge_display_copy_from_packaging(dict(raw_brief), packaging_overlay)
+            if isinstance(storyboard_scene, dict):
+                inferred_mode = infer_composition_brief_mode(
+                    scene=storyboard_scene,
+                    slot=slot,
+                    gap_item=gap_item,
+                )
+                if composition_brief.get("mode") != inferred_mode:
+                    composition_brief = {**composition_brief, "mode": inferred_mode}
+            layout_anchor = str(composition_brief.get("layoutAnchor") or "").strip()
+            if layout_anchor not in {"center", "lower_third", "upper_third"}:
+                layout_anchor = infer_layout_anchor(
+                    mode=str(composition_brief.get("mode") or inferred_mode),
+                    slot=slot,
+                )
+                composition_brief = {**composition_brief, "layoutAnchor": layout_anchor}
+            brief["layoutDirective"] = layout_directive_for_anchor(layout_anchor)
+            brief["compositionAuthorBrief"] = composition_brief
+
     creative = dict(brief.get("creativeBrief") or {})
-    if visual and not creative.get("visualDirection"):
+    if visual and not creative.get("visualDirection") and composition_brief is None:
         creative["visualDirection"] = visual
     if narrative_goal and not creative.get("narrativeGoal"):
         creative["narrativeGoal"] = narrative_goal
@@ -137,8 +168,17 @@ def _enrich_semantic_fields(
     render_policy.setdefault("forbidVoiceoverText", True)
     render_policy.setdefault("forbidBriefVerbatim", True)
     allowed = render_policy.get("allowedDisplayCopy")
-    if not isinstance(allowed, list) or not allowed:
-        render_policy["allowedDisplayCopy"] = _allowed_display_copy(packaging_overlay)
+    if composition_brief is not None:
+        policy = composition_brief.get("displayCopyPolicy")
+        if isinstance(policy, dict):
+            brief_allowed = policy.get("allowed")
+            if isinstance(brief_allowed, list) and brief_allowed:
+                render_policy["allowedDisplayCopy"] = [
+                    str(item).strip() for item in brief_allowed if str(item).strip()
+                ]
+    if not isinstance(render_policy.get("allowedDisplayCopy"), list) or not render_policy.get("allowedDisplayCopy"):
+        if not isinstance(allowed, list) or not allowed:
+            render_policy["allowedDisplayCopy"] = _allowed_display_copy(packaging_overlay)
     brief["renderPolicy"] = render_policy
 
     if storyboard_scene and "storyboardScene" not in brief:
@@ -148,6 +188,14 @@ def _enrich_semantic_fields(
         }
 
     brief["constraints"] = _merge_constraints(brief.get("constraints") if isinstance(brief.get("constraints"), list) else None)
+    mode = str(brief.get("completionMode") or "").strip().lower()
+    cab = brief.get("compositionAuthorBrief")
+    if mode == "hf_native" or (isinstance(cab, dict) and str(cab.get("mode") or "").strip().lower() == "hf_native"):
+        brief["constraints"] = [
+            item
+            for item in brief.get("constraints") or []
+            if item not in {"do_not_replace_base_media", "keep_base_video_visible"}
+        ]
     return brief
 
 
@@ -192,6 +240,7 @@ def build_finish_brief(
         slot=slot,
         storyboard_scene=storyboard_scene,
         packaging_overlay=overlay,
+        gap_item=gap_item,
     )
 
 
@@ -207,6 +256,12 @@ def build_finish_brief_for_action(
     duration_sec: float | None,
 ) -> dict[str, Any]:
     gap = gap_item or {}
+    if not gap.get("completionMode") and isinstance(action.get("completionMode"), str):
+        gap = {
+            **gap,
+            "completionMode": action.get("completionMode"),
+            "finishIntent": action.get("finishIntent"),
+        }
     scene = _scene_for_slot(str(action.get("slotId", "")), storyboard)
     overlay = _packaging_overlay_for_slot(str(slot.get("id", "")), packaging_plan)
 
@@ -233,4 +288,5 @@ def build_finish_brief_for_action(
         slot=slot,
         storyboard_scene=scene,
         packaging_overlay=overlay or brief.get("packagingOverlay") if isinstance(brief.get("packagingOverlay"), dict) else overlay,
+        gap_item=gap,
     )

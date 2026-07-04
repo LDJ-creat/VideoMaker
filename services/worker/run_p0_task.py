@@ -97,6 +97,7 @@ def main() -> int:
 
     emit = None
     result: dict[str, Any] | None = None
+    pipeline = None
 
     try:
         from app.pipelines.p0_demo_pipeline import P0DemoPipeline
@@ -188,7 +189,7 @@ def main() -> int:
                 storage_root=storage_root,
             )
             parsed = run_edit_intent_parser(
-                pipeline._build_runner(),  # noqa: SLF001
+                pipeline._build_runner(context=context),  # noqa: SLF001
                 instruction=str(payload["instruction"]),
                 source_summary=build_source_summary(source_plan),
                 context=context,
@@ -204,7 +205,7 @@ def main() -> int:
                 storage_root=storage_root,
             )
             result = revise_script_draft(
-                pipeline._build_runner(),  # noqa: SLF001
+                pipeline._build_runner(context=context, generation_id=str(payload["generationId"])),  # noqa: SLF001
                 project_id=project_id,
                 generation_id=str(payload["generationId"]),
                 scope=str(payload["scope"]),
@@ -223,7 +224,7 @@ def main() -> int:
                 storage_root=storage_root,
             )
             parsed = run_knowledge_selector(
-                pipeline._build_runner(),  # noqa: SLF001
+                pipeline._build_runner(context=context),  # noqa: SLF001
                 brief=payload["userBrief"],
                 candidates=payload["candidates"],
                 context=context,
@@ -244,7 +245,10 @@ def main() -> int:
                 task_id=task_id,
                 storage_root=storage_root,
             )
-            runner = pipeline._build_runner()  # noqa: SLF001
+            runner = pipeline._build_runner(  # noqa: SLF001
+                context=context,
+                generation_id=generation_id,
+            )
             loaded = load_generation_plan_context(
                 storage_root,
                 project_id=project_id,
@@ -311,6 +315,10 @@ def main() -> int:
                 error=final_event["error"],
             )
         result = failure
+
+    finally:
+        if pipeline is not None:
+            pipeline.flush_observability()
 
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result.get("ok") else 1

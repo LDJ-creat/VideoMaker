@@ -35,6 +35,7 @@ GENERATION_STAGES = (
     "drafting_storyboard",
     "planning_completion",
     "generating_material",
+    "assembling_final",
     "building_timeline",
     "rendering",
 )
@@ -330,6 +331,12 @@ def is_generation_stage_done(stage: str, generation_root: Path, *, render_root: 
     if stage == "generating_material":
         state = _read_json(generation_root / "material-state.json")
         return isinstance(state, dict) and "completedActionIds" in state
+
+    if stage == "assembling_final":
+        from app.pipelines.tts_mode import MASTER_TTS_WAV_NAME
+
+        master_wav = generation_root / "generated" / MASTER_TTS_WAV_NAME
+        return master_wav.is_file() and master_wav.stat().st_size > 0
 
     if stage == "building_timeline":
         plan = _read_json(generation_root / "generation-plan.json")

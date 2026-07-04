@@ -1,15 +1,21 @@
 "use client";
 
-import type { StoryboardScene } from "@videomaker/contracts";
-import { Film, ImageIcon } from "lucide-react";
+import type { SceneReviseRequest, StoryboardScene } from "@videomaker/contracts";
+import { Film, ImageIcon, Pencil } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { GeneratedAssetBadge } from "@/features/aigc-preview/GeneratedAssetBadge";
+import {
+  formatCompositionBriefMeta,
+  hasCompositionDesignContent,
+} from "@/features/master-narration/formatCompositionDesign";
 import type { StoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { scriptBelongsToMaster } from "@/features/master-narration/resolveMasterNarration";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { SceneRevisePanel } from "@/features/nl-revise/SceneRevisePanel";
 
 const KNOWN_MEDIA_PROVIDERS = new Set([
   "asset_reuse",
@@ -33,7 +39,13 @@ type StoryboardSceneCardProps = {
   userAssetId?: string | null;
   userAssetSummary?: string | null;
   gapSummary?: string | null;
+  finishIntent?: string | null;
   completionProvider?: string | null;
+  completionProviders?: string[];
+  acpFailureSummary?: string | null;
+  reviseEnabled?: boolean;
+  reviseBusy?: boolean;
+  onPlanSceneRevise?: (request: SceneReviseRequest) => Promise<void>;
 };
 
 export function StoryboardSceneCard({
@@ -47,9 +59,16 @@ export function StoryboardSceneCard({
   userAssetId,
   userAssetSummary,
   gapSummary,
+  finishIntent,
   completionProvider,
+  completionProviders,
+  acpFailureSummary,
+  reviseEnabled,
+  reviseBusy,
+  onPlanSceneRevise,
 }: StoryboardSceneCardProps) {
   const [mediaFailed, setMediaFailed] = useState(false);
+  const [reviseOpen, setReviseOpen] = useState(false);
   const script = scene.script.trim();
   const aligned = !script || !master || scriptBelongsToMaster(script, master);
   const showMedia = Boolean(media.url) && !mediaFailed;
@@ -59,6 +78,14 @@ export function StoryboardSceneCard({
       : media.provider && KNOWN_MEDIA_PROVIDERS.has(media.provider)
         ? media.provider
         : completionProvider ?? media.provider;
+  const compositionBrief = scene.compositionAuthorBrief;
+  const showDesignSection = hasCompositionDesignContent({
+    brief: compositionBrief,
+    finishIntent,
+    visualDirection: scene.visual,
+  });
+  const briefMeta = compositionBrief ? formatCompositionBriefMeta(compositionBrief) : [];
+  const allowedCopy = compositionBrief?.displayCopyPolicy?.allowed?.filter(Boolean) ?? [];
 
   return (
     <div
@@ -76,8 +103,37 @@ export function StoryboardSceneCard({
             <Badge variant="destructive">与全片口播未对齐</Badge>
           ) : null}
         </div>
-        <span className="font-mono text-xs text-muted-foreground">{scene.slotId}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {reviseEnabled && onPlanSceneRevise ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={reviseBusy}
+              onClick={() => setReviseOpen((open) => !open)}
+              data-testid={`scene-revise-toggle-${scene.id}`}
+            >
+              <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden />
+              修改/重生成画面
+            </Button>
+          ) : null}
+          <span className="font-mono text-xs text-muted-foreground">{scene.slotId}</span>
+        </div>
       </div>
+
+      {reviseOpen && reviseEnabled && onPlanSceneRevise ? (
+        <SceneRevisePanel
+          sceneId={scene.id}
+          slotId={scene.slotId}
+          index={index}
+          disabled={reviseBusy}
+          busy={reviseBusy}
+          onSubmit={async (request) => {
+            await onPlanSceneRevise(request);
+            setReviseOpen(false);
+          }}
+        />
+      ) : null}
 
       {(visualIntent || scriptIntent || userAssetId || userAssetSummary || gapSummary) && (
         <dl className="mb-3 grid gap-2 rounded-md border border-border/60 bg-muted/10 p-3 text-sm">
@@ -98,6 +154,45 @@ export function StoryboardSceneCard({
           ) : null}
         </dl>
       )}
+
+      {showDesignSection ? (
+        <dl
+          className="mb-3 grid gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-sm"
+          data-testid={`scene-design-${scene.id}`}
+        >
+          {scene.visual?.trim() ? (
+            <MigrationField label="分镜视觉方向" value={scene.visual.trim()} />
+          ) : null}
+          {compositionBrief?.authorPrompt?.trim() ? (
+            <div className="grid gap-2 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
+              <dt className="text-xs font-medium text-muted-foreground">分镜包装设计</dt>
+              <dd className="space-y-2">
+                {briefMeta.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {briefMeta.map((label) => (
+                      <Badge key={label} variant="outline" className="font-normal">
+                        {label}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                <p className="text-sm leading-relaxed text-foreground">
+                  {compositionBrief.authorPrompt.trim()}
+                </p>
+                {allowedCopy.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    允许上屏文案：{allowedCopy.join(" · ")}
+                  </p>
+                ) : null}
+              </dd>
+            </div>
+          ) : null}
+          {finishIntent?.trim() &&
+          finishIntent.trim() !== compositionBrief?.authorPrompt?.trim() ? (
+            <MigrationField label="补全润色意图" value={finishIntent.trim()} />
+          ) : null}
+        </dl>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,280px)_1fr]">
         <div
@@ -144,11 +239,23 @@ export function StoryboardSceneCard({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             {visualProvider && KNOWN_MEDIA_PROVIDERS.has(visualProvider) ? (
-              <GeneratedAssetBadge provider={visualProvider} />
+              <GeneratedAssetBadge
+                provider={visualProvider}
+                providers={
+                  completionProviders && completionProviders.length > 0
+                    ? completionProviders
+                    : undefined
+                }
+              />
             ) : null}
             <span className="text-xs text-muted-foreground">视觉素材来源</span>
           </div>
-          <p className="text-sm text-muted-foreground">{scene.visual}</p>
+          {acpFailureSummary ? (
+            <p className="text-xs text-destructive">{acpFailureSummary}</p>
+          ) : null}
+          {!showDesignSection && scene.visual?.trim() ? (
+            <p className="text-sm text-muted-foreground">{scene.visual}</p>
+          ) : null}
           <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2">
             <p className="mb-1 text-xs font-medium text-muted-foreground">分镜口播</p>
             <p className="text-sm font-medium leading-relaxed">
@@ -171,7 +278,7 @@ function MigrationField({
   hint?: string;
 }) {
   return (
-    <div className="grid gap-1 sm:grid-cols-[72px_minmax(0,1fr)] sm:gap-3">
+    <div className="grid gap-1 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="space-y-1">
         <p className="text-sm text-foreground">{value}</p>

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from composition.paths import detect_repo_root
+from composition.paths import detect_repo_root, skills_private_dir, skills_public_dir
 from composition.skills.bootstrap import build_bootstrap_system_prompt
+from composition.skills.catalog import SkillCatalog
 from composition.skills.runtime import SkillRuntime
 
 
@@ -18,6 +19,25 @@ def test_bootstrap_prompt_lists_visual_craft_skill(repo_root) -> None:
     assert "skills/private/videomaker-visual-craft/SKILL.md" in prompt
     assert "visualStyleBible.avoid" in prompt
     assert "house-style" in prompt
+
+
+def test_acp_bootstrap_prompt_lists_all_repo_skills_and_adds_discipline(repo_root) -> None:
+    public_count = sum(
+        1 for child in skills_public_dir(repo_root).iterdir() if (child / "SKILL.md").is_file()
+    )
+    private_count = sum(
+        1 for child in skills_private_dir(repo_root).iterdir() if (child / "SKILL.md").is_file()
+    )
+    expected_count = len(SkillCatalog(repo_root=repo_root).list_entries())
+
+    prompt = build_bootstrap_system_prompt(repo_root=repo_root, acp_author=True)
+    assert "ACP execution" in prompt
+    assert "videomaker-composition" in prompt
+    assert "lottie" in prompt
+    assert "lark-" not in prompt
+    assert prompt.count("<skill>") == expected_count
+    assert expected_count == public_count + private_count
+    assert expected_count >= 17
 
 
 def test_visual_craft_references_are_readable(repo_root) -> None:

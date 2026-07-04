@@ -12,6 +12,7 @@ export type GenerationMigrationArtifacts = {
   gapReport: GapReport | null;
   completionActions: CompletionAction[];
   materialState: GenerationMigrationMaterialState | null;
+  completedSlotIds: string[];
 };
 
 async function fetchJsonFile<T>(url: string): Promise<T | null> {
@@ -60,6 +61,7 @@ async function fetchGenerationMigrationArtifactsFromFiles(
     materialState: materialState?.completedActionIds
       ? { completedActionIds: materialState.completedActionIds }
       : null,
+    completedSlotIds: [],
   };
 }
 
@@ -74,6 +76,7 @@ export async function fetchGenerationMigrationArtifacts(
       gapReport: data.gapReport ?? null,
       completionActions: data.completionActions ?? [],
       materialState: data.materialState ?? null,
+      completedSlotIds: data.completedSlotIds ?? [],
     };
   } catch {
     return fetchGenerationMigrationArtifactsFromFiles(projectId, generationId);

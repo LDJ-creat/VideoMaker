@@ -198,6 +198,7 @@ class KnowledgeRecommender:
             "referenceEntryIds": refs,
             "mode": "user_override" if primary_entry_id else "none",
             "appliedAsStructure": bool(apply_structure),
+            "recommendationSnapshot": existing.get("recommendationSnapshot"),
         }
         return self.knowledge_store.save_selection(selection)
 

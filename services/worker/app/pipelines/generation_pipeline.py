@@ -48,6 +48,10 @@ from app.pipelines.tts_synthesis import synthesize_master_wav
 from app.tools.tts_tool import TTSTool
 from app.pipelines.revise_pipeline import load_revise_snapshot, merge_agent_overrides
 from app.pipelines.run_slot_matches_store import resolve_slot_matches_for_run
+from app.pipelines.composition_brief import (
+    apply_composition_briefs_to_storyboard,
+    report_composition_brief_warnings,
+)
 from app.pipelines.storyboard_finish_reconcile import reconcile_gap_finish_from_storyboard
 from app.agents.packaging_designer import run_packaging_designer
 from app.agents.runner import AgentRunner
@@ -847,6 +851,18 @@ def run_planning_from_script_draft(
         storyboard=storyboard,
         structure=structure,
     )
+    brief_resync_warnings: list[str] = []
+
+    def _emit_brief_resync_warning(message: str) -> None:
+        brief_resync_warnings.append(message)
+
+    storyboard = apply_composition_briefs_to_storyboard(
+        [dict(scene) for scene in storyboard if isinstance(scene, dict)],
+        structure=structure,
+        gap_report=gap_report,
+        emit_warning=_emit_brief_resync_warning,
+    )
+    report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
 
     plan = assemble_generation_plan(
         structure=structure,
@@ -947,6 +963,18 @@ def run_planning_completion(
         storyboard=storyboard,
         structure=structure,
     )
+    brief_resync_warnings: list[str] = []
+
+    def _emit_brief_resync_warning(message: str) -> None:
+        brief_resync_warnings.append(message)
+
+    storyboard = apply_composition_briefs_to_storyboard(
+        [dict(scene) for scene in storyboard if isinstance(scene, dict)],
+        structure=structure,
+        gap_report=gap_report,
+        emit_warning=_emit_brief_resync_warning,
+    )
+    report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
 
     plan = assemble_generation_plan(
         structure=structure,
@@ -1174,8 +1202,62 @@ def is_fixture_material_gateway(gateway: Any) -> bool:
 def is_material_stage_done(
     generation_root: Path,
     plan: dict[str, Any],
+    *,
+    slot_filter: set[str] | None = None,
 ) -> bool:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    if slot_filter:
+        actions = [
+            action
+            for action in actions
+            if str(action.get("slotId") or "") in slot_filter
+        ]
+    if not actions:
+        return True
+    generated_root = generation_root / "generated"
+    for action in actions:
+        if not action_artifact_satisfied(action, generated_root):
+            return False
+    return True
+
+
+def is_visual_material_stage_done(
+    generation_root: Path,
+    plan: dict[str, Any],
+    *,
+    slot_filter: set[str] | None = None,
+) -> bool:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    actions = [
+        action
+        for action in actions
+        if str(action.get("slotId") or "") != MASTER_TTS_SLOT_ID
+    ]
+    if slot_filter:
+        actions = [
+            action
+            for action in actions
+            if str(action.get("slotId") or "") in slot_filter
+        ]
+    if not actions:
+        return True
+    generated_root = generation_root / "generated"
+    for action in actions:
+        if not action_artifact_satisfied(action, generated_root):
+            return False
+    return True
+
+
+def is_master_material_stage_done(
+    generation_root: Path,
+    plan: dict[str, Any],
+) -> bool:
+    actions = filter_aigc_completion_actions(plan.get("completionActions", []))
+    actions = [
+        action
+        for action in actions
+        if str(action.get("slotId") or "") == MASTER_TTS_SLOT_ID
+    ]
     if not actions:
         return True
     generated_root = generation_root / "generated"
@@ -1201,13 +1283,26 @@ def sync_material_results_to_plan(
     sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
     if not sync_results:
         return plan
-    render_root = generation_root / "renders"
+    render_root = generation_root.parent.parent / "renders" / generation_root.name
     return apply_material_results_to_plan(
         plan,
         results=sync_results,
         render_root=render_root,
         generated_root=generated_root,
     )
+
+
+def _build_material_review_gateway_store(
+    database_path: Path | str | None,
+    storage_root: Path,
+) -> Any | None:
+    if database_path is None:
+        return None
+    from model_gateway.store import ModelGatewayStore
+
+    store = ModelGatewayStore(Path(database_path), Path(storage_root))
+    store.ensure_initialized()
+    return store
 
 
 def run_generating_material(
@@ -1228,6 +1323,10 @@ def run_generating_material(
     variant_overrides: dict[str, Any] | None = None,
     brand_colors: dict[str, Any] | None = None,
     slot_filter: set[str] | None = None,
+    gateway_factory: Any | None = None,
+    visual_only: bool = False,
+    master_only: bool = False,
+    database_path: Path | str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -1246,6 +1345,12 @@ def run_generating_material(
         )
 
     from app.providers.material_types import resolve_storage_root
+
+    material_review_storage = resolve_storage_root(generation_root=generation_root)
+    material_review_store = _build_material_review_gateway_store(
+        database_path,
+        material_review_storage,
+    )
 
     ctx = MaterialContext(
         project_id=str(plan.get("projectId", "")),
@@ -1278,6 +1383,7 @@ def run_generating_material(
             dict(plan["packagingPlan"]) if isinstance(plan.get("packagingPlan"), dict) else None
         ),
         material_state_path=state_path,
+        gateway_factory=gateway_factory,
     )
     register_default_providers(ctx)
 
@@ -1286,9 +1392,14 @@ def run_generating_material(
         for action in actions
         if not material_action_done(action, generated_root)
     ]
+    if visual_only:
+        pending = [action for action in pending if str(action.get("slotId") or "") != MASTER_TTS_SLOT_ID]
+    if master_only:
+        pending = [action for action in pending if str(action.get("slotId") or "") == MASTER_TTS_SLOT_ID]
     if slot_filter:
         pending = [action for action in pending if str(action.get("slotId") or "") in slot_filter]
     if not pending:
+        ctx.emit_progress("generating_material", "Generated materials on disk; applying to plan")
         sync_results = synthesize_material_results_from_disk(actions, generated_root=generated_root)
         if sync_results:
             plan = apply_material_results_to_plan(
@@ -1297,6 +1408,30 @@ def run_generating_material(
                 render_root=render_root,
                 generated_root=generated_root,
             )
+        for action in actions:
+            action_id = str(action.get("id") or "")
+            if action_id and material_action_done(action, generated_root):
+                ctx.completed_action_ids.add(action_id)
+        save_material_state(
+            state_path,
+            quota=ctx.quota,
+            completed_action_ids=ctx.completed_action_ids,
+        )
+        if visual_only:
+            from app.pipelines.material_review import material_review_enabled
+
+            if material_review_enabled():
+                from app.pipelines.material_review_finalize import finalize_visual_material_reviews
+
+                finalize_visual_material_reviews(
+                    generation_root=generation_root,
+                    plan=plan,
+                    project_id=str(plan.get("projectId") or ctx.project_id),
+                    variant=str(plan.get("variant") or "default"),
+                    structure=ctx.structure,
+                    storyboard=list(plan.get("storyboard") or ctx.storyboard),
+                    generated_root=generated_root,
+                )
         return plan, sync_results
 
     results = execute_completion_plan(pending, ctx, fail_fast=True)
@@ -1308,6 +1443,8 @@ def run_generating_material(
             message=str(error.get("message", "Material completion failed")),
             retryable=bool(error.get("retryable", False)),
         )
+
+    ctx.emit_progress("generating_material", "Applying material results to generation plan")
 
     if list(plan.get("storyboard", [])) != ctx.storyboard:
         plan = {**plan, "storyboard": list(ctx.storyboard)}
@@ -1327,11 +1464,30 @@ def run_generating_material(
             render_root=render_root,
             generated_root=generated_root,
         )
+    for action in actions:
+        action_id = str(action.get("id") or "")
+        if action_id and material_action_done(action, generated_root):
+            ctx.completed_action_ids.add(action_id)
     save_material_state(
         state_path,
         quota=ctx.quota,
         completed_action_ids=ctx.completed_action_ids,
     )
+    if visual_only:
+        from app.pipelines.material_review import material_review_enabled
+
+        if material_review_enabled():
+            from app.pipelines.material_review_finalize import finalize_visual_material_reviews
+
+            finalize_visual_material_reviews(
+                generation_root=generation_root,
+                plan=updated_plan,
+                project_id=str(plan.get("projectId") or ctx.project_id),
+                variant=str(updated_plan.get("variant") or "default"),
+                structure=ctx.structure,
+                storyboard=list(updated_plan.get("storyboard") or ctx.storyboard),
+                generated_root=generated_root,
+            )
     return updated_plan, results
 
 

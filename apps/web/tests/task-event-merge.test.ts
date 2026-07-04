@@ -5,6 +5,7 @@ import type { TaskEvent } from "@videomaker/contracts";
 import { fixtureTaskEvent } from "@/fixtures";
 import {
   mergeTaskEventsIfChanged,
+  pickTaskEventWinner,
   preferTaskError,
   shouldAcceptTaskEventUpdate,
   taskEventEquals,
@@ -79,7 +80,7 @@ describe("preferTaskError", () => {
 });
 
 describe("shouldAcceptTaskEventUpdate", () => {
-  it("rejects stale failed snapshots after a newer running event", () => {
+  it("accepts terminal snapshots even when timestamp is older than the last running tick", () => {
     const running = taskEvent({
       status: "running",
       progress: 55,
@@ -95,6 +96,39 @@ describe("shouldAcceptTaskEventUpdate", () => {
         retryable: true,
       },
     });
-    expect(shouldAcceptTaskEventUpdate(running, staleFailed)).toBe(false);
+    expect(shouldAcceptTaskEventUpdate(running, staleFailed)).toBe(true);
+  });
+
+  it("rejects active snapshots after a terminal event", () => {
+    const failed = taskEvent({
+      status: "failed",
+      progress: 72,
+      updatedAt: "2026-06-10T12:10:00.000Z",
+    });
+    const running = taskEvent({
+      status: "running",
+      progress: 55,
+      updatedAt: "2026-06-10T12:11:00.000Z",
+    });
+    expect(shouldAcceptTaskEventUpdate(failed, running)).toBe(false);
+  });
+});
+
+describe("pickTaskEventWinner", () => {
+  it("prefers terminal over newer active snapshots", () => {
+    const running = taskEvent({
+      status: "retrying",
+      updatedAt: "2026-06-10T12:11:00.000Z",
+    });
+    const failed = taskEvent({
+      status: "failed",
+      updatedAt: "2026-06-10T12:10:00.000Z",
+      error: {
+        code: "generation_failed",
+        message: "ACP author failed",
+        retryable: true,
+      },
+    });
+    expect(pickTaskEventWinner(running, failed).status).toBe("failed");
   });
 });

@@ -13,6 +13,9 @@ _tmp_*.py
 .next/
 dist/
 build/
+!services/composition/composition/build/
+!services/composition/composition/build/**
+services/composition/composition/build/__pycache__/
 *.egg-info/
 
 # Local runtime artifacts
@@ -23,6 +26,7 @@ services/api/storage/*
 # Local env
 .env
 .env.local
+services/api/langfuse.env
 
 # Worktrees
 .worktrees/
@@ -34,4 +38,4 @@ Thumbs.db
 .vscode/
 
 services/worker/tests/_debug_out/
-
+docs/defense-ppt/

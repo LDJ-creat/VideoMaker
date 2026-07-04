@@ -78,9 +78,9 @@ class ProviderCredentials:
 
 
 class ModelGatewayStore:
-    def __init__(self, database_path: Path, storage_root: Path) -> None:
-        self._database_path = database_path
-        self._storage_root = storage_root
+    def __init__(self, database_path: Path | str, storage_root: Path | str) -> None:
+        self._database_path = Path(database_path)
+        self._storage_root = Path(storage_root)
 
     def _connect(self) -> sqlite3.Connection:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)

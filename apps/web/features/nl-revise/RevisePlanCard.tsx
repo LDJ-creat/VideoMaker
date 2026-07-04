@@ -37,6 +37,8 @@ export function RevisePlanCard({
   busy,
   className,
 }: RevisePlanCardProps) {
+  const showsMaterialReviewNote = plan.materialReviewGateExpected === true;
+
   return (
     <Card className={cn("border-ai/30", className)} data-testid="revise-plan-card">
       <CardHeader>
@@ -70,6 +72,11 @@ export function RevisePlanCard({
                 : null}
           </p>
         )}
+        {showsMaterialReviewNote ? (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            执行后将暂停于素材预览审核；确认各 slot 预览后再合成全片 MP4。
+          </p>
+        ) : null}
         {plan.executionSteps.length > 0 && (
           <ul className="space-y-1 text-sm text-muted-foreground">
             {plan.executionSteps.map((step, index) => (
@@ -79,7 +86,7 @@ export function RevisePlanCard({
             ))}
           </ul>
         )}
-        <EditIntentList intents={plan.intents} />
+        <EditIntentList intents={plan.intents} planSource={plan.planSource} />
         <div className="flex flex-wrap gap-2">
           <Button type="button" disabled={busy} onClick={() => void onConfirm()}>
             {busy ? "正在执行…" : "确认执行"}

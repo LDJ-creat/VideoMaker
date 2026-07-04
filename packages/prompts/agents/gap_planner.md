@@ -73,9 +73,19 @@ When `variantOverrides.completionModeBias` is present, prefer these **`completio
 Use matching **`finishIntent`** (Chinese) from `variantOverrides.finishIntentByRole` when proposing `source_then_polish` or `hf_native`. Example intents:
 
 - high_click hook: 「保留 B-roll 动感，仅必要时轻量字幕，勿遮挡画面」
-- high_conversion CTA: 「明确行动号召 lower third，动词清晰」
+- high_conversion CTA (**`source_then_polish` only**): 「明确行动号召 lower third，动词清晰」
+- high_conversion **`hf_native`** benefit_card / proof: 「竖屏居中卖点字卡，主信息垂直居中，关键词高亮，禁止贴底 lower third」
 
-Python reconcile applies the same cost provider chain for all variants; your job is to set **`completionMode`** / **`finishIntent`** so polish depth differs without skipping cheaper providers.
+**`finishIntent` must match `completionMode`:**
+
+| `completionMode` | `finishIntent` layout language |
+|------------------|-------------------------------|
+| `hf_native` / `packaging_only` | 居中、垂直居中、主信息在画面中心 — **禁止** lower third、对比条贴底、底部条带 |
+| `source_then_polish` | lower third / 角标 / 润色 overlay — **保留底片**，不生成全屏居中大字卡 |
+| `cta` + `hf_native` | 居中收束卡片；口播由字幕轨承担，HF 避免底部叠字 |
+| `cta` + `source_then_polish` | lower third 行动条，动词清晰，不挡人脸 |
+
+Python reconcile applies the same cost provider chain for all variants; your job is to set **`completionMode`** / **`finishIntent`** so polish depth differs without skipping cheaper providers. Reconcile may **rewrite** `finishIntent` when it conflicts with `completionMode` (e.g. hf_native + 「对比条」→ 居中字卡).
 
 # Constraints
 - Include human-readable Chinese `reason` and `impact` (`low` | `medium` | `high`).

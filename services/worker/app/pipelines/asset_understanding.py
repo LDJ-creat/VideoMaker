@@ -23,7 +23,42 @@ VISION_TASK_KEY = "asset_moment_vision"
 TOP_MOMENT_COUNT = 5
 VISION_MOMENT_COUNT = 3
 VALID_SEGMENT_ROLES = {"hook", "mid", "cta"}
+UNDERSTANDABLE_ASSET_TYPES = frozenset({"video", "image", "text"})
+_BASELINE_SKIP_WARNING = "asset_understanding_skipped:no_media_or_text_assets"
 
+
+def has_media_or_text_assets(inventory: dict[str, Any]) -> bool:
+    """True when inventory includes video, image, or text assets worth LLM understanding."""
+    for asset in inventory.get("assets") or []:
+        if not isinstance(asset, dict):
+            continue
+        if str(asset.get("type") or "") in UNDERSTANDABLE_ASSET_TYPES:
+            return True
+    return False
+
+
+def finalize_baseline_asset_inventory(
+    inventory: dict[str, Any],
+    *,
+    context: TaskContext,
+) -> dict[str, Any]:
+    """Return contract-valid inventory from brief baseline without calling LLM agents."""
+    merged = dict(inventory)
+    merged["userBrief"] = normalize_user_brief(inventory.get("userBrief", {}))
+    merged["assetUnderstandingRoute"] = "baseline_only"
+    warnings = list(merged.get("assetUnderstandingWarnings") or [])
+    if _BASELINE_SKIP_WARNING not in warnings:
+        warnings.append(_BASELINE_SKIP_WARNING)
+    merged["assetUnderstandingWarnings"] = warnings
+    context.emit_event(
+        stage="analyzing_assets",
+        progress=10,
+        message="Brief-only project; using baseline asset inventory (no LLM)",
+    )
+    validation = validate_contract("asset-inventory", merged)
+    if not validation.valid:
+        raise ValueError(f"Invalid AssetInventory payload: {validation.errors}")
+    return merged
 
 def normalize_score(value: float, minimum: float, maximum: float) -> float:
     if maximum == minimum:
@@ -587,6 +622,9 @@ def run_asset_understanding(
     video_structure: dict[str, Any] | None = None,
     gateway_store: Any | None = None,
 ) -> dict[str, Any]:
+    if not has_media_or_text_assets(inventory):
+        return finalize_baseline_asset_inventory(inventory, context=context)
+
     if gateway_store is not None and resolve_asset_understanding_route(gateway_store) == "direct_multimodal":
         return run_direct_asset_understanding(
             runner,

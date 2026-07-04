@@ -4,8 +4,12 @@ import { fixtureGenerationPlan } from "@/fixtures";
 import type { GenerationResponse } from "@/lib/apiClient";
 import {
   applyGenerationRunDetail,
+  applyLatestGenerationPlans,
+  fetchGenerationPlanWithRetry,
   fetchGenerationRunPlans,
   generationRunPlansAreLoaded,
+  mergeActiveGenerationsByVariant,
+  pickPreferredGenerationEntry,
   reloadGenerationRunPlansWithRetry,
   type ActiveGenerationEntry,
 } from "@/lib/reloadGenerationRunResults";
@@ -90,6 +94,145 @@ describe("reloadGenerationRunResults", () => {
     await expect(
       fetchGenerationRunPlans(entries, fetchGeneration),
     ).resolves.toBeNull();
+  });
+
+  it("applyLatestGenerationPlans hydrates active run entries from latest snapshot", () => {
+    const setVariantPlans = vi.fn();
+    const setGenerationId = vi.fn();
+    const setGenerationPlan = vi.fn();
+    const setActiveVariantGenerationId = vi.fn();
+    const setGapReport = vi.fn();
+    const setGapApiPending = vi.fn();
+    const setActiveGenerations = vi.fn();
+    const setRenderVideoByGenerationId = vi.fn();
+
+    const plan = {
+      ...fixtureGenerationPlan,
+      id: "gen-a",
+      variant: "high_click",
+    } satisfies GenerationResponse;
+
+    const applied = applyLatestGenerationPlans(
+      {
+        generations: [
+          {
+            generationId: "gen-a",
+            variant: "high_click",
+            status: "succeeded",
+            taskId: "task-a",
+            plan,
+          },
+        ],
+      },
+      entries.slice(0, 1),
+      {
+        setVariantPlans,
+        setGenerationId,
+        setGenerationPlan,
+        setActiveVariantGenerationId,
+        setGapReport,
+        setGapApiPending,
+        setActiveGenerations,
+        setRenderVideoByGenerationId,
+      },
+    );
+
+    expect(applied).toBe(true);
+    expect(setGenerationId).toHaveBeenCalledWith("gen-a");
+    expect(setGenerationPlan).toHaveBeenCalledWith(plan);
+  });
+
+  it("fetchGenerationPlanWithRetry waits until timeline is available", async () => {
+    vi.useFakeTimers();
+    const fetchGeneration = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...fixtureGenerationPlan,
+        id: "gen-fork",
+        timeline: undefined,
+      } as unknown as GenerationResponse)
+      .mockResolvedValueOnce({
+        ...fixtureGenerationPlan,
+        id: "gen-fork",
+      } satisfies GenerationResponse);
+
+    const promise = fetchGenerationPlanWithRetry("gen-fork", fetchGeneration, {
+      maxAttempts: 3,
+      delayMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    const plan = await promise;
+
+    expect(plan?.id).toBe("gen-fork");
+    expect(plan?.timeline).toBeTruthy();
+    expect(fetchGeneration).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("mergeActiveGenerationsByVariant keeps newest entry per variant", () => {
+    const merged = mergeActiveGenerationsByVariant(
+      [
+        {
+          generationId: "gen-old",
+          variant: "high_conversion",
+          taskId: "task-old",
+          label: "高转化版",
+        },
+      ],
+      [
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          label: "高转化版",
+        },
+      ],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.generationId).toBe("gen-fork");
+  });
+
+  it("pickPreferredGenerationEntry prefers revise task id", () => {
+    const picked = pickPreferredGenerationEntry(
+      [
+        {
+          generationId: "gen-a",
+          variant: "high_click",
+          taskId: "task-a",
+          plan: fixtureGenerationPlan,
+        },
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          plan: { ...fixtureGenerationPlan, id: "gen-fork", variant: "high_conversion" },
+        },
+      ],
+      { taskId: "task-fork" },
+    );
+    expect(picked?.generationId).toBe("gen-fork");
+  });
+
+  it("pickPreferredGenerationEntry matches awaiting_review fork without plan", () => {
+    const picked = pickPreferredGenerationEntry(
+      [
+        {
+          generationId: "gen-source",
+          variant: "high_conversion",
+          taskId: "task-source",
+          status: "succeeded",
+          plan: fixtureGenerationPlan,
+        },
+        {
+          generationId: "gen-fork",
+          variant: "high_conversion",
+          taskId: "task-fork",
+          status: "awaiting_review",
+        },
+      ],
+      { taskId: "task-fork" },
+    );
+    expect(picked?.generationId).toBe("gen-fork");
   });
 
   it("applyGenerationRunDetail hydrates all variants and prefers succeeded plan", () => {

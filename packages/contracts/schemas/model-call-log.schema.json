@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/model-call-log.schema.json",
+  "title": "ModelCallLog",
+  "type": "object",
+  "required": [
+    "id",
+    "callKind",
+    "profile",
+    "model",
+    "driver",
+    "outputValid",
+    "latencyMs",
+    "createdAt"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "callKind": {
+      "type": "string",
+      "enum": ["chat_json", "chat_text", "chat_tools", "image", "video_submit", "video_poll", "tts"]
+    },
+    "profile": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "driver": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "generationId": { "type": "string" },
+    "slotId": { "type": "string" },
+    "agentName": { "type": "string" },
+    "turn": { "type": "integer", "minimum": 1 },
+    "jobId": { "type": "string" },
+    "input": {
+      "type": ["object", "string", "array", "null"]
+    },
+    "output": {
+      "type": ["object", "string", "array", "null"]
+    },
+    "outputValid": { "type": "boolean" },
+    "latencyMs": { "type": "number", "minimum": 0 },
+    "tokenUsage": {
+      "type": "object",
+      "required": ["prompt", "completion"],
+      "properties": {
+        "prompt": { "type": "number", "minimum": 0 },
+        "completion": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

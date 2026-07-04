@@ -7,7 +7,10 @@ import * as apiClient from "@/lib/apiClient";
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
   url: string;
+  readyState = MockEventSource.OPEN;
   onerror: (() => void) | null = null;
   private listeners = new Map<string, (event: MessageEvent) => void>();
   closed = false;
@@ -23,6 +26,7 @@ class MockEventSource {
 
   close() {
     this.closed = true;
+    this.readyState = MockEventSource.CLOSED;
   }
 
   emitTask(data: unknown) {
@@ -74,7 +78,46 @@ describe("useMultiTaskProgress", () => {
     expect(result.current.modes["task-done"]).toBe("completed");
   });
 
-  it("closes EventSource after terminal task event over SSE", async () => {
+  it("invokes onMilestone for awaiting_review without onTerminal", async () => {
+    vi.mocked(apiClient.getTask).mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-review",
+        progress: 50,
+        status: "running",
+      },
+      meta: { dataSource: "api" },
+    });
+
+    const onMilestone = vi.fn();
+    const onTerminal = vi.fn();
+
+    renderHook(() =>
+      useMultiTaskProgress({
+        tasks: [{ taskId: "task-review", label: "Review" }],
+        onTaskMilestone: onMilestone,
+        onTaskTerminal: onTerminal,
+      }),
+    );
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const source = MockEventSource.instances[0]!;
+
+    act(() => {
+      source.emitTask({
+        ...fixtureTaskEvent,
+        taskId: "task-review",
+        status: "awaiting_review",
+        stage: "awaiting_master_review",
+        progress: 47,
+      });
+    });
+
+    expect(onMilestone).toHaveBeenCalled();
+    expect(onTerminal).not.toHaveBeenCalled();
+  });
+
+  it("does not increment sse failure count on terminal close", async () => {
     const { result } = renderHook(() =>
       useMultiTaskProgress({
         tasks: [{ taskId: "task-live", label: "Live" }],
@@ -98,6 +141,7 @@ describe("useMultiTaskProgress", () => {
     );
     expect(result.current.modes["task-live"]).toBe("completed");
     expect(source.closed).toBe(true);
+    expect(result.current.sseFailureCounts["task-live"] ?? 0).toBe(0);
   });
 
   it("opens EventSource only for non-terminal tasks in a dual-task watch", async () => {
@@ -296,14 +340,19 @@ describe("useMultiTaskProgress", () => {
       { initialProps: { taskWatchKeys: {} as Record<string, number> } },
     );
 
-    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(1));
     const firstSource = MockEventSource.instances[0]!;
 
     rerender({ taskWatchKeys: { "task-a": 1 } });
 
-    await waitFor(() => expect(MockEventSource.instances.length).toBe(2));
-    expect(firstSource.closed).toBe(true);
-    expect(MockEventSource.instances[1]?.url).toContain("task-a");
+    await waitFor(() =>
+      expect(
+        MockEventSource.instances.filter((source) =>
+          source.url.includes("task-a"),
+        ).length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    expect(firstSource.readyState).toBe(2);
   });
 
   it("ignores duplicate SSE snapshots after preferTaskError merge", async () => {
@@ -329,5 +378,74 @@ describe("useMultiTaskProgress", () => {
     await act(async () => {});
 
     expect(result.current.events).toBe(eventsAfterFirst);
+  });
+
+  it("passes after_id when task watch key changes after events were received", async () => {
+    vi.mocked(apiClient.getTask).mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-replay",
+        progress: 40,
+        status: "running",
+      },
+      meta: { dataSource: "api" },
+    });
+
+    const onMilestone = vi.fn();
+
+    const { rerender } = renderHook(
+      ({ taskWatchKeys }) =>
+        useMultiTaskProgress({
+          tasks: [{ taskId: "task-replay", label: "Replay" }],
+          taskWatchKeys,
+          onTaskMilestone: onMilestone,
+        }),
+      { initialProps: { taskWatchKeys: {} as Record<string, number> } },
+    );
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    const firstSource = MockEventSource.instances[0]!;
+
+    act(() => {
+      firstSource.emitTask({
+        ...fixtureTaskEvent,
+        taskId: "task-replay",
+        status: "awaiting_review",
+        stage: "awaiting_master_review",
+        eventId: 7,
+      });
+    });
+
+    await waitFor(() => expect(onMilestone).toHaveBeenCalledTimes(1));
+
+    vi.mocked(apiClient.getTask).mockResolvedValue({
+      data: {
+        ...fixtureTaskEvent,
+        taskId: "task-replay",
+        status: "awaiting_review",
+        stage: "awaiting_master_review",
+        progress: 62,
+        eventId: 7,
+      },
+      meta: { dataSource: "api" },
+    });
+
+    onMilestone.mockClear();
+    rerender({ taskWatchKeys: { "task-replay": 1 } });
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    expect(MockEventSource.instances[1]?.url).toContain("after_id=7");
+    expect(onMilestone).not.toHaveBeenCalled();
+
+    act(() => {
+      MockEventSource.instances[1]!.emitTask({
+        ...fixtureTaskEvent,
+        taskId: "task-replay",
+        status: "awaiting_review",
+        stage: "awaiting_master_review",
+        eventId: 7,
+      });
+    });
+    expect(onMilestone).not.toHaveBeenCalled();
   });
 });

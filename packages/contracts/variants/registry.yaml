@@ -48,8 +48,9 @@ variants:
           cta: source_then_polish
           hook_text: hf_native
         finishIntentByRole:
-          benefit_card: 强化卖点字卡与对比条，突出核心利益点
-          comparison: 并列对比呈现，信息密度适中
+          benefit_card: 竖屏居中卖点字卡，主信息垂直居中，关键词高亮，禁止贴底 lower third
+          comparison: 竖屏居中并列对比，主信息垂直居中，信息密度适中
+          proof: 竖屏居中金句大字，主信息垂直居中，关键词高亮
           cta: 明确行动号召 lower third，动词清晰
           hook_visual: 在 B-roll 上叠加 hook 字幕或角标，提升信息密度
       packaging_designer:

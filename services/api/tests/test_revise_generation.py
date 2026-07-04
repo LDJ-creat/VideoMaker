@@ -111,7 +111,7 @@ def _sample_plan(project_id: str, generation_id: str, *, variant: str = "high_cl
         "gapReportId": "gap-demo",
         "variant": variant,
         "masterNarration": "demo narration",
-        "storyboard": [{"id": "scene-1"}],
+        "storyboard": [{"id": "scene-1", "slotId": "slot-1", "startSec": 0, "endSec": 5, "script": ""}],
         "timeline": {"durationSec": 30.0, "tracks": []},
         "packagingPlan": {
             "styleSummary": "demo",

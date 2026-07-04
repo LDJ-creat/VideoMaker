@@ -9,7 +9,7 @@
     "projectId": { "type": "string", "minLength": 1 },
     "assetUnderstandingRoute": {
       "type": "string",
-      "enum": ["direct_multimodal", "legacy", "direct_multimodal_batched"]
+      "enum": ["direct_multimodal", "legacy", "direct_multimodal_batched", "baseline_only"]
     },
     "assetUnderstandingWarnings": {
       "type": "array",

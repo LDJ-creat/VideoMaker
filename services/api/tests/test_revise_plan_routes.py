@@ -352,3 +352,132 @@ def test_in_place_patch_failure_keeps_generation_reviseable(
         json={"instruction": "字幕少一点"},
     )
     assert replan.status_code == 200
+
+
+def _structured_payload(
+    *,
+    mode: str = "edit",
+    scene_id: str = "scene-1",
+    slot_id: str = "slot-1",
+    instruction: str = "字幕居中，样式保持不变",
+) -> dict[str, Any]:
+    return {
+        "structured": {
+            "sceneId": scene_id,
+            "slotId": slot_id,
+            "mode": mode,
+            "instruction": instruction,
+        }
+    }
+
+
+def test_plan_revise_structured_edit_mode(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json=_structured_payload(mode="edit"),
+    )
+    assert response.status_code == 200
+    plan = response.json()["plan"]
+    assert plan["executionMode"] == "fork"
+    assert plan.get("planSource") == "scene_structured"
+    assert plan["intents"][0]["executionTool"] == "material_regen"
+    assert plan["intents"][0]["params"]["materialEditMode"] == "edit"
+    assert plan["intents"][0]["params"]["editInstruction"] == "字幕居中，样式保持不变"
+    assert plan["affectedSlotIds"] == ["slot-1"]
+    assert plan.get("materialReviewGateExpected") is True
+
+
+def test_plan_revise_structured_full_mode(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json=_structured_payload(mode="full", instruction="改成赛博朋克风格"),
+    )
+    assert response.status_code == 200
+    plan = response.json()["plan"]
+    assert plan["executionMode"] == "fork"
+    assert plan["intents"][0]["params"]["materialEditMode"] == "full"
+
+
+def test_plan_revise_structured_missing_instruction(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json={
+            "structured": {
+                "sceneId": "scene-1",
+                "slotId": "slot-1",
+                "mode": "edit",
+                "instruction": "",
+            }
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_plan_revise_rejects_missing_plan_input(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json={"newSession": False},
+    )
+    assert response.status_code == 422
+
+
+def test_plan_revise_rejects_both_instruction_and_structured(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json={
+            "instruction": "字幕少一点",
+            **_structured_payload(),
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_plan_revise_structured_rejects_invalid_scene(
+    revise_client: TestClient,
+    app_paths,
+    tmp_path: Path,
+) -> None:
+    project = _prepare_project_with_structure(revise_client, tmp_path)
+    generation_id = _create_source_generation(app_paths, project["id"])
+
+    response = revise_client.post(
+        f"/api/generations/{generation_id}/revise/plan",
+        json=_structured_payload(scene_id="missing-scene"),
+    )
+    assert response.status_code == 400
+    assert "sceneId not found" in response.json()["detail"]

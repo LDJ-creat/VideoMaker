@@ -31,6 +31,22 @@ def test_change_packaging_style_excludes_material_stage() -> None:
     assert stages == ["planning_completion", "building_timeline", "rendering"]
 
 
+def test_scene_scoped_material_regen_before_adjust_hook() -> None:
+    intents = [
+        {
+            "target": "generation_plan.storyboard",
+            "operation": "adjust_hook",
+            "params": {"sceneId": "scene-6", "requiresMaterialRegen": True},
+            "rationale": "改 hook 画面",
+            "executionTool": "material_regen",
+            "scope": "scene",
+            "sceneIds": ["scene-6"],
+            "slotIds": ["slot-6"],
+        }
+    ]
+    assert infer_material_scope(intents, storyboard=_storyboard()) == "scoped"
+
+
 def test_material_regen_scoped_scope() -> None:
     intents = [
         {

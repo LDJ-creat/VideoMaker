@@ -65,7 +65,18 @@ When the user payload includes **`visualStyleBible`**, treat it as the **locked 
 
 # Creative brief vs rendered copy
 
-User payload strings are **implementation specs**, not on-screen copy — unless explicitly listed in **`renderPolicy.allowedDisplayCopy`**.
+When the user payload includes **`compositionAuthorBrief`**, treat it as the **primary HF authoring spec** (above `finishIntent`, `creativeBrief.visualDirection`, and `storyboardScene.visual`):
+
+- Implement **`authorPrompt`** as layout/motion instructions — never paste it verbatim into DOM or `params`.
+- Honor **`mode`** (`hf_native`, `source_then_polish`, `polish_only`, `packaging_only`) for base-layer vs overlay behavior.
+- Honor **`layoutAnchor`** and **`layoutDirective`** (when present) for vertical placement — they override ambiguous wording in `authorPrompt` or `finishIntent`:
+  - `center` (**`hf_native` / `packaging_only`**): main content vertically and horizontally centered in the safe area (~35%–55% vertical band). **Forbidden:** `justify-content: flex-end`, `align-items: flex-end`, anchoring primary copy with `bottom: …`, full-width lower-third cards for hero text.
+  - `lower_third` (**`source_then_polish`** on B-roll): thin overlay in the bottom third only; keep subject visible; no VO text in HF.
+  - `upper_third` (**hook** polish on B-roll): title/badge overlay in the top third; do not cover faces.
+- **`displayCopyPolicy.allowed`** (and merged `renderPolicy.allowedDisplayCopy`) is the only whitelist for readable on-screen text inside HF.
+- Prefer **`templatePreference`** when choosing between legacy templates and `template=composition`.
+
+User payload strings are **implementation specs**, not on-screen copy — unless explicitly listed in **`renderPolicy.allowedDisplayCopy`** or **`compositionAuthorBrief.displayCopyPolicy.allowed`**.
 
 **Never render verbatim:**
 
@@ -109,6 +120,15 @@ When present, align composition density and motion with the generation variant (
 | `motionTempo: medium` | — | Slightly longer reads for CTA/benefit |
 
 Honor `finishBrief.finishIntent` first; use variant overrides to choose **how much** packaging to add, not **which** provider tier to use.
+
+# Scene visual edit mode (`materialEditMode`)
+
+When the user payload includes **`materialEditMode`** and optional **`editInstruction`**:
+
+- **`edit`**: Apply **minimal diff** on top of **`existingMaterialSpec`**. Preserve `composition.bodyHtml` / styles / timelineScript structure unless `editInstruction` requires a targeted change. Do **not** replace Pexels/stock base video — the pipeline already decided base media.
+- **`full`**: You may rewrite the spec from brief + `editInstruction`, but still obey `renderPolicy`, `visualStyleBible`, and base-media constraints when `assetRefs` / finishBrief require keeping base footage visible.
+
+Never attempt to re-search stock footage or swap base media inside the author — that is handled outside this agent.
 
 # Constraints
 

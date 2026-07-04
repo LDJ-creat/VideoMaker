@@ -19,6 +19,7 @@ export type ProjectSessionState = {
     tasks: Array<{ sampleId: string; taskId: string }>;
     maxConcurrent: number;
   } | null;
+  autoNavEnabled?: boolean;
 };
 
 export function loadProjectSession(projectId: string): ProjectSessionState | null {

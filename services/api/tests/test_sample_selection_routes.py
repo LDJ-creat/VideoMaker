@@ -244,6 +244,62 @@ def test_generation_plan_creates_run(client: TestClient, tmp_path: Path) -> None
     assert runs.json()["runs"][0]["id"] == payload["generationRunId"]
 
 
+def test_list_revise_generations_returns_fork_with_context(client: TestClient) -> None:
+    project_id = _create_project(client)
+    source_id = "source-gen-1"
+    store = ProjectStore(client.app.state.db)  # type: ignore[attr-defined]
+    record = store.create_generation(
+        project_id=project_id,
+        task_id="task-revise-1",
+        status="succeeded",
+        variant="high_conversion",
+    )
+    generation_id = record["id"]
+    gen_root = (
+        client.app.state.storage_root  # type: ignore[attr-defined]
+        / "projects"
+        / project_id
+        / "generations"
+        / generation_id
+    )
+    gen_root.mkdir(parents=True, exist_ok=True)
+    (gen_root / "revise-context.json").write_text(
+        json.dumps(
+            {
+                "sourceGenerationId": source_id,
+                "instruction": "center the hero card",
+                "affectedSlotIds": ["slot-6"],
+                "materialScope": "scoped",
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "id": generation_id,
+        "projectId": project_id,
+        "variant": "high_conversion",
+        "timeline": {"durationSec": 10, "tracks": []},
+    }
+    (gen_root / "generation-plan.json").write_text(
+        json.dumps(plan),
+        encoding="utf-8",
+    )
+    store.update_generation(
+        generation_id,
+        plan=plan,
+        status="succeeded",
+        task_id="task-revise-1",
+    )
+
+    response = client.get(f"/api/projects/{project_id}/revise-generations")
+    assert response.status_code == 200
+    revisions = response.json()["revisions"]
+    assert len(revisions) == 1
+    assert revisions[0]["generationId"] == generation_id
+    assert revisions[0]["sourceGenerationId"] == source_id
+    assert revisions[0]["affectedSlotIds"] == ["slot-6"]
+
+
 def test_upload_batch_starts_in_uploading_status(client: TestClient) -> None:
     project_id = _create_project(client)
     files = [

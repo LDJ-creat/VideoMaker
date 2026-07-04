@@ -1,8 +1,14 @@
 "use client";
 
-import type { GapReport, GenerationPlan, VideoStructure } from "@videomaker/contracts";
+import type {
+  AgentRunLog,
+  GapReport,
+  GenerationPlan,
+  SceneReviseRequest,
+  VideoStructure,
+} from "@videomaker/contracts";
 import { Clock, Layers, Mic } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,17 +30,24 @@ import {
 import { resolveStoryboardSceneMedia } from "@/features/master-narration/resolveStoryboardSceneMedia";
 import { StoryboardSceneCard } from "@/features/master-narration/StoryboardSceneCard";
 import { getVariantLabel } from "@/lib/variantRegistry";
+import { getGenerationAgentRuns } from "@/lib/apiClient";
 
 type MasterNarrationPanelProps = {
   plan: GenerationPlan;
   structure?: VideoStructure | null;
   gapReport?: GapReport | null;
+  reviseEnabled?: boolean;
+  reviseBusy?: boolean;
+  onPlanSceneRevise?: (request: SceneReviseRequest) => Promise<void>;
 };
 
 export function MasterNarrationPanel({
   plan,
   structure,
   gapReport,
+  reviseEnabled,
+  reviseBusy,
+  onPlanSceneRevise,
 }: MasterNarrationPanelProps) {
   const master = resolveMasterNarration(plan);
   const scenes = [...plan.storyboard].sort(
@@ -45,10 +58,25 @@ export function MasterNarrationPanel({
   const derivedFallback =
     !plan.masterNarration?.trim() && master === deriveMasterFromStoryboard(plan.storyboard);
 
+  const [agentRuns, setAgentRuns] = useState<AgentRunLog[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await getGenerationAgentRuns(plan.id);
+      if (!cancelled && result.data?.runs) {
+        setAgentRuns(result.data.runs);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.id]);
+
   const migrationRows = useMemo(() => {
     if (!structure) return [];
-    return buildSlotMigrationRowsFromPlan(structure, plan, gapReport ?? null);
-  }, [gapReport, plan, structure]);
+    return buildSlotMigrationRowsFromPlan(structure, plan, gapReport ?? null, agentRuns);
+  }, [agentRuns, gapReport, plan, structure]);
 
   const migrationBySlot = useMemo(
     () => new Map(migrationRows.map((row) => [row.slotId, row])),
@@ -114,7 +142,7 @@ export function MasterNarrationPanel({
             <div>
               <p className="text-sm font-medium">槽位拆解</p>
               <p className="text-xs text-muted-foreground">
-                每个结构槽位的迁移意图、视觉素材来源与分镜口播。
+                每个结构槽位的迁移意图、分镜视觉/包装设计、素材来源与分镜口播。
               </p>
             </div>
             {scenes.length === 0 ? (
@@ -135,7 +163,13 @@ export function MasterNarrationPanel({
                     userAssetId={migration?.userAssetId}
                     userAssetSummary={migration?.userAssetSummary}
                     gapSummary={migration?.gapSummary}
+                    finishIntent={migration?.finishIntent}
                     completionProvider={migration?.completionProvider}
+                    completionProviders={migration?.completionProviders}
+                    acpFailureSummary={migration?.acpFailureSummary}
+                    reviseEnabled={reviseEnabled}
+                    reviseBusy={reviseBusy}
+                    onPlanSceneRevise={onPlanSceneRevise}
                   />
                 );
               })

@@ -198,6 +198,56 @@ def test_author_fixture_spec() -> None:
     assert spec["template"] == "benefit-card"
 
 
+def test_render_clip_reuses_lint_scratch(tmp_path: Path, repo_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VM_ACP_FIXTURE_LINT", "1")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_LINT_CACHE", "true")
+    from composition.lint_pipeline import LintContext, build_and_lint_spec
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    spec = {
+        "template": "benefit-card",
+        "durationSec": 3,
+        "params": {
+            "title": "Reuse",
+            "bullets": ["A"],
+            "colors": {"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
+        },
+    }
+    lint_ctx = LintContext(
+        scratch_dir=scratch,
+        repo_root=repo_root,
+        author_payload={},
+        aspect_ratio="9:16",
+    )
+    build_and_lint_spec(
+        spec,
+        lint_ctx,
+        cli=HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root),
+    )
+
+    engine = CompositionEngine(
+        hyperframes_cli=HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root),
+        repo_root=repo_root,
+    )
+    output_dir = tmp_path / "out" / "composition"
+    result = engine.render_clip(
+        spec,
+        RenderPaths(
+            project_root=tmp_path / "out",
+            output_dir=output_dir,
+            output_clip=tmp_path / "out" / "clip.mp4",
+            log_path=tmp_path / "out" / "render-log.json",
+            aspect_ratio="9:16",
+            lint_reuse_scratch=scratch,
+        ),
+    )
+    assert result.ok is True
+    assert result.lint_passed is True
+    assert result.composition_dir is not None
+    assert (scratch / "lint-draft" / "index.html").is_file()
+
+
 @pytest.fixture
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]

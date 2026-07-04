@@ -199,6 +199,66 @@ def test_hf_native_forces_single_hyperframes() -> None:
     assert chain == ["hyperframes_material"]
 
 
+def test_cta_hf_only_chain_coerces_source_then_polish_to_hf_native() -> None:
+    from app.agents.gap_planner import apply_provider_reconciliation
+    from app.config.variants import clear_registry_cache, load_variant_gap_planner_overrides
+
+    clear_registry_cache()
+    slot = _slot(
+        id="slot-6",
+        role="cta",
+        requiredAssetType=["text", "packaging"],
+    )
+    structure = {"slots": [slot]}
+    gap_report = {
+        "missingSlots": [
+            {
+                "slotId": "slot-6",
+                "completionMode": "source_then_polish",
+                "suggestedFixes": ["hyperframes_material"],
+                "finishIntent": "明确行动号召 lower third，动词清晰",
+                "impact": "high",
+                "reason": "缺 CTA 素材",
+            }
+        ],
+        "weakSlots": [],
+    }
+    updated = apply_provider_reconciliation(
+        gap_report,
+        structure=structure,
+        slot_matches=[],
+        inventory={"userBrief": {"topic": "demo"}},
+        quota=VideoGenQuota(),
+        variant_overrides=load_variant_gap_planner_overrides("high_conversion"),
+    )
+    item = updated["missingSlots"][0]
+    assert item["suggestedFixes"] == ["hyperframes_material"]
+    assert item["completionMode"] == "hf_native"
+    assert "hf_only_chain_coerced_hf_native" in item["reconcileNotes"]
+    assert "居中" in str(item.get("finishIntent") or "")
+
+
+def test_source_then_polish_with_stock_chain_unchanged() -> None:
+    slot = _slot(role="hook_visual")
+    llm_item = {
+        "slotId": "slot-hook",
+        "completionMode": "source_then_polish",
+        "suggestedFixes": ["stock_media_search", "hyperframes_material"],
+        "impact": "high",
+    }
+    chain, mode, notes = reconcile_provider_chain(
+        llm_item=llm_item,
+        slot=slot,
+        weak_match=None,
+        quota=VideoGenQuota(max_slots=2, max_per_slot=1),
+        inventory={"userBrief": {"topic": "demo"}},
+        variant_overrides={"preferProviders": ["stock_media_search", "hyperframes_material"]},
+    )
+    assert mode == "source_then_polish"
+    assert chain[0] == "stock_media_search"
+    assert "hf_only_chain_coerced_hf_native" not in notes
+
+
 def test_aigc_required_product_closeup() -> None:
     slot = _slot(id="slot-pc", role="product_closeup")
     assert aigc_required(

@@ -43,6 +43,9 @@ export type TaskStage =
   | "generating_video"
   | "generating_tts"
   | "rendering_material"
+  | "reviewing_material"
+  | "awaiting_material_review"
+  | "assembling_final"
   | "parsing_edit_intent"
   | "applying_edit_intent"
   | "applying_revise_patch";
@@ -160,6 +163,7 @@ export type RevisePlannerOutput = {
   affectedSceneIds?: string[];
   affectedSlotIds?: string[];
   conversationSummary?: string;
+  materialReviewGateExpected?: boolean;
 };
 
 export type RevisePlan = RevisePlannerOutput & {
@@ -174,7 +178,111 @@ export type RevisePlan = RevisePlannerOutput & {
   resultGenerationId?: string;
   resultTaskId?: string;
   affectedSlotIds?: string[];
+  planSource?: RevisePlanSource;
 };
+
+export type SceneVisualEditMode = "edit" | "full";
+
+export type SceneReviseRequest = {
+  sceneId: string;
+  slotId: string;
+  mode: SceneVisualEditMode;
+  instruction: string;
+};
+
+export type MaterialReviewInputMode = "video" | "frames" | "text_only" | "skipped";
+
+export type MaterialReviewBeatSource = "spec_timeline" | "spec_html" | "ratio_fill";
+
+export type MaterialReviewScores = {
+  briefAlignment?: number;
+  visualHierarchy?: number;
+  copyPolicy?: number;
+  motionQuality?: number;
+};
+
+export type MaterialReviewInputs = {
+  mode: MaterialReviewInputMode;
+  videoPath?: string;
+  framePaths?: string[];
+  frameTimestamps?: number[];
+  beatSources?: MaterialReviewBeatSource[];
+  reviewReuse?: "in_session" | "report_reused";
+};
+
+export type MaterialReviewTraceRoute =
+  | "video"
+  | "frames"
+  | "text_only"
+  | "skipped"
+  | "hard_gate"
+  | "promoted";
+
+export type MaterialReviewTrace = {
+  reviewRoute: MaterialReviewTraceRoute;
+  modelCallId?: string;
+  agentRunId?: string;
+  promptVersion?: string;
+  parentObservabilityRunId?: string;
+};
+
+export type MaterialReviewReport = {
+  slotId: string;
+  generationId: string;
+  reviewedAt: string;
+  approved: boolean;
+  hardGateFailed?: boolean;
+  scores?: MaterialReviewScores;
+  issues: string[];
+  suggestions: string[];
+  reviewInputs: MaterialReviewInputs;
+  agentReviewRound?: number;
+  provider?: string;
+  reviewUnavailable?: boolean;
+  previewArtifactRef?: ArtifactRef;
+  reviewPhase?: "in_session" | "promoted";
+  finalSource?: "preview_copy" | "render";
+  reviewBypass?: string;
+  trace?: MaterialReviewTrace;
+};
+
+export type MaterialReviewSlotStatus =
+  | "pending"
+  | "agent_passed"
+  | "agent_failed"
+  | "skipped"
+  | "hard_gate_failed"
+  | "review_unavailable";
+
+export type MaterialReviewSlotEntry = {
+  status: MaterialReviewSlotStatus;
+  previewArtifactRef?: ArtifactRef;
+  specUri?: string;
+  latestReportUri?: string;
+  agentReviewRounds?: number;
+  userReviseCount?: number;
+  hardGateFailed?: boolean;
+};
+
+export type MaterialReviewState = {
+  generationId: string;
+  projectId: string;
+  variant: GenerationVariant;
+  status: "draft" | "approved";
+  approvedAt?: string;
+  approvedBy?: string;
+  humanOverride?: boolean;
+  overriddenSlotIds?: string[];
+  slots: Record<string, MaterialReviewSlotEntry>;
+};
+
+export type MaterialSlotReviseRequest = {
+  slotId: string;
+  mode: SceneVisualEditMode;
+  instruction: string;
+};
+
+export type RevisePlanSource = "nl" | "scene_structured";
 
 export type ReviseSessionTurnStatus =
   | "planned"
@@ -247,6 +355,37 @@ export type AgentRunLog = {
   validationErrors?: string[];
   latencyMs: number;
   tokenUsage?: { prompt: number; completion: number };
+  createdAt: string;
+};
+
+export type ModelCallKind =
+  | "chat_json"
+  | "chat_text"
+  | "chat_tools"
+  | "image"
+  | "video_submit"
+  | "video_poll"
+  | "tts";
+
+export type ModelCallLog = {
+  id: string;
+  callKind: ModelCallKind;
+  profile: string;
+  model: string;
+  driver: string;
+  taskId?: string;
+  projectId?: string;
+  generationId?: string;
+  slotId?: string;
+  agentName?: string;
+  turn?: number;
+  jobId?: string;
+  input?: unknown;
+  output?: unknown;
+  outputValid: boolean;
+  latencyMs: number;
+  tokenUsage?: { prompt: number; completion: number };
+  error?: { code?: string; message?: string; retryable?: boolean };
   createdAt: string;
 };
 
@@ -570,7 +709,8 @@ export type ContentFact = {
 export type AssetUnderstandingRoute =
   | "direct_multimodal"
   | "legacy"
-  | "direct_multimodal_batched";
+  | "direct_multimodal_batched"
+  | "baseline_only";
 
 export type CandidateSegmentRole = "hook" | "mid" | "cta";
 
@@ -603,9 +743,37 @@ export type CompletionMode =
   | "hf_native"
   | "packaging_only";
 
+export type CompositionAuthorBriefMode =
+  | "hf_native"
+  | "source_then_polish"
+  | "polish_only"
+  | "packaging_only";
+
+export type CompositionTemplatePreference =
+  | "composition"
+  | "benefit-card"
+  | "title-lower-third"
+  | "ken-burns";
+
+export type CompositionLayoutAnchor = "center" | "lower_third" | "upper_third";
+
+export type CompositionAuthorBrief = {
+  mode: CompositionAuthorBriefMode;
+  authorPrompt: string;
+  layoutAnchor?: CompositionLayoutAnchor;
+  templatePreference?: CompositionTemplatePreference;
+  displayCopyPolicy?: {
+    allowed?: string[];
+    forbidden?: string[];
+  };
+};
+
 export type FinishBrief = {
   completionMode?: CompletionMode;
   finishIntent?: string;
+  compositionAuthorBrief?: CompositionAuthorBrief;
+  /** Expanded layout rule derived from layoutAnchor for material author. */
+  layoutDirective?: string;
   creativeBrief?: {
     visualDirection?: string;
     narrativeGoal?: string;
@@ -787,6 +955,7 @@ export type StoryboardScene = {
     | "asset_reuse"
     | "generated";
   voDirective?: VoDirective;
+  compositionAuthorBrief?: CompositionAuthorBrief;
 };
 
 export type PackagingSceneOverlay = {

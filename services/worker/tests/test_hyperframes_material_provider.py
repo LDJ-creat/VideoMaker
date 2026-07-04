@@ -114,6 +114,53 @@ def test_hyperframes_provider_with_prefilled_spec(tmp_path: Path) -> None:
     ]
 
 
+def test_finish_resolves_normalized_stock_video_src(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "false")
+    structure = _load_structure_fixture()
+    material_tool = HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
+    slot_id = "seg-hook-hook_visual-1"
+    stock = ctx.generated_root / f"{slot_id}-stock.mp4"
+    stock.write_bytes(b"fake-mp4-bytes-xx")
+    spec = {
+        "template": "composition",
+        "durationSec": 7.0,
+        "composition": {
+            "bodyHtml": (
+                f'<video id="base-video" src="{slot_id}-stock-normalized.mp4" '
+                'muted playsinline></video><div class="overlay">hook</div>'
+            ),
+            "styles": "#root { position: relative; }",
+            "timelineScript": 'tl.set(".overlay", { autoAlpha: 1 }, 0);',
+        },
+    }
+    action = {
+        "id": f"action-{slot_id}-finish",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "sourceProvider": "stock_media_search",
+        "completionMode": "source_then_polish",
+        "materialSpec": spec,
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    alias = ctx.generated_root / f"{slot_id}-stock-normalized.mp4"
+    assert alias.is_file()
+    composition_dir = ctx.generated_root / f"action-{slot_id}-finish" / "composition"
+    index_html = composition_dir / "index.html"
+    assert index_html.is_file()
+    html = index_html.read_text(encoding="utf-8")
+    assert "<video" in html
+    assert f"{slot_id}-stock-normalized.mp4" in html
+    staged = composition_dir / f"{slot_id}-stock-normalized.mp4"
+    assert staged.is_file()
+    assert staged.stat().st_size == stock.stat().st_size
+
+
 def test_hyperframes_provider_runs_material_author_via_runner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -571,3 +618,125 @@ def test_material_context_resolves_storage_root_from_render_root(tmp_path: Path)
         register_artifact=lambda artifact_type, path: {"type": artifact_type, "uri": str(path)},
     )
     assert ctx.storage_root == storage_root
+
+
+def test_hyperframes_provider_uses_acp_author_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_MODE", "hybrid")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AUTHOR_BACKEND", "acp")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_AGENT", "claude")
+    monkeypatch.delenv("VIDEOMAKER_CLAUDE_ACP_MODEL", raising=False)
+    structure = _load_structure_fixture()
+    slot_id = "seg-2-benefit_card-1"
+    spec = _load_material_spec_fixture()
+    storage_root, _, generated_root, render_root = _project_layout(tmp_path)
+    sink = LocalFileSink(AgentRunStore(storage_root))
+    runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True),
+        prompt_loader=PromptLoader(),
+        observability_sink=sink,
+        model_name="fixture-text-model",
+    )
+    task_context = TaskContext(
+        project_id="project-1",
+        task_id="task-acp",
+        storage_root=storage_root,
+    )
+
+    def _fake_acp_author(*_args, **_kwargs):
+        return dict(spec)
+
+    monkeypatch.setattr(
+        "app.composition.acp.author.author_material_spec_via_acp",
+        _fake_acp_author,
+    )
+
+    ctx = _make_hf_ctx(
+        tmp_path,
+        structure=structure,
+        runner=runner,
+        task_context=task_context,
+    )
+    ctx.storyboard = [
+        {"slotId": slot_id, "startSec": 0.0, "endSec": 3.0},
+    ]
+    ctx.aspect_ratio = "9:16"
+    register_default_providers(ctx)
+    ctx.providers["hyperframes_material"] = HyperFramesMaterialProvider(
+        HyperFramesMaterialTool(hyperframes_tool=_mock_cli_runner())
+    )
+
+    action = {
+        "id": "action-benefit-card",
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "strategy": "hyperframes_material",
+        "reason": "needs card",
+        "outputRef": f"completion://{slot_id}/hyperframes_material",
+    }
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+    assert result["ok"] is True
+    assert (ctx.generated_root / "action-benefit-card.mp4").exists()
+
+    agent_runs = list((storage_root / "projects" / "project-1" / "logs" / "agent-runs").glob("*.json"))
+    assert agent_runs
+    agent_payload = json.loads(agent_runs[-1].read_text(encoding="utf-8"))
+    assert agent_payload["model"] == "acp:claude"
+    summary = json.loads(agent_payload["inputSummary"])
+    assert summary["slotId"] == slot_id
+    assert summary["backend"] == "acp"
+
+
+def test_hyperframes_provider_copies_scratch_preview_without_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    structure = _load_structure_fixture()
+    slot_id = "seg-2-benefit_card-1"
+    action_id = "action-benefit-card"
+    spec = _load_material_spec_fixture()
+
+    render_called = {"value": False}
+
+    class _NoRenderTool(HyperFramesMaterialTool):
+        def render_material(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            render_called["value"] = True
+            raise AssertionError("render_material should not run when scratch preview exists")
+
+    material_tool = _NoRenderTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
+    generation_root = ctx.generated_root.parent
+    scratch = generation_root / "acp-author" / slot_id
+    scratch.mkdir(parents=True)
+    (scratch / "preview.mp4").write_bytes(b"\x00" * 20_000)
+    (scratch / "material-spec.json").write_text(json.dumps(spec), encoding="utf-8")
+    (generation_root / "generation-plan.json").write_text(
+        json.dumps(
+            {
+                "id": "gen-1",
+                "variant": "high_click",
+                "completionActions": [
+                    {"id": action_id, "slotId": slot_id, "provider": "hyperframes_material"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    action = {
+        "id": action_id,
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "materialSpec": spec,
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert render_called["value"] is False
+    assert (ctx.generated_root / f"{action_id}.mp4").read_bytes() == b"\x00" * 20_000
+    report_path = generation_root / "material-reviews" / slot_id / "report.json"
+    assert report_path.is_file()

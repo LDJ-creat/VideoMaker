@@ -54,11 +54,7 @@ export function mergeTaskEvents(
       merged[taskId] = event;
       continue;
     }
-    const eventTime = new Date(event.updatedAt).getTime();
-    const existingTime = new Date(existing.updatedAt).getTime();
-    const newer = eventTime >= existingTime ? event : existing;
-    const older = newer === event ? existing : event;
-    merged[taskId] = preferTaskError(older, newer);
+    merged[taskId] = pickTaskEventWinner(existing, event);
   }
   return merged;
 }
@@ -99,14 +95,43 @@ function withoutTaskError(event: TaskEvent): TaskEvent {
 /** Terminal events may arrive with slightly older timestamps than the last running tick. */
 const STALE_TERMINAL_GRACE_MS = 5_000;
 
+function taskEventTime(event: TaskEvent): number {
+  return new Date(event.updatedAt).getTime();
+}
+
+/** Pick the authoritative snapshot when merging live + settled task events. */
+export function pickTaskEventWinner(
+  existing: TaskEvent,
+  incoming: TaskEvent,
+): TaskEvent {
+  const existingTerminal = isTaskTerminalStatus(existing.status);
+  const incomingTerminal = isTaskTerminalStatus(incoming.status);
+  if (incomingTerminal && !existingTerminal) {
+    return preferTaskError(existing, incoming);
+  }
+  if (existingTerminal && !incomingTerminal) {
+    return existing;
+  }
+  const newer =
+    taskEventTime(incoming) >= taskEventTime(existing) ? incoming : existing;
+  const older = newer === incoming ? existing : incoming;
+  return preferTaskError(older, newer);
+}
+
 /** Ignore stale snapshots that would rewind live progress (except near-simultaneous terminal failures). */
 export function shouldAcceptTaskEventUpdate(
   previous: TaskEvent | null,
   next: TaskEvent,
 ): boolean {
   if (!previous) return true;
-  const nextTime = new Date(next.updatedAt).getTime();
-  const previousTime = new Date(previous.updatedAt).getTime();
+  if (isTaskTerminalStatus(next.status) && !isTaskTerminalStatus(previous.status)) {
+    return true;
+  }
+  if (!isTaskTerminalStatus(next.status) && isTaskTerminalStatus(previous.status)) {
+    return false;
+  }
+  const nextTime = taskEventTime(next);
+  const previousTime = taskEventTime(previous);
   if (nextTime >= previousTime) return true;
   const gapMs = previousTime - nextTime;
   return (

@@ -27,7 +27,7 @@ describe("ReviseInputBar", () => {
 
     const input = screen.getByLabelText("改片指令");
     await user.type(input, "  开头更抓人  ");
-    await user.click(screen.getByRole("button", { name: "提交改片" }));
+    await user.click(screen.getByRole("button", { name: "提交改片（AI 规划）" }));
 
     expect(onSubmit).toHaveBeenCalledWith("开头更抓人");
     expect(input).toHaveValue("");
@@ -36,7 +36,20 @@ describe("ReviseInputBar", () => {
   it("disables submit when instruction is empty", () => {
     render(<ReviseInputBar onSubmit={() => undefined} />);
 
-    expect(screen.getByRole("button", { name: "提交改片" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "提交改片（AI 规划）" })).toBeDisabled();
+  });
+
+  it("navigates to narration for per-scene revise", async () => {
+    const user = userEvent.setup();
+    const onGoToNarration = vi.fn();
+
+    render(
+      <ReviseInputBar onSubmit={() => undefined} onGoToNarration={onGoToNarration} />,
+    );
+
+    expect(screen.getByTestId("revise-input-guide")).toBeInTheDocument();
+    await user.click(screen.getByTestId("revise-go-to-narration"));
+    expect(onGoToNarration).toHaveBeenCalled();
   });
 });
 
@@ -52,6 +65,41 @@ describe("EditIntentList", () => {
     expect(screen.getByText("强化开头 hook")).toBeInTheDocument();
     expect(screen.getByText("减少字幕")).toBeInTheDocument();
     expect(screen.getByText("用户希望开头更抓人")).toBeInTheDocument();
+    expect(
+      screen.getByText(/AI 已从自然语言指令解析出以下结构化改片步骤/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows material_regen label for scene structured intents", () => {
+    render(
+      <EditIntentList
+        planSource="scene_structured"
+        intents={[
+          {
+            target: "generation_plan.storyboard",
+            operation: "change_packaging_style",
+            executionTool: "material_regen",
+            scope: "scene",
+            sceneIds: ["scene-slot-2"],
+            slotIds: ["slot-2"],
+            params: {
+              sceneId: "scene-slot-2",
+              slotId: "slot-2",
+              materialEditMode: "full",
+              editInstruction: "重新生成该分镜",
+              requiresMaterialRegen: true,
+            },
+            rationale: "重新生成该分镜",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("单镜完全重生成")).toBeInTheDocument();
+    expect(screen.queryByText("更换包装风格")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/规则生成，未调用改片规划 LLM/),
+    ).toBeInTheDocument();
   });
 });
 

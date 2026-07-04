@@ -444,6 +444,35 @@ def test_user_override_not_overwritten_by_ensure(client: TestClient, tmp_path: P
     assert entry_a != entry_b
 
 
+def test_clear_primary_selection_preserves_recommendation_snapshot(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    project_id = _create_project(client)
+    sample_id = str(uuid.uuid4())
+    _write_draft(tmp_path, project_id, sample_id)
+    _promote_entry(client, project_id, sample_id)
+
+    client.post(
+        f"/api/projects/{project_id}/brief",
+        json={"topic": "电商带货", "sellingPoints": [], "mustMention": [], "avoidMention": []},
+    )
+    selection = client.get(f"/api/projects/{project_id}/knowledge/selection")
+    snapshot = selection.json()["selection"]["recommendationSnapshot"]
+    assert snapshot is not None
+
+    cleared = client.put(
+        f"/api/projects/{project_id}/knowledge/selection",
+        json={"primaryEntryId": None, "referenceEntryIds": [], "applyStructure": False},
+    )
+    assert cleared.status_code == 200
+    body = cleared.json()["selection"]
+    assert body["primaryEntryId"] is None
+    assert body["mode"] == "none"
+    assert body["referenceEntryIds"] == []
+    assert body["recommendationSnapshot"]["suggestedPrimaryId"] == snapshot["suggestedPrimaryId"]
+
+
 def test_promote_draft_is_idempotent(client: TestClient, tmp_path: Path) -> None:
     project_id = _create_project(client)
     sample_id = str(uuid.uuid4())

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 import json
 import time
-from typing import Any
+import uuid
+from typing import Any, Iterator
 
 from app.agents.failure_debug import format_validation_errors
+from app.agents.prompt_loader import PromptLoader
+from app.observability.token_usage import latest_token_usage_from_llm
+from app.observability.gateway_context import agent_observability_scope, resolve_profile_model
+from app.observability.model_call_recorder import invalidate_last_model_call
 from app.observability.sink import ObservabilitySink
 from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
@@ -19,6 +25,26 @@ class AgentRunner:
     prompt_loader: PromptLoader
     observability_sink: ObservabilitySink
     model_name: str = "fixture"
+    last_agent_run_id: str | None = field(default=None, init=False, repr=False)
+
+    def _resolve_model_name(self, profile: str) -> str:
+        if self.llm.fixture_mode:
+            return "fixture"
+        gateway = self.llm.gateway
+        if gateway is None:
+            return self.model_name
+        return resolve_profile_model(gateway, profile)
+
+    @contextmanager
+    def _agent_observability_scope(
+        self,
+        agent_name: str,
+        *,
+        profile: str,
+    ) -> Iterator[None]:
+        gateway = self.llm.gateway
+        with agent_observability_scope(gateway, agent_name):
+            yield
 
     def run(
         self,
@@ -51,43 +77,64 @@ class AgentRunner:
         output: dict[str, Any] | None = None
         valid = True
         errors: list[str] = []
-        try:
-            output = self.llm.generate_json(
-                task,
-                merged_inputs,
-                schema_name,
-                profile=profile,
-            )
-            if post_validate is not None:
-                output = post_validate(output)
-        except LLMToolValidationError as exc:
-            valid = False
-            errors = format_validation_errors(exc.validation_errors)
-            raise
-        except LLMToolConfigError as exc:
-            valid = False
-            errors = [str(exc)]
-            raise
-        except ValueError as exc:
-            valid = False
-            errors = [str(exc)]
-            raise
-        finally:
-            latency_ms = (time.perf_counter() - started) * 1000
-            payload = AgentRunLog(
-                agent_name=agent_name,
-                prompt_version=prompt_version,
-                model=self.model_name,
-                task=task,
-                input_summary=input_summary,
-                output_valid=valid,
-                latency_ms=latency_ms,
-                task_id=context.task_id,
-                generation_id=generation_id,
-                validation_errors=errors,
-            ).to_payload()
-            payload["projectId"] = context.project_id
-            self.observability_sink.record_agent_run(payload)
+        model_name = self._resolve_model_name(profile)
+        with self._agent_observability_scope(agent_name, profile=profile):
+            try:
+                output = self.llm.generate_json(
+                    task,
+                    merged_inputs,
+                    schema_name,
+                    profile=profile,
+                )
+                if post_validate is not None:
+                    output = post_validate(output)
+            except LLMToolValidationError as exc:
+                valid = False
+                errors = format_validation_errors(exc.validation_errors)
+                if not self.llm.fixture_mode and self.llm.gateway is not None:
+                    invalidate_last_model_call(
+                        self.llm.gateway,
+                        validation_errors=errors,
+                    )
+                raise
+            except LLMToolConfigError as exc:
+                valid = False
+                errors = [str(exc)]
+                if not self.llm.fixture_mode and self.llm.gateway is not None:
+                    invalidate_last_model_call(
+                        self.llm.gateway,
+                        validation_errors=errors,
+                    )
+                raise
+            except ValueError as exc:
+                valid = False
+                errors = [str(exc)]
+                if not self.llm.fixture_mode and self.llm.gateway is not None:
+                    invalidate_last_model_call(
+                        self.llm.gateway,
+                        validation_errors=errors,
+                    )
+                raise
+            finally:
+                latency_ms = (time.perf_counter() - started) * 1000
+                run_id = str(uuid.uuid4())
+                payload = AgentRunLog(
+                    agent_name=agent_name,
+                    prompt_version=prompt_version,
+                    model=model_name,
+                    task=task,
+                    input_summary=input_summary,
+                    output_valid=valid,
+                    latency_ms=latency_ms,
+                    task_id=context.task_id,
+                    generation_id=generation_id,
+                    validation_errors=errors,
+                    token_usage=latest_token_usage_from_llm(self.llm),
+                    run_id=run_id,
+                ).to_payload()
+                payload["projectId"] = context.project_id
+                self.last_agent_run_id = run_id
+                self.observability_sink.record_agent_run(payload)
 
         assert output is not None
         return output

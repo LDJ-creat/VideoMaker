@@ -90,6 +90,14 @@ def infer_material_scope(
     tools = {str(intent.get("executionTool") or "") for intent in intents}
     operations = {str(intent.get("operation", "")) for intent in intents}
 
+    if intents and all(
+        str(intent.get("executionTool") or "") == "material_regen"
+        and str(intent.get("scope") or "") == "scene"
+        for intent in intents
+    ):
+        slot_ids = resolve_slot_ids_from_intents(intents, storyboard=storyboard)
+        return "scoped" if slot_ids else "all"
+
     if tools & _ALL_MATERIAL_TOOLS or operations & {
         "adjust_hook",
         "reorder_selling_points",

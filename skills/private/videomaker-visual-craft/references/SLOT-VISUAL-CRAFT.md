@@ -11,6 +11,17 @@
 - 列表：≤3 条，用 stagger 依次出现（非一次全展示）
 - finish 润色：底片为主，overlay 不遮主体
 
+## 布局锚点（`layoutAnchor` / `mode`）
+
+| `compositionAuthorBrief.mode` | 主信息垂直位置 | CSS 纪律 |
+|------------------------------|----------------|----------|
+| `hf_native` / `packaging_only` | **画面垂直水平居中**（9:16 约 35%–55% 带） | 禁止 `flex-end`、主文案 `bottom` 锚定、全屏 lower-third 大字卡 |
+| `source_then_polish` + CTA | 下方 1/3 **细 overlay** | 人物保持居中/偏上；HF 内无口播字幕 |
+| `source_then_polish` + hook | 上方 1/3 overlay | 不挡脸 |
+| `source_then_polish`（其他） | 下方 1/3 润色条 | 底片为主 |
+
+`hf_native` 全屏合成没有人物底片时，**不得**沿用「底部字幕/对比条」口播短视频习惯 — 那是 timeline 字幕轨的职责，贴底会与烧录字幕重叠。
+
 不要把口播全文打字到画面上 — 那是 PPT，不是视频镜头。**口播 substring（`voiceoverContext.line`）同样禁止**出现在 HF composition 内；逐句字幕需求由 timeline 字幕轨处理，finish 模式只用无字 lower-third 动效或 emphasis，不在 HF 内打字。
 
 ## 画幅与安全区

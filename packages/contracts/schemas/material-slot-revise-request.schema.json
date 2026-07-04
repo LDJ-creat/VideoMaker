@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/material-slot-revise-request.schema.json",
+  "title": "MaterialSlotReviseRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slotId", "mode", "instruction"],
+  "properties": {
+    "slotId": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "enum": ["edit", "full"] },
+    "instruction": { "type": "string", "minLength": 1, "maxLength": 500 }
+  }
+}

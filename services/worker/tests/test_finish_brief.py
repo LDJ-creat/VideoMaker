@@ -44,6 +44,60 @@ def test_build_finish_brief_semantic_fields_and_voiceover_do_not_render() -> Non
     assert brief["storyboardScene"]["visual"] == "快切产品特写，自然光"
 
 
+def test_build_finish_brief_uses_composition_author_brief_over_visual() -> None:
+    brief = build_finish_brief(
+        gap_item={"completionMode": "hf_native"},
+        slot={
+            "id": "slot-card",
+            "role": "benefit_card",
+            "packagingRequirements": ["lower_third"],
+        },
+        storyboard_scene={
+            "script": "夏天出门怕晒黑？",
+            "visual": "快切产品特写，自然光",
+            "compositionAuthorBrief": {
+                "mode": "hf_native",
+                "authorPrompt": "竖屏卖点卡，三行 stagger 揭示，无口播文字。",
+                "displayCopyPolicy": {"allowed": ["SPF50+"]},
+            },
+        },
+        base_media=None,
+        packaging_plan={
+            "slotOverlays": [
+                {
+                    "slotId": "slot-card",
+                    "displayCopy": ["限时特惠"],
+                }
+            ]
+        },
+    )
+
+    assert brief["compositionAuthorBrief"]["authorPrompt"].startswith("竖屏卖点卡")
+    assert "SPF50+" in brief["compositionAuthorBrief"]["displayCopyPolicy"]["allowed"]
+    assert "限时特惠" in brief["compositionAuthorBrief"]["displayCopyPolicy"]["allowed"]
+    assert brief["renderPolicy"]["allowedDisplayCopy"] == brief["compositionAuthorBrief"]["displayCopyPolicy"]["allowed"]
+    assert "visualDirection" not in (brief.get("creativeBrief") or {})
+
+
+def test_build_finish_brief_realigns_mode_from_gap() -> None:
+    brief = build_finish_brief(
+        gap_item={
+            "completionMode": "source_then_polish",
+            "suggestedFixes": ["asset_reuse", "hyperframes_material"],
+        },
+        slot={"id": "slot-hook", "role": "hook_visual"},
+        storyboard_scene={
+            "visual": "B-roll",
+            "compositionAuthorBrief": {
+                "mode": "hf_native",
+                "authorPrompt": "保留 B-roll，轻量 lower third。",
+            },
+        },
+        base_media={"type": "video", "uri": "hook.mp4"},
+    )
+    assert brief["compositionAuthorBrief"]["mode"] == "source_then_polish"
+
+
 def test_build_finish_brief_for_action_enriches_existing_finish_brief() -> None:
     brief = build_finish_brief_for_action(
         action={

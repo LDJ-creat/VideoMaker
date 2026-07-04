@@ -10,6 +10,7 @@ from app.agents.prompt_loader import PromptLoader
 from app.agents.runner import AgentRunner
 from app.pipelines.asset_understanding import (
     compute_highlight_score,
+    has_media_or_text_assets,
     moment_id,
     normalize_score,
     run_asset_understanding,
@@ -30,6 +31,64 @@ def _fixtures_dir() -> Path:
 def _load_structure_fixture() -> dict[str, Any]:
     fixture_path = Path(__file__).parent / "fixtures" / "structures" / "sample-structure.json"
     return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+
+def test_has_media_or_text_assets() -> None:
+    empty = build_asset_inventory(
+        project_id="p1",
+        user_brief={"topic": "x", "sellingPoints": [], "mustMention": [], "avoidMention": []},
+        assets=[],
+    )
+    assert has_media_or_text_assets(empty) is False
+
+    with_video = build_asset_inventory(
+        project_id="p1",
+        user_brief={"topic": "x", "sellingPoints": [], "mustMention": [], "avoidMention": []},
+        assets=[{"id": "a1", "type": "video", "uri": "x.mp4", "description": "", "tags": []}],
+    )
+    assert has_media_or_text_assets(with_video) is True
+
+
+def test_run_asset_understanding_skips_llm_without_media_or_text_assets(tmp_path: Path) -> None:
+    fixtures = load_agent_fixtures(_fixtures_dir())
+    runner = AgentRunner(
+        llm=LLMTool(fixture_mode=True, fixtures=fixtures),
+        prompt_loader=PromptLoader(),
+        observability_sink=LocalFileSink(AgentRunStore(tmp_path)),
+    )
+    context = TaskContext(project_id="project-1", task_id="task-1", storage_root=tmp_path)
+    baseline = build_asset_inventory(
+        project_id="project-1",
+        user_brief={
+            "topic": "4句搞钱认知",
+            "sellingPoints": ["认知比时长重要"],
+            "mustMention": [],
+            "avoidMention": [],
+        },
+        assets=[],
+    )
+
+    inventory = run_asset_understanding(
+        runner,
+        inventory=baseline,
+        context=context,
+        generation_id="gen-1",
+    )
+
+    assert inventory["assetUnderstandingRoute"] == "baseline_only"
+    assert inventory["extractedFacts"]
+    assert inventory["assets"] == []
+    assert "asset_understanding_skipped:no_media_or_text_assets" in inventory.get(
+        "assetUnderstandingWarnings", []
+    )
+    validation = validate_contract("asset-inventory", inventory)
+    assert validation.valid
+    assert any(
+        event.get("message") == "Brief-only project; using baseline asset inventory (no LLM)"
+        for event in context.emitted_events
+    )
+    agent_runs = list((tmp_path / "projects" / "project-1" / "logs" / "agent-runs").glob("*.json"))
+    assert agent_runs == []
 
 
 def test_compute_highlight_score_formula() -> None:

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from app.gateway.chat_timeout import chat_timeout_sec
 from app.gateway.config import GatewayConfig
 from app.gateway.providers.base import GatewayError
 from app.gateway.providers.openai_compatible_chat import OpenAICompatibleChatProvider
@@ -17,6 +19,14 @@ from app.gateway.providers.pluggable_video import (
     VideoJobResult,
     VideoProvider,
     create_video_provider,
+)
+from app.observability.capture import sanitize_messages
+from app.observability.model_call_recorder import (
+    chat_driver_for_profile,
+    image_driver,
+    record_model_call,
+    tts_driver,
+    video_driver,
 )
 
 
@@ -50,6 +60,8 @@ class ModelGateway:
     config: GatewayConfig
     client: httpx.Client | None = None
     last_latency_ms: int | None = None
+    last_token_usage: dict[str, float] | None = None
+    observability: Any | None = None
     _chat_providers: dict[str, OpenAICompatibleChatProvider] = field(
         default_factory=dict, init=False, repr=False
     )
@@ -71,6 +83,18 @@ class ModelGateway:
             raise TypeError("store must be a ModelGatewayStore")
         return cls(config=GatewayConfig.from_store(store))
 
+    def _sync_chat_usage(self, provider: OpenAICompatibleChatProvider) -> dict[str, float] | None:
+        usage = getattr(provider, "last_token_usage", None)
+        if not isinstance(usage, dict):
+            self.last_token_usage = None
+            return None
+        normalized = {
+            "prompt": float(usage.get("prompt", 0)),
+            "completion": float(usage.get("completion", 0)),
+        }
+        self.last_token_usage = normalized
+        return normalized
+
     def _chat_provider(self, profile: str) -> OpenAICompatibleChatProvider:
         if profile not in self._chat_providers:
             if profile == "vision":
@@ -79,9 +103,14 @@ class ModelGateway:
                 provider_config = self.config.video_understanding
             else:
                 provider_config = self.config.text
+            timeout_sec = chat_timeout_sec(profile)
+            client = self.client
+            if profile in {"video_understanding", "vision"} and client is not None:
+                client = None
             self._chat_providers[profile] = OpenAICompatibleChatProvider(
                 provider_config,
-                client=self.client,
+                client=client,
+                timeout_sec=timeout_sec,
             )
         return self._chat_providers[profile]
 
@@ -313,23 +342,48 @@ class ModelGateway:
     ) -> dict[str, Any]:
         """Complete a chat request and parse the model response as JSON."""
         provider = self._chat_provider(profile)
-        response_format = (
-            {"type": "json_object"} if provider.config.supports_json_response_format() else None
-        )
-        raw = provider.complete(
-            messages,
-            model=provider.config.model,
-            response_format=response_format,
-        )
-        self.last_latency_ms = provider.last_latency_ms
+        model = provider.config.model
+        started = time.perf_counter()
+        input_payload = sanitize_messages(messages)
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
         try:
-            return _parse_json_text(raw)
+            response_format = (
+                {"type": "json_object"} if provider.config.supports_json_response_format() else None
+            )
+            raw = provider.complete(
+                messages,
+                model=model,
+                response_format=response_format,
+            )
+            self.last_latency_ms = provider.last_latency_ms
+            self._sync_chat_usage(provider)
+            output_payload = _parse_json_text(raw)
+            return output_payload
         except json.JSONDecodeError as exc:
-            raise GatewayError(
+            error = GatewayError(
                 code="invalid_json",
-                message=f"Model output is not valid JSON: {raw[:2000]}",
+                message=f"Model output is not valid JSON: {raw[:2000] if 'raw' in locals() else ''}",
                 retryable=False,
-            ) from exc
+            )
+            raise error from exc
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="chat_json",
+                profile=profile,
+                model=model,
+                driver=chat_driver_for_profile(self, profile),
+                input_payload=input_payload,
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                token_usage=self.last_token_usage,
+            )
 
     def complete_text(
         self,
@@ -339,10 +393,34 @@ class ModelGateway:
         profile: str = "text",
     ) -> str:
         provider = self._chat_provider(profile)
+        model = provider.config.model
         messages = self._build_messages(task, inputs, json_only=False, profile=profile)
-        result = provider.complete(messages, model=provider.config.model)
-        self.last_latency_ms = provider.last_latency_ms
-        return result
+        started = time.perf_counter()
+        output_payload: str | None = None
+        error: Exception | None = None
+        try:
+            result = provider.complete(messages, model=model)
+            self.last_latency_ms = provider.last_latency_ms
+            self._sync_chat_usage(provider)
+            output_payload = result
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="chat_text",
+                profile=profile,
+                model=model,
+                driver=chat_driver_for_profile(self, profile),
+                input_payload=sanitize_messages(messages),
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                token_usage=self.last_token_usage,
+            )
 
     def complete_json(
         self,
@@ -353,6 +431,7 @@ class ModelGateway:
         profile: str = "text",
     ) -> dict[str, Any]:
         provider = self._chat_provider(profile)
+        model = provider.config.model
         messages = self._build_messages(
             task,
             inputs,
@@ -360,23 +439,46 @@ class ModelGateway:
             profile=profile,
             schema_name=schema_name,
         )
-        response_format = (
-            {"type": "json_object"} if provider.config.supports_json_response_format() else None
-        )
-        raw = provider.complete(
-            messages,
-            model=provider.config.model,
-            response_format=response_format,
-        )
-        self.last_latency_ms = provider.last_latency_ms
+        started = time.perf_counter()
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
         try:
-            return _parse_json_text(raw)
+            response_format = (
+                {"type": "json_object"} if provider.config.supports_json_response_format() else None
+            )
+            raw = provider.complete(
+                messages,
+                model=model,
+                response_format=response_format,
+            )
+            self.last_latency_ms = provider.last_latency_ms
+            self._sync_chat_usage(provider)
+            output_payload = _parse_json_text(raw)
+            return output_payload
         except json.JSONDecodeError as exc:
-            raise GatewayError(
+            error = GatewayError(
                 code="invalid_json",
-                message=f"Model output is not valid JSON: {raw[:2000]}",
+                message=f"Model output is not valid JSON: {raw[:2000] if 'raw' in locals() else ''}",
                 retryable=False,
-            ) from exc
+            )
+            raise error from exc
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="chat_json",
+                profile=profile,
+                model=model,
+                driver=chat_driver_for_profile(self, profile),
+                input_payload=sanitize_messages(messages),
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                token_usage=self.last_token_usage,
+            )
 
     def complete_with_tools(
         self,
@@ -388,56 +490,194 @@ class ModelGateway:
     ) -> dict[str, Any]:
         _ = task
         provider = self._chat_provider(profile)
-        message = provider.complete_assistant_message(messages, model=provider.config.model, tools=tools)
-        self.last_latency_ms = provider.last_latency_ms
-        tool_calls_raw = message.get("tool_calls") or []
-        tool_calls: list[dict[str, Any]] = []
-        for item in tool_calls_raw:
-            if not isinstance(item, dict):
-                continue
-            fn = item.get("function") if isinstance(item.get("function"), dict) else {}
-            raw_args = fn.get("arguments", {})
-            if isinstance(raw_args, str):
-                try:
-                    parsed_args = json.loads(raw_args) if raw_args.strip() else {}
-                except json.JSONDecodeError:
-                    parsed_args = {"raw": raw_args}
-            else:
-                parsed_args = raw_args if isinstance(raw_args, dict) else {}
-            tool_calls.append(
-                {
-                    "id": item.get("id", fn.get("name", "tool")),
-                    "name": fn.get("name", ""),
-                    "arguments": parsed_args,
-                }
+        model = provider.config.model
+        started = time.perf_counter()
+        input_payload = {
+            "messages": sanitize_messages(messages),
+            "tools": tools,
+        }
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
+        try:
+            message = provider.complete_assistant_message(
+                messages,
+                model=model,
+                tools=tools,
             )
-        content = message.get("content")
-        parsed_content: dict[str, Any] | str | None = content
-        if isinstance(content, str) and content.strip().startswith("{"):
-            try:
-                parsed_content = _parse_json_text(content)
-            except json.JSONDecodeError:
-                parsed_content = content
-        return {"content": parsed_content, "tool_calls": tool_calls}
+            self.last_latency_ms = provider.last_latency_ms
+            self._sync_chat_usage(provider)
+            tool_calls_raw = message.get("tool_calls") or []
+            tool_calls: list[dict[str, Any]] = []
+            for item in tool_calls_raw:
+                if not isinstance(item, dict):
+                    continue
+                fn = item.get("function") if isinstance(item.get("function"), dict) else {}
+                raw_args = fn.get("arguments", {})
+                if isinstance(raw_args, str):
+                    try:
+                        parsed_args = json.loads(raw_args) if raw_args.strip() else {}
+                    except json.JSONDecodeError:
+                        parsed_args = {"raw": raw_args}
+                else:
+                    parsed_args = raw_args if isinstance(raw_args, dict) else {}
+                tool_calls.append(
+                    {
+                        "id": item.get("id", fn.get("name", "tool")),
+                        "name": fn.get("name", ""),
+                        "arguments": parsed_args,
+                    }
+                )
+            content = message.get("content")
+            parsed_content: dict[str, Any] | str | None = content
+            if isinstance(content, str) and content.strip().startswith("{"):
+                try:
+                    parsed_content = _parse_json_text(content)
+                except json.JSONDecodeError:
+                    parsed_content = content
+            output_payload = {"content": parsed_content, "tool_calls": tool_calls}
+            return output_payload
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="chat_tools",
+                profile=profile,
+                model=model,
+                driver=chat_driver_for_profile(self, profile),
+                input_payload=input_payload,
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                token_usage=self.last_token_usage,
+            )
 
     def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
         provider = self._image()
-        result = provider.generate(prompt, options=options)
-        self.last_latency_ms = provider.last_latency_ms
-        return result
+        model = provider.config.model
+        started = time.perf_counter()
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
+        try:
+            result = provider.generate(prompt, options=options)
+            self.last_latency_ms = provider.last_latency_ms
+            output_payload = {
+                "bytes": len(result),
+                "mime": "image/png",
+            }
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="image",
+                profile="image",
+                model=model,
+                driver=image_driver(self),
+                input_payload={"prompt": prompt, "options": options or {}},
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+            )
 
     def synthesize_speech(self, text: str, *, options: dict[str, Any] | None = None) -> bytes:
         provider = self._tts()
-        result = provider.synthesize(text, options=options)
-        self.last_latency_ms = provider.last_latency_ms
-        return result
+        model = self.config.tts.model
+        started = time.perf_counter()
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
+        merged = dict(options or {})
+        try:
+            result = provider.synthesize(text, options=merged or None)
+            self.last_latency_ms = provider.last_latency_ms
+            output_payload = {
+                "bytes": len(result),
+                "mime": "audio/wav",
+                "charCount": len(text),
+            }
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="tts",
+                profile="tts",
+                model=model,
+                driver=tts_driver(self),
+                input_payload={"text": text, "options": merged},
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+            )
 
     def submit_video_job(self, prompt: str, *, options: dict[str, Any] | None = None) -> str:
         provider = self._video()
-        return provider.submit(prompt, options or {})
+        model = self.config.video.model
+        opts = dict(options or {})
+        if self.observability is not None and opts.get("slotId"):
+            self.observability.slot_id = str(opts["slotId"])
+        started = time.perf_counter()
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
+        job_id: str | None = None
+        try:
+            job_id = provider.submit(prompt, opts)
+            output_payload = {"jobId": job_id}
+            return job_id
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="video_submit",
+                profile="video",
+                model=model,
+                driver=video_driver(self),
+                input_payload={"prompt": prompt, "options": opts},
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                job_id=job_id,
+            )
 
     def poll_video_job(self, job_id: str) -> VideoJobResult:
         provider = self._video()
-        result = provider.poll(job_id)
-        self.last_latency_ms = result.latency_ms
-        return result
+        model = self.config.video.model
+        started = time.perf_counter()
+        output_payload: dict[str, Any] | None = None
+        error: Exception | None = None
+        try:
+            result = provider.poll(job_id)
+            self.last_latency_ms = result.latency_ms
+            output_payload = {
+                "status": result.status,
+                "bytes": len(result.video_bytes or b""),
+            }
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            record_model_call(
+                self,
+                call_kind="video_poll",
+                profile="video",
+                model=model,
+                driver=video_driver(self),
+                input_payload={"jobId": job_id},
+                started=started,
+                output_payload=output_payload,
+                output_valid=error is None,
+                error=error,
+                job_id=job_id,
+            )

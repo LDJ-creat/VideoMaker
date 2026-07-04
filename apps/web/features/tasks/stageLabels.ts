@@ -32,6 +32,9 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
   completed: "已完成",
   running_agent: "运行 AI 分析",
   generating_material: "生成补全素材",
+  reviewing_material: "素材审阅",
+  awaiting_material_review: "等待素材审核",
+  assembling_final: "合成成片",
   generating_image: "AI 生图",
   generating_video: "AI 生视频",
   generating_tts: "合成配音",
@@ -43,6 +46,9 @@ export const TASK_STAGE_LABELS: Record<TaskStage, string> = {
 
 const MATERIAL_STAGES = new Set<TaskStage>([
   "generating_material",
+  "reviewing_material",
+  "awaiting_material_review",
+  "assembling_final",
   "generating_image",
   "generating_video",
   "generating_tts",

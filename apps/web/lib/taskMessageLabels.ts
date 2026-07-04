@@ -51,6 +51,22 @@ export function formatTaskMessage(message: string | undefined | null): string {
     }
   }
 
+  if (/^HyperFrames material ready for slot\s+/i.test(text)) {
+    const slot = text.replace(/^HyperFrames material ready for slot\s+/i, "").trim();
+    return slot ? `${slot} 素材已就绪` : "槽位素材已就绪";
+  }
+
+  if (/^Completing slot\s+/i.test(text)) {
+    const slot = text.replace(/^Completing slot\s+/i, "").trim();
+    return slot ? `正在补全槽位 ${slot}` : "正在补全槽位素材";
+  }
+
+  if (/^Authoring HyperFrames material spec(?:\s+for\s+(.+))?$/i.test(text)) {
+    const match = text.match(/^Authoring HyperFrames material spec(?:\s+for\s+(.+))?$/i);
+    const slot = match?.[1]?.trim();
+    return slot ? `正在为 ${slot} 编写 HyperFrames 分镜` : "正在编写 HyperFrames 分镜";
+  }
+
   if (/[\u4e00-\u9fff]/.test(text)) {
     return text;
   }

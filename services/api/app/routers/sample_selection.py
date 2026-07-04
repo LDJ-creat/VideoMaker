@@ -271,6 +271,62 @@ def list_generation_runs(
     return {"runs": runs}
 
 
+@router.get("/{project_id}/revise-generations")
+def list_revise_generations(
+    project_id: str,
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    _ensure_project(_project_store(request), project_id)
+    store = _project_store(request)
+    storage_root: Path = request.app.state.storage_root
+    revisions: list[dict[str, Any]] = []
+    for record in store.list_generations_for_project(project_id):
+        generation_id = str(record["id"])
+        revise_path = (
+            storage_root
+            / "projects"
+            / project_id
+            / "generations"
+            / generation_id
+            / "revise-context.json"
+        )
+        if not revise_path.is_file():
+            continue
+        try:
+            revise_context = json.loads(revise_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(revise_context, dict):
+            continue
+        plan = None
+        try:
+            plan = build_generation_plan_response(
+                record,
+                storage_root=storage_root,
+            )
+        except HTTPException:
+            plan = None
+        revisions.append(
+            {
+                "generationId": generation_id,
+                "variant": record.get("variant"),
+                "status": record.get("status"),
+                "taskId": record.get("taskId"),
+                "sourceGenerationId": revise_context.get("sourceGenerationId"),
+                "instruction": revise_context.get("instruction")
+                or revise_context.get("editInstruction"),
+                "affectedSlotIds": revise_context.get("affectedSlotIds") or [],
+                "materialScope": revise_context.get("materialScope"),
+                "updatedAt": record.get("updatedAt") or record.get("createdAt"),
+                "plan": plan,
+            }
+        )
+        if len(revisions) >= limit:
+            break
+    return {"revisions": revisions}
+
+
 def _load_run_provenance(
     *,
     storage_root: Path,

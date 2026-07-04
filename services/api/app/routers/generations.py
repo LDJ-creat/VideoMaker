@@ -6,9 +6,18 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from knowledge.paths import validate_storage_segment
-from pydantic import BaseModel, Field
+from material_disk import (
+    expected_output_path,
+    infer_completed_slot_ids,
+    is_valid_visual_artifact,
+    material_review_approvable,
+    terminal_visual_action_by_slot,
+)
+from material_review_revise_context import load_material_review_revise_context
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.agent_runs import list_agent_runs_for_generation
+from app.services.model_calls import list_model_calls_for_generation
 from app.services.generation_responses import build_generation_plan_response
 from app.services.pipeline_runner import PipelineRunner
 from app.services.project_store import ProjectStore
@@ -23,9 +32,27 @@ class ReviseGenerationRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
+class SceneReviseStructured(BaseModel):
+    sceneId: str = Field(min_length=1)
+    slotId: str = Field(min_length=1)
+    mode: Literal["edit", "full"]
+    instruction: str = Field(min_length=1, max_length=500)
+
+
 class RevisePlanRequest(BaseModel):
-    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
+    instruction: str | None = Field(default=None, max_length=MAX_REVISE_INSTRUCTION_LEN)
+    structured: SceneReviseStructured | None = None
     newSession: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_plan_input(self) -> RevisePlanRequest:
+        has_instruction = bool((self.instruction or "").strip())
+        has_structured = self.structured is not None
+        if has_instruction == has_structured:
+            raise ValueError("Provide exactly one of instruction or structured")
+        if has_instruction and len(self.instruction or "") < 1:
+            raise ValueError("instruction must not be empty")
+        return self
 
 
 class ReviseExecuteRequest(BaseModel):
@@ -155,11 +182,17 @@ def get_migration_snapshot(generation_id: str, request: Request) -> dict[str, An
                     ],
                 }
 
+    completed_slot_ids = infer_completed_slot_ids(
+        completion_actions,
+        generation_root / "generated",
+    )
+
     return {
         "slotMatches": slot_matches,
         "gapReport": gap_report,
         "completionActions": completion_actions,
         "materialState": material_state,
+        "completedSlotIds": completed_slot_ids,
     }
 
 
@@ -176,6 +209,26 @@ def get_generation_agent_runs(generation_id: str, request: Request) -> dict[str,
         generation_id=generation_id,
     )
     return {"runs": runs}
+
+
+@router.get("/{generation_id}/model-calls")
+def get_generation_model_calls(
+    generation_id: str,
+    request: Request,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    record = _project_store(request).get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    storage_root: Path = request.app.state.storage_root
+    calls = list_model_calls_for_generation(
+        storage_root,
+        project_id=str(record["projectId"]),
+        generation_id=generation_id,
+        kind=kind,
+    )
+    return {"calls": calls}
 
 
 @router.get("/{generation_id}/composition-patterns")
@@ -412,6 +465,301 @@ def approve_storyboard_script(generation_id: str, request: Request) -> dict[str,
     return {"generationId": generation_id, "taskId": task_id, "draft": approved}
 
 
+class MaterialSlotReviseRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
+
+
+def _material_review_gate_active(generation_root: Path) -> bool:
+    checkpoint_path = generation_root / "checkpoint.json"
+    if not checkpoint_path.is_file():
+        return False
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    return isinstance(checkpoint, dict) and checkpoint.get("awaitingGate") == "material_review"
+
+
+def _load_material_review_revise_context(generation_root: Path) -> dict[str, Any] | None:
+    return load_material_review_revise_context(generation_root)
+
+
+def _require_material_review_task_awaiting(request: Request, task_id: str) -> None:
+    task = _task_events(request).get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    status = str(task.get("status") or "")
+    stage = str(task.get("stage") or "")
+    if status != "awaiting_review" or stage != "awaiting_material_review":
+        raise HTTPException(
+            status_code=400,
+            detail="Task is not awaiting material review",
+        )
+
+
+def _slot_preview_media_url(
+    project_id: str,
+    generation_id: str,
+    generation_relative_path: str,
+    *,
+    cache_version: str | None = None,
+) -> str:
+    from urllib.parse import quote, urlencode
+
+    segments = "/".join(
+        quote(part, safe="")
+        for part in ("generations", generation_id, *generation_relative_path.split("/"))
+    )
+    url = f"/api/projects/{project_id}/media/file/{segments}"
+    if cache_version:
+        url = f"{url}?{urlencode({'v': cache_version})}"
+    return url
+
+
+def _preview_cache_version(
+    preview_path: Path,
+    slot_entry: Any,
+) -> str | None:
+    if isinstance(slot_entry, dict):
+        ref = slot_entry.get("previewArtifactRef")
+        if isinstance(ref, dict):
+            created_at = ref.get("createdAt")
+            if isinstance(created_at, str) and created_at.strip():
+                return created_at.strip()
+    if preview_path.is_file():
+        return str(int(preview_path.stat().st_mtime))
+    return None
+
+
+def _preview_path_from_slot_state(
+    generation_root: Path,
+    slot_entry: Any,
+) -> Path | None:
+    if not isinstance(slot_entry, dict):
+        return None
+    ref = slot_entry.get("previewArtifactRef")
+    if not isinstance(ref, dict):
+        return None
+    uri = ref.get("uri")
+    if not isinstance(uri, str) or not uri.strip():
+        return None
+    path = Path(uri)
+    if path.is_file():
+        try:
+            path.resolve().relative_to(generation_root.resolve())
+            return path
+        except ValueError:
+            pass
+    candidate = generation_root / "generated" / path.name
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _resolve_slot_preview_urls(
+    *,
+    storage_root: Path,
+    project_id: str,
+    generation_id: str,
+    state: dict[str, Any],
+) -> dict[str, str]:
+    previews: dict[str, str] = {}
+    slots = state.get("slots")
+    if not isinstance(slots, dict):
+        return previews
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+    plan_path = generation_root / "generation-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.is_file() else {}
+    actions = plan.get("completionActions") if isinstance(plan, dict) else []
+    terminal_by_slot = terminal_visual_action_by_slot(actions if isinstance(actions, list) else [])
+    generated_root = generation_root / "generated"
+    for slot_id in slots:
+        try:
+            validate_storage_segment(str(slot_id), field="slot_id")
+        except ValueError:
+            continue
+        action = terminal_by_slot.get(str(slot_id))
+        if not action:
+            continue
+        preview_path = expected_output_path(action, generated_root)
+        if not is_valid_visual_artifact(preview_path):
+            preview_path = _preview_path_from_slot_state(
+                generation_root,
+                slots.get(str(slot_id)),
+            ) or preview_path
+        if not is_valid_visual_artifact(preview_path):
+            continue
+        try:
+            relative_path = preview_path.relative_to(generation_root).as_posix()
+        except ValueError:
+            continue
+        slot_entry = slots.get(str(slot_id))
+        cache_version = _preview_cache_version(preview_path, slot_entry)
+        previews[str(slot_id)] = _slot_preview_media_url(
+            project_id,
+            generation_id,
+            relative_path,
+            cache_version=cache_version,
+        )
+    return previews
+
+
+@router.get("/resolve/by-task/{task_id}")
+def resolve_generation_by_task(task_id: str, request: Request) -> dict[str, str]:
+    record = _project_store(request).get_generation_by_task_id(task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found for task")
+    return {
+        "generationId": str(record["id"]),
+        "projectId": str(record["projectId"]),
+    }
+
+
+@router.get("/{generation_id}/material-review")
+def get_material_review(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+    state_path = generation_root / "material-review-state.json"
+    if not state_path.is_file():
+        raise HTTPException(status_code=404, detail="Material review state not found")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    reports: dict[str, Any] = {}
+    if isinstance(state, dict):
+        slots = state.get("slots")
+        if isinstance(slots, dict):
+            for slot_id in slots:
+                try:
+                    validate_storage_segment(str(slot_id), field="slot_id")
+                except ValueError:
+                    continue
+                report_path = generation_root / "material-reviews" / str(slot_id) / "report.json"
+                if report_path.is_file():
+                    reports[str(slot_id)] = json.loads(report_path.read_text(encoding="utf-8"))
+    slot_preview_urls = _resolve_slot_preview_urls(
+        storage_root=storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+        state=state if isinstance(state, dict) else {},
+    )
+    revise_context = _load_material_review_revise_context(generation_root)
+    payload: dict[str, Any] = {
+        "state": state,
+        "reports": reports,
+        "slotPreviewUrls": slot_preview_urls,
+    }
+    if revise_context is not None:
+        payload["reviseContext"] = revise_context
+    return payload
+
+
+@router.post("/{generation_id}/material-slots/{slot_id}/revise", status_code=status.HTTP_202_ACCEPTED)
+def revise_material_slot(
+    generation_id: str,
+    slot_id: str,
+    payload: MaterialSlotReviseRequest,
+    request: Request,
+) -> dict[str, Any]:
+    validate_storage_segment(slot_id, field="slot_id")
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+    state_path = generation_root / "material-review-state.json"
+    if not state_path.is_file():
+        raise HTTPException(status_code=404, detail="Material review state not found")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if not isinstance(state, dict) or state.get("status") == "approved":
+        raise HTTPException(status_code=400, detail="Material review already approved")
+    if not _material_review_gate_active(generation_root):
+        raise HTTPException(status_code=400, detail="Generation is not awaiting material review")
+    _require_material_review_task_awaiting(request, task_id)
+    queue_payload = {
+        "generationId": generation_id,
+        "slotId": slot_id,
+        "instruction": payload.instruction.strip(),
+        "requestedBy": "user",
+        "status": "pending",
+    }
+    queue_path = generation_root / "material-slot-revise-queue.json"
+    queue_path.write_text(json.dumps(queue_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        _pipeline_runner(request).retry_task(task_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"generationId": generation_id, "taskId": task_id, "slotId": slot_id, "queued": True}
+
+
+@router.post("/{generation_id}/approve-material", status_code=status.HTTP_202_ACCEPTED)
+def approve_material(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+    state_path = generation_root / "material-review-state.json"
+    if not state_path.is_file():
+        raise HTTPException(status_code=404, detail="Material review state not found")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if not isinstance(state, dict):
+        raise HTTPException(status_code=400, detail="Invalid material review state")
+    if state.get("status") == "approved":
+        return {"generationId": generation_id, "taskId": task_id, "state": state}
+    if not _material_review_gate_active(generation_root):
+        raise HTTPException(status_code=400, detail="Generation is not awaiting material review")
+    _require_material_review_task_awaiting(request, task_id)
+    plan_path = generation_root / "generation-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.is_file() else {}
+    completion_actions = plan.get("completionActions") if isinstance(plan, dict) else []
+    generated_root = generation_root / "generated"
+    approvable, reason = material_review_approvable(
+        state=state,
+        completion_actions=completion_actions if isinstance(completion_actions, list) else [],
+        generated_root=generated_root,
+    )
+    if not approvable:
+        raise HTTPException(status_code=400, detail=reason)
+    failed_slot_ids = [
+        slot_id
+        for slot_id, entry in (state.get("slots") or {}).items()
+        if isinstance(entry, dict) and str(entry.get("status") or "") == "agent_failed"
+    ]
+    if failed_slot_ids:
+        state["humanOverride"] = True
+        state["overriddenSlotIds"] = sorted(failed_slot_ids)
+    state["status"] = "approved"
+    from datetime import UTC, datetime
+
+    state["approvedAt"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    state["approvedBy"] = "user"
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    checkpoint_path = generation_root / "checkpoint.json"
+    if checkpoint_path.is_file():
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if isinstance(checkpoint, dict):
+            checkpoint["awaitingGate"] = None
+            checkpoint_path.write_text(
+                json.dumps(checkpoint, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+    queue_path = generation_root / "material-slot-revise-queue.json"
+    if queue_path.is_file():
+        queue_path.unlink()
+    try:
+        _pipeline_runner(request).retry_task(task_id)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"generationId": generation_id, "taskId": task_id, "state": state}
+
+
 def _get_generation_or_404(request: Request, generation_id: str) -> tuple[Any, str]:
     store = _project_store(request)
     source = store.get_generation(generation_id)
@@ -507,13 +855,21 @@ def plan_revise_generation(
     supersede_draft_plans(storage_root, project_id, generation_id, session)
 
     try:
-        planner_output = runner.plan_revise_generation(
-            project_id=project_id,
-            generation_id=generation_id,
-            instruction=payload.instruction,
-            source_plan=source_plan,
-            session=session,
-        )
+        if payload.structured is not None:
+            planner_output = runner.build_scene_revise_planner_output(
+                payload.structured.model_dump(),
+                source_plan=source_plan,
+            )
+            plan_instruction = str(planner_output.get("conversationSummary") or planner_output.get("summary") or "")
+        else:
+            plan_instruction = str(payload.instruction or "").strip()
+            planner_output = runner.plan_revise_generation(
+                project_id=project_id,
+                generation_id=generation_id,
+                instruction=plan_instruction,
+                source_plan=source_plan,
+                session=session,
+            )
         runner._validate_edit_intents(list(planner_output.get("intents") or []))  # noqa: SLF001
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -524,7 +880,7 @@ def plan_revise_generation(
     plan = runner.enrich_revise_plan(
         planner_output,
         source_generation_id=generation_id,
-        instruction=payload.instruction,
+        instruction=plan_instruction,
         session_id=str(session["sessionId"]),
         turn_id=turn_id,
         source_plan=source_plan,
@@ -539,7 +895,7 @@ def plan_revise_generation(
         session,
         {
             "turnId": turn_id,
-            "instruction": payload.instruction,
+            "instruction": plan_instruction,
             "planId": plan["planId"],
             "planSummary": plan.get("summary"),
             "costTier": plan.get("costTier"),

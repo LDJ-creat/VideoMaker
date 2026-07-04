@@ -20,6 +20,25 @@ def test_build_material_author_user_payload_includes_render_target_and_slot_timi
     assert payload["slotTiming"]["durationSec"] == 5.2
 
 
+def test_build_material_author_user_payload_edit_mode_includes_existing_spec() -> None:
+    existing = {
+        "template": "composition",
+        "durationSec": 3.0,
+        "composition": {"bodyHtml": "<div>base</div>"},
+    }
+    payload = build_material_author_user_payload(
+        AuthorRequest(
+            slot={"id": "slot-1", "role": "hook_visual"},
+            material_edit_mode="edit",
+            edit_instruction="字幕居中",
+            existing_material_spec=existing,
+        )
+    )
+    assert payload["materialEditMode"] == "edit"
+    assert payload["editInstruction"] == "字幕居中"
+    assert payload["existingMaterialSpec"]["template"] == "composition"
+
+
 def test_build_material_author_user_payload_16_9_dimensions() -> None:
     payload = build_material_author_user_payload(
         AuthorRequest(slot={"id": "slot-1"}, aspect_ratio="16:9")

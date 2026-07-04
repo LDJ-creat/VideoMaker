@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -9,9 +11,13 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.services.model_calls import list_model_calls_for_task
 from app.services.task_events import TaskEventService
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+SSE_POLL_SEC = max(0.1, int(os.getenv("TASK_SSE_POLL_MS", "500")) / 1000.0)
+SSE_HEARTBEAT_SEC = 15.0
 
 
 class CreateTaskRequest(BaseModel):
@@ -50,6 +56,35 @@ def get_task(task_id: str, request: Request) -> dict[str, Any]:
     return task
 
 
+@router.get("/{task_id}/model-calls")
+def get_task_model_calls(
+    task_id: str,
+    request: Request,
+    kind: str | None = None,
+) -> dict[str, Any]:
+    task_service = service(request)
+    task = task_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    with task_service.database.connect() as connection:
+        row = connection.execute(
+            "SELECT project_id FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    if row is None or not row["project_id"]:
+        raise HTTPException(status_code=404, detail="Task project not found")
+
+    storage_root = request.app.state.storage_root
+    calls = list_model_calls_for_task(
+        storage_root,
+        project_id=str(row["project_id"]),
+        task_id=task_id,
+        kind=kind,
+    )
+    return {"calls": calls}
+
+
 @router.post("/{task_id}/events")
 def append_task_event(task_id: str, payload: UpdateTaskRequest, request: Request) -> dict[str, Any]:
     try:
@@ -83,16 +118,14 @@ def retry_task(task_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/{task_id}/cancel")
 def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
-    current = service(request).get_task(task_id)
-    if current is None:
+    task_service = service(request)
+    if task_service.get_task(task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return service(request).update_task(
-        task_id,
-        status="cancelled",
-        stage=current["stage"],
-        progress=current["progress"],
-        message="Task cancelled",
-    )
+    runner: Any = request.app.state.pipeline_runner
+    try:
+        return runner.cancel_task(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
 
 
 @router.get("/{task_id}/events")
@@ -100,26 +133,40 @@ async def stream_task_events(
     task_id: str,
     request: Request,
     once: bool = Query(default=False),
+    after_id: int = Query(default=0, ge=0),
 ) -> StreamingResponse:
     task_service = service(request)
     if task_service.get_task(task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
     async def events() -> AsyncIterator[str]:
-        emitted_count = 0
+        last_event_id = after_id
+        last_activity = time.monotonic()
+
         while True:
             if await request.is_disconnected():
                 return
 
-            current_events = task_service.list_events(task_id)
-            for event in current_events[emitted_count:]:
-                emitted_count += 1
-                yield f"event: task\ndata: {json.dumps(event, separators=(',', ':'))}\n\n"
+            records = task_service.list_event_records(task_id, after_id=last_event_id)
+            for record in records:
+                last_event_id = int(record["eventId"])
+                payload = {**record["event"], "eventId": last_event_id}
+                yield f"event: task\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+                last_activity = time.monotonic()
 
             current = task_service.get_task(task_id)
-            if once or current is None or task_service.is_terminal(current["status"]):
+            if once or current is None:
+                yield ": close\n\n"
                 return
 
-            await asyncio.sleep(1)
+            if current is not None and task_service.is_terminal(current["status"]):
+                yield ": close\n\n"
+                return
+
+            if time.monotonic() - last_activity >= SSE_HEARTBEAT_SEC:
+                yield ": ping\n\n"
+                last_activity = time.monotonic()
+
+            await asyncio.sleep(SSE_POLL_SEC)
 
     return StreamingResponse(events(), media_type="text/event-stream")

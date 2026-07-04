@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
+
 from app.agents.runner import AgentRunner
 from app.agents.structure_inputs import _encode_keyframes, _pick_best_keyframes_per_shot
 from app.gateway.model_gateway import ModelGateway
+from app.observability.agent_run_recorder import record_live_agent_run
+from app.observability.gateway_context import agent_observability_scope
+from app.observability.model_call_recorder import invalidate_last_model_call
 from app.runtime.task_context import TaskContext
 from app.validation.schema_loader import validate_contract
 from app.tools.llm_tool import LLMToolConfigError, LLMToolValidationError
@@ -91,6 +96,7 @@ def run_keyframe_batch_analyst(
         ],
     }
 
+    profile = "vision" if encoded else "text"
     if runner.llm.fixture_mode:
         payload = runner.run(
             "keyframe_batch_analyst",
@@ -99,30 +105,63 @@ def run_keyframe_batch_analyst(
             inputs=inputs,
             context=context,
             progress=progress,
-            profile="vision" if encoded else "text",
+            profile=profile,
         )
     else:
-        gateway = runner.llm.gateway
-        if gateway is None:
-            raise LLMToolConfigError("No ModelGateway configured for keyframe batch analyst")
-        system_prompt = runner.prompt_loader.load("keyframe_batch_analyst")
-        text_payload = {"systemPrompt": system_prompt, "inputs": inputs}
-        messages = ModelGateway.build_structure_messages(
-            system_prompt=system_prompt,
-            text_payload=text_payload,
-            keyframes=encoded if encoded else None,
-        )
-        payload = gateway.complete_json_messages(
-            messages,
-            profile="vision" if encoded else "text",
-        )
-        validation = validate_contract(SCHEMA_NAME, payload)
-        if not validation.valid:
-            raise LLMToolValidationError(
-                f"LLM output failed schema validation for '{SCHEMA_NAME}'",
-                raw_output=json.dumps(payload, ensure_ascii=False),
-                validation_errors=validation.errors,
+        started = time.perf_counter()
+        valid = True
+        errors: list[str] = []
+        payload: dict[str, Any] | None = None
+        try:
+            gateway = runner.llm.gateway
+            if gateway is None:
+                raise LLMToolConfigError("No ModelGateway configured for keyframe batch analyst")
+            with agent_observability_scope(gateway, "keyframe_batch_analyst"):
+                system_prompt = runner.prompt_loader.load("keyframe_batch_analyst")
+                text_payload = {"systemPrompt": system_prompt, "inputs": inputs}
+                messages = ModelGateway.build_structure_messages(
+                    system_prompt=system_prompt,
+                    text_payload=text_payload,
+                    keyframes=encoded if encoded else None,
+                )
+                payload = gateway.complete_json_messages(
+                    messages,
+                    profile=profile,
+                )
+                validation = validate_contract(SCHEMA_NAME, payload)
+                if not validation.valid:
+                    raise LLMToolValidationError(
+                        f"LLM output failed schema validation for '{SCHEMA_NAME}'",
+                        raw_output=json.dumps(payload, ensure_ascii=False),
+                        validation_errors=validation.errors,
+                    )
+        except (LLMToolValidationError, LLMToolConfigError) as exc:
+            valid = False
+            errors = [str(exc)]
+            if not runner.llm.fixture_mode and runner.llm.gateway is not None:
+                invalidate_last_model_call(
+                    runner.llm.gateway,
+                    validation_errors=errors,
+                )
+            raise
+        finally:
+            record_live_agent_run(
+                runner,
+                agent_name="keyframe_batch_analyst",
+                task=TASK_KEY,
+                input_summary={
+                    "agent": "keyframe_batch_analyst",
+                    "batchIndex": batch_index,
+                    "frameCount": len(batch_keyframes),
+                    "vision": bool(encoded),
+                },
+                valid=valid,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                context=context,
+                validation_errors=errors,
+                profile=profile,
             )
+        assert payload is not None
 
     return {
         "batchIndex": batch_index,

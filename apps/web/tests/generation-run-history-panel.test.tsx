@@ -27,6 +27,11 @@ describe("GenerationRunHistoryPanel", () => {
       meta: { dataSource: "api" },
     });
 
+    vi.spyOn(apiClient, "listReviseGenerations").mockResolvedValue({
+      data: { revisions: [] },
+      meta: { dataSource: "api" },
+    });
+
     vi.spyOn(apiClient, "getGenerationRun").mockResolvedValue({
       data: {
         run: {
@@ -74,10 +79,10 @@ describe("GenerationRunHistoryPanel", () => {
       expect(screen.queryByText("2026-06-07T11:52:06.877595Z")).not.toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: "当前查看" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "查看结果" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "当前批次" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看批次" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "当前查看" }));
+    await user.click(screen.getByRole("button", { name: "当前批次" }));
     expect(onSelectRun).toHaveBeenCalledWith("run-1");
   });
 });

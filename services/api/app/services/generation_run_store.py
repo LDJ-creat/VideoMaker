@@ -107,6 +107,35 @@ class GenerationRunStore:
         run["updatedAt"] = updated_at
         return run
 
+    def remove_generation_from_runs(
+        self,
+        project_id: str,
+        generation_id: str,
+    ) -> None:
+        runs = self.list_runs(project_id, limit=100)
+        updated_at = now_iso()
+        with self.database.connect() as connection:
+            for run in runs:
+                generation_ids = [
+                    item
+                    for item in run.get("generationIds", [])
+                    if str(item) != generation_id
+                ]
+                if len(generation_ids) == len(run.get("generationIds", [])):
+                    continue
+                connection.execute(
+                    """
+                    UPDATE generation_runs
+                    SET generation_ids_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        json.dumps(generation_ids, separators=(",", ":")),
+                        updated_at,
+                        run["id"],
+                    ),
+                )
+
     def update_run(
         self,
         run_id: str,

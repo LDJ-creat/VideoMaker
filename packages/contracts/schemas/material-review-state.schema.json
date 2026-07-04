@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/material-review-state.schema.json",
+  "title": "MaterialReviewState",
+  "type": "object",
+  "required": ["generationId", "projectId", "variant", "status", "slots"],
+  "properties": {
+    "generationId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "variant": {
+      "type": "string",
+      "enum": ["default", "high_click", "high_conversion", "fast_paced", "premium"]
+    },
+    "status": { "type": "string", "enum": ["draft", "approved"] },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "approvedBy": { "type": "string" },
+    "humanOverride": { "type": "boolean" },
+    "overriddenSlotIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "agent_passed", "agent_failed", "skipped", "hard_gate_failed", "review_unavailable"]
+          },
+          "previewArtifactRef": { "$ref": "artifact-ref.schema.json" },
+          "specUri": { "type": "string" },
+          "latestReportUri": { "type": "string" },
+          "agentReviewRounds": { "type": "integer", "minimum": 0 },
+          "userReviseCount": { "type": "integer", "minimum": 0 },
+          "hardGateFailed": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

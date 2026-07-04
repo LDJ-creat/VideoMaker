@@ -21,6 +21,7 @@ from app.services.knowledge_template_bootstrap import (
     create_project_from_knowledge_template,
 )
 from app.services.generation_responses import build_latest_generations_response
+from app.services.generation_cleanup import delete_generation_with_artifacts
 from app.services.generation_run_store import GenerationRunStore
 from app.services.sample_recommender import SampleRecommender
 from app.services.sample_selection_store import SampleSelectionStore
@@ -32,6 +33,7 @@ from app.services.pipeline_runner import PipelineRunner
 from app.services.poster_extract import try_extract_sample_poster
 from app.services.project_store import ProjectStore
 from app.services.task_events import TaskEventService
+from knowledge.paths import validate_storage_segment
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -464,6 +466,54 @@ def delete_project(project_id: str, request: Request) -> None:
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Project not found")
+
+
+@router.delete(
+    "/{project_id}/generations/{generation_id}",
+    status_code=status.HTTP_200_OK,
+)
+def delete_project_generation(
+    project_id: str,
+    generation_id: str,
+    request: Request,
+    cascade: bool = Query(default=True, alias="cascade"),
+) -> dict[str, Any]:
+    if _project_store(request).get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        validate_storage_segment(generation_id, field="generation_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    runner: PipelineRunner = request.app.state.pipeline_runner
+    store = _project_store(request)
+    run_store = _generation_run_store(request)
+
+    def _terminate(task_id: str) -> None:
+        runner.terminate_task_worker(task_id, reason="delete_generation")
+
+    try:
+        deleted_ids = delete_generation_with_artifacts(
+            project_id=project_id,
+            generation_id=generation_id,
+            storage_root=request.app.state.storage_root,
+            database=request.app.state.db,
+            store=store,
+            run_store=run_store,
+            terminate_task=_terminate,
+            cascade_forks=cascade,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Generation not found") from exc
+    except ValueError as exc:
+        if str(exc) == "generation_has_revise_forks":
+            raise HTTPException(
+                status_code=409,
+                detail="Generation has revise forks; pass cascade=true to delete together",
+            ) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {"ok": True, "deletedGenerationIds": deleted_ids}
 
 
 @router.post(

@@ -7,6 +7,7 @@ import type { MigrationProgressContext } from "@/features/structure-migration/us
 import { getDevProgressMetrics } from "@/lib/devProgressMetrics";
 
 import type { TaskProgressMode } from "@/features/tasks/useTaskProgress";
+import { isTaskCancellable } from "@/lib/taskStatusLabels";
 
 export type MultiTaskProgressEntry = {
   taskId: string;
@@ -27,8 +28,12 @@ type MultiTaskProgressPanelProps = {
   onRetry?: (taskId: string) => void;
   retryBusy?: boolean;
   retryLabel?: string;
+  onCancel?: (taskId: string) => void;
+  cancelBusy?: boolean;
+  cancelLabel?: string;
   onGoToScriptReview?: () => void;
   getMigrationContext?: (taskId: string) => MigrationProgressContext | null;
+  taskWatchKeys?: Record<string, number>;
 };
 
 export function MultiTaskProgressPanel({
@@ -41,8 +46,12 @@ export function MultiTaskProgressPanel({
   onRetry,
   retryBusy = false,
   retryLabel = "重试任务",
+  onCancel,
+  cancelBusy = false,
+  cancelLabel = "取消任务",
   onGoToScriptReview,
   getMigrationContext,
+  taskWatchKeys = {},
 }: MultiTaskProgressPanelProps) {
   const devMetrics =
     process.env.NODE_ENV === "development" ? getDevProgressMetrics() : null;
@@ -79,14 +88,23 @@ export function MultiTaskProgressPanel({
         retryLabel={retryLabel}
         onGoToScriptReview={onGoToScriptReview}
         migrationContext={getMigrationContext?.(single.taskId) ?? undefined}
-        onRetry={
-          (single.retryable ||
-            single.event?.status === "failed" ||
-            single.event?.status === "retrying") &&
-          onRetry
-            ? () => onRetry(single.taskId)
+        progressResetKey={taskWatchKeys[single.taskId] ?? 0}
+          onRetry={
+            (single.retryable ||
+              single.event?.status === "failed" ||
+              single.event?.status === "cancelled" ||
+              single.event?.status === "retrying") &&
+            onRetry
+              ? () => onRetry(single.taskId)
+              : undefined
+          }
+        onCancel={
+          single.event && isTaskCancellable(single.event.status) && onCancel
+            ? () => onCancel(single.taskId)
             : undefined
         }
+        cancelBusy={cancelBusy}
+        cancelLabel={cancelLabel}
       />
     );
   }
@@ -110,14 +128,23 @@ export function MultiTaskProgressPanel({
           retryLabel={retryLabel}
           onGoToScriptReview={onGoToScriptReview}
           migrationContext={getMigrationContext?.(task.taskId) ?? undefined}
-          onRetry={
-            (task.retryable ||
-              task.event?.status === "failed" ||
-              task.event?.status === "retrying") &&
-            onRetry
-              ? () => onRetry(task.taskId)
+          progressResetKey={taskWatchKeys[task.taskId] ?? 0}
+            onRetry={
+              (task.retryable ||
+                task.event?.status === "failed" ||
+                task.event?.status === "cancelled" ||
+                task.event?.status === "retrying") &&
+              onRetry
+                ? () => onRetry(task.taskId)
+                : undefined
+            }
+          onCancel={
+            task.event && isTaskCancellable(task.event.status) && onCancel
+              ? () => onCancel(task.taskId)
               : undefined
           }
+          cancelBusy={cancelBusy}
+          cancelLabel={cancelLabel}
         />
       ))}
       {devMetrics ? (

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Literal, Callable, Protocol
 
 
 @dataclass
@@ -16,11 +16,16 @@ class AuthorRequest:
     slot_timing: dict[str, Any] | None = None
     visual_style_bible: dict[str, Any] | None = None
     finish_brief: dict[str, Any] | None = None
+    material_edit_mode: Literal["edit", "full"] | None = None
+    edit_instruction: str | None = None
+    existing_material_spec: dict[str, Any] | None = None
     pattern_l0: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
     task_id: str | None = None
     generation_id: str | None = None
+    generation_root: Path | None = None
     react_trace: Any | None = None
+    review_gateway: Any | None = None
 
 
 @dataclass
@@ -40,6 +45,7 @@ class RenderPaths:
     asset_root: Path | None = None
     aspect_ratio: str = "9:16"
     lint_log_path: Path | None = None
+    lint_reuse_scratch: Path | None = None
 
 
 @dataclass

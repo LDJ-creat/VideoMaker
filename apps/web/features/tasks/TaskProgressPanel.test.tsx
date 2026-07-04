@@ -53,6 +53,74 @@ describe("TaskProgressPanel", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("shows script review banner with gate label near progress bar", () => {
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "awaiting_review",
+          stage: "awaiting_master_review",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onGoToScriptReview={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("script-review-gate-banner")).toHaveTextContent(
+      "总脚本审核",
+    );
+    expect(
+      screen.getByRole("button", { name: "前往脚本审核" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows material review banner with dedicated CTA", () => {
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "awaiting_review",
+          stage: "awaiting_material_review",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onGoToScriptReview={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("script-review-gate-banner")).toHaveTextContent(
+      "素材预览",
+    );
+    expect(
+      screen.getByRole("button", { name: "前往素材审核" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows cancel when onCancel is provided for running tasks", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(
+      <TaskProgressPanel
+        event={{
+          ...fixtureTaskEvent,
+          status: "running",
+          stage: "generating_material",
+          message: "Completing slot slot-3",
+        }}
+        mode="sse"
+        sseFailureCount={0}
+        error={null}
+        onCancel={onCancel}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "取消任务" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps raw stage in dev footer only", async () => {
     const user = userEvent.setup();
     render(
