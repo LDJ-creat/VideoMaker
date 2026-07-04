@@ -150,13 +150,23 @@ def infer_composition_brief_mode(
 ) -> str:
     if isinstance(gap_item, dict):
         completion_mode = str(gap_item.get("completionMode") or "").strip()
+        fixes = gap_item.get("suggestedFixes")
         if completion_mode == "source_then_polish":
+            if (
+                isinstance(fixes, list)
+                and fixes == ["hyperframes_material"]
+                and is_packaging_role(str(slot.get("role") or ""))
+            ):
+                return "hf_native"
+            if isinstance(fixes, list) and "hyperframes_material" in fixes:
+                index = fixes.index("hyperframes_material")
+                if index > 0:
+                    return "source_then_polish"
             return "source_then_polish"
         if completion_mode == "hf_native":
             return "hf_native"
         if completion_mode == "packaging_only":
             return "packaging_only"
-        fixes = gap_item.get("suggestedFixes")
         if isinstance(fixes, list) and "hyperframes_material" in fixes:
             index = fixes.index("hyperframes_material")
             if index > 0:

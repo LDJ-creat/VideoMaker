@@ -323,6 +323,9 @@ def _apply_completion_mode(
     if mode == "source_then_polish" and "hyperframes_material" not in result:
         result.append("hyperframes_material")
         notes.append("appended_hf_finish")
+    if mode == "source_then_polish" and result == ["hyperframes_material"]:
+        mode = "hf_native"
+        notes.append("hf_only_chain_coerced_hf_native")
     return result, mode, notes
 
 

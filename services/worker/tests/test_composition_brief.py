@@ -43,6 +43,18 @@ def test_infer_mode_source_then_polish() -> None:
     assert mode == "source_then_polish"
 
 
+def test_infer_mode_hf_only_cta_coerces_to_hf_native() -> None:
+    mode = infer_composition_brief_mode(
+        scene={"source": "generated"},
+        slot={"role": "cta"},
+        gap_item={
+            "completionMode": "source_then_polish",
+            "suggestedFixes": ["hyperframes_material"],
+        },
+    )
+    assert mode == "hf_native"
+
+
 def test_normalize_composition_author_brief_coerces_template() -> None:
     brief = normalize_composition_author_brief(
         {
