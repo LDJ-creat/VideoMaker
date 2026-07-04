@@ -19,7 +19,34 @@ __all__ = [
     "load_material_review_revise_context",
     "material_review_revise_context_payload",
     "reset_material_review_for_revise_fork",
+    "clear_slot_material_gate_artifacts",
 ]
+
+
+def clear_slot_material_gate_artifacts(
+    generation_root: Path,
+    slot_ids: set[str],
+) -> None:
+    """Remove per-slot gate reports and reset slot entries before material regen."""
+    if not slot_ids:
+        return
+    state = load_material_review_state(generation_root)
+    if not isinstance(state, dict):
+        return
+    slots = dict(state.get("slots") or {})
+    for slot_id in sorted(slot_ids):
+        slots[slot_id] = {"status": "pending"}
+        report_dir = generation_root / "material-reviews" / slot_id
+        if report_dir.is_dir():
+            shutil.rmtree(report_dir)
+    state["slots"] = slots
+    if state.get("status") == "approved":
+        state["status"] = "draft"
+        state.pop("approvedAt", None)
+        state.pop("approvedBy", None)
+        state.pop("humanOverride", None)
+        state.pop("overriddenSlotIds", None)
+    save_material_review_state(generation_root, state)
 
 
 def reset_material_review_for_revise_fork(
@@ -42,6 +69,8 @@ def reset_material_review_for_revise_fork(
         state["slots"] = {}
         state.pop("approvedAt", None)
         state.pop("approvedBy", None)
+        state.pop("humanOverride", None)
+        state.pop("overriddenSlotIds", None)
         reviews_root = generation_root / "material-reviews"
         if reviews_root.is_dir():
             shutil.rmtree(reviews_root)
@@ -63,6 +92,8 @@ def reset_material_review_for_revise_fork(
         state["status"] = "draft"
         state.pop("approvedAt", None)
         state.pop("approvedBy", None)
+        state.pop("humanOverride", None)
+        state.pop("overriddenSlotIds", None)
     save_material_review_state(generation_root, state)
 
 

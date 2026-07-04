@@ -599,6 +599,42 @@ def build_edit_finish_brief(
     return brief
 
 
+_MATERIAL_GATE_REVISE_KEY = "materialGateRevise"
+
+
+def normalize_material_edit_context(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Merge top-level and materialGateRevise nested fields for material author/revise."""
+    gate = raw.get(_MATERIAL_GATE_REVISE_KEY)
+    gate_dict = gate if isinstance(gate, dict) else {}
+
+    mode = str(raw.get("materialEditMode") or gate_dict.get("materialEditMode") or "").strip()
+    if mode not in {"edit", "full"}:
+        return None
+
+    normalized: dict[str, Any] = {"materialEditMode": mode}
+    instruction = str(
+        raw.get("editInstruction") or gate_dict.get("editInstruction") or ""
+    ).strip()
+    if instruction:
+        normalized["editInstruction"] = instruction
+
+    for key in ("slotChainKinds", "affectedSlotIds", "source"):
+        value = raw.get(key)
+        if value is None:
+            value = gate_dict.get(key)
+        if value is not None:
+            normalized[key] = value
+
+    return normalized
+
+
+def material_edit_context_applies_to_slot(context: dict[str, Any], slot_id: str) -> bool:
+    affected = context.get("affectedSlotIds")
+    if not isinstance(affected, list) or not affected:
+        return True
+    return slot_id in {str(item) for item in affected}
+
+
 def load_revise_material_edit_context(generation_root: Path) -> dict[str, Any] | None:
     path = generation_root / "revise-context.json"
     if not path.is_file():
@@ -606,10 +642,7 @@ def load_revise_material_edit_context(generation_root: Path) -> dict[str, Any] |
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         return None
-    mode = str(payload.get("materialEditMode") or "").strip()
-    if mode not in {"edit", "full"}:
-        return None
-    return payload
+    return normalize_material_edit_context(payload)
 
 
 def material_edit_mode_for_slot(context: dict[str, Any], slot_id: str) -> MaterialEditMode:

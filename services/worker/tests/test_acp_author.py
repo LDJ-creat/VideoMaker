@@ -16,6 +16,8 @@ from app.composition.acp.author import (
     _build_review_followup,
     _harvest_material_spec,
     _is_session_level_failure,
+    _load_revise_context_for_payload,
+    _resolve_generation_root_for_revise,
     _resolve_template_mode,
     _review_errors_from_report,
     _review_spec_after_turn,
@@ -67,6 +69,51 @@ def test_acp_timeout_default_by_template(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_resolve_template_mode_from_composition_brief() -> None:
     payload = {"compositionAuthorBrief": {"authorPrompt": "motion only"}}
     assert _resolve_template_mode(payload) == "composition"
+
+
+def test_load_revise_context_for_payload_reads_generation_root_not_generated(tmp_path: Path) -> None:
+    generation_root = tmp_path / "generations" / "gen-1"
+    generated_root = generation_root / "generated"
+    generated_root.mkdir(parents=True)
+    (generation_root / "revise-context.json").write_text(
+        json.dumps(
+            {
+                "materialGateRevise": {
+                    "source": "material_gate_revise",
+                    "materialEditMode": "edit",
+                    "editInstruction": "背景改为暖白色",
+                    "affectedSlotIds": ["slot-6"],
+                    "slotChainKinds": {"slot-6": "hf_only"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert _load_revise_context_for_payload(generated_root) is None
+
+    snippet = _load_revise_context_for_payload(generation_root)
+
+    assert snippet is not None
+    assert snippet["materialEditMode"] == "edit"
+    assert snippet["editInstruction"] == "背景改为暖白色"
+    assert snippet["materialGateRevise"]["affectedSlotIds"] == ["slot-6"]
+
+
+def test_resolve_generation_root_for_revise_prefers_request_path(tmp_path: Path) -> None:
+    generation_root = tmp_path / "generations" / "gen-1"
+    generated_root = generation_root / "generated"
+    generated_root.mkdir(parents=True)
+
+    resolved = _resolve_generation_root_for_revise(
+        request=AuthorRequest(
+            slot={"id": "slot-6"},
+            generation_root=generation_root,
+        ),
+        generated_root=generated_root,
+    )
+
+    assert resolved == generation_root.resolve()
 
 
 def test_acp_prompt_includes_execution_discipline(

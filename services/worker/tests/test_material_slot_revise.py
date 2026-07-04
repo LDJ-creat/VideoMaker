@@ -103,6 +103,28 @@ def test_prepare_material_slot_revise_preserves_fork_revise_context(tmp_path: Pa
     assert context[MATERIAL_GATE_REVISE_KEY]["editInstruction"] == "更亮一点"
 
 
+def test_load_material_gate_revise_slot_ids(tmp_path: Path) -> None:
+    from app.pipelines.material_slot_revise import load_material_gate_revise_slot_ids
+
+    generation_root = tmp_path / "gen-gate"
+    generation_root.mkdir()
+    (generation_root / REVISE_CONTEXT_FILENAME).write_text(
+        json.dumps(
+            {
+                MATERIAL_GATE_REVISE_KEY: {
+                    "source": "material_gate_revise",
+                    "materialEditMode": "edit",
+                    "editInstruction": "居中",
+                    "affectedSlotIds": ["slot-6"],
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    assert load_material_gate_revise_slot_ids(generation_root) == {"slot-6"}
+
+
 def test_clear_material_gate_revise_context_preserves_fork_metadata(tmp_path: Path) -> None:
     generation_root = tmp_path / "gen-fork"
     generation_root.mkdir(parents=True)

@@ -91,6 +91,8 @@ def test_reset_material_review_for_revise_fork_scoped(tmp_path: Path) -> None:
         "projectId": "proj-1",
         "variant": "high_click",
         "status": "approved",
+        "humanOverride": True,
+        "overriddenSlotIds": ["slot-6"],
         "slots": {
             "slot-1": {
                 "status": "agent_passed",
@@ -115,6 +117,8 @@ def test_reset_material_review_for_revise_fork_scoped(tmp_path: Path) -> None:
 
     updated = json.loads((generation_root / "material-review-state.json").read_text(encoding="utf-8"))
     assert updated["status"] == "draft"
+    assert "humanOverride" not in updated
+    assert "overriddenSlotIds" not in updated
     assert updated["slots"]["slot-1"]["status"] == "agent_passed"
     assert updated["slots"]["slot-1"]["latestReportUri"] == "material-reviews/slot-1/report.json"
     assert updated["slots"]["slot-6"]["status"] == "pending"
@@ -146,6 +150,7 @@ def test_reset_material_review_for_revise_fork_full_reset(tmp_path: Path) -> Non
 
     updated = json.loads((generation_root / "material-review-state.json").read_text(encoding="utf-8"))
     assert updated["status"] == "draft"
+    assert "humanOverride" not in updated
     assert updated["slots"] == {}
     assert not (generation_root / "material-reviews").exists()
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from acp import PROTOCOL_VERSION, text_block
+from app.composition.acp.asyncio_runner import run_sync_coro
 from acp.schema import ClientCapabilities, EnvVariable, Implementation, McpServerStdio
 from acp.stdio import spawn_agent_process
 from composition.author.lint_errors import enrich_lint_errors, primary_hint_code
@@ -222,6 +223,8 @@ def _load_revise_context_for_payload(generation_root: Path | None) -> dict[str, 
         return None
     if not isinstance(payload, dict):
         return None
+    from app.pipelines.revise_material_edit import normalize_material_edit_context
+
     snippet: dict[str, Any] = {}
     for key in (
         "sourceGenerationId",
@@ -229,13 +232,38 @@ def _load_revise_context_for_payload(generation_root: Path | None) -> dict[str, 
         "materialReviewScope",
         "materialEditMode",
         "affectedSlotIds",
+        "editInstruction",
+        "slotChainKinds",
     ):
         if key in payload:
             snippet[key] = payload[key]
     gate = payload.get("materialGateRevise")
     if isinstance(gate, dict):
         snippet["materialGateRevise"] = gate
+    normalized = normalize_material_edit_context(payload)
+    if normalized:
+        for key in (
+            "materialEditMode",
+            "editInstruction",
+            "affectedSlotIds",
+            "slotChainKinds",
+            "source",
+        ):
+            if key in normalized:
+                snippet[key] = normalized[key]
     return snippet or None
+
+
+def _resolve_generation_root_for_revise(
+    *,
+    request: AuthorRequest,
+    generated_root: Path | None,
+) -> Path | None:
+    if request.generation_root is not None:
+        return request.generation_root.resolve()
+    if generated_root is not None:
+        return generated_root.parent.resolve()
+    return None
 
 
 def _review_errors_from_report(report: dict[str, Any]) -> list[str]:
@@ -363,11 +391,7 @@ def _resolve_repo_root(explicit: Path | None) -> Path:
 
 
 def _run_coro_sync(coro):
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    raise RuntimeError("author_material_spec_via_acp must be called from a sync worker context")
+    return run_sync_coro(coro)
 
 
 def _scratch_dir(
@@ -681,8 +705,25 @@ async def _drain_stderr_tail(stream: asyncio.StreamReader | None, *, max_chars: 
     return text
 
 
+async def _close_process_streams(process: asyncio.subprocess.Process | None) -> None:
+    if process is None:
+        return
+    for name in ("stdin", "stdout", "stderr"):
+        stream = getattr(process, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.close()
+            await stream.wait_closed()
+        except (ValueError, NotImplementedError, AttributeError):
+            pass
+        except Exception:
+            pass
+
+
 async def _terminate_agent_process(process: asyncio.subprocess.Process | None) -> None:
     if process is None or process.returncode is not None:
+        await _close_process_streams(process)
         return
     try:
         process.terminate()
@@ -695,6 +736,8 @@ async def _terminate_agent_process(process: asyncio.subprocess.Process | None) -
             pass
     except Exception:
         pass
+    finally:
+        await _close_process_streams(process)
 
 
 async def _collect_agent_diagnostics(process: asyncio.subprocess.Process | None) -> dict[str, Any]:
@@ -1043,6 +1086,7 @@ async def _run_single_acp_session_turn_loop(
             if agent_diagnostics_out is not None:
                 agent_diagnostics_out.clear()
                 agent_diagnostics_out.update(agent_diagnostics)
+            await asyncio.sleep(0)
 
     assert spec is not None
     repair_attempt = max(0, final_turn - 1)
@@ -1080,7 +1124,11 @@ async def _author_async(
     author_payload = build_material_author_user_payload(staged_request)
     if generated_root is not None:
         author_payload["generationRoot"] = str(generated_root)
-    revise_context = _load_revise_context_for_payload(generated_root)
+    generation_root = _resolve_generation_root_for_revise(
+        request=staged_request,
+        generated_root=generated_root,
+    )
+    revise_context = _load_revise_context_for_payload(generation_root)
     if revise_context:
         author_payload["reviseContext"] = revise_context
         gate = revise_context.get("materialGateRevise")

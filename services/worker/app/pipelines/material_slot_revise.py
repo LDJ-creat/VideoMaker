@@ -186,6 +186,10 @@ def prepare_material_slot_revise(
 
         material_state_path=material_state_path,
 
+        clear_material_gate=True,
+
+        generation_root=generation_root,
+
     )
 
     payload = _load_revise_context_payload(generation_root)
@@ -267,5 +271,20 @@ def clear_material_gate_revise_context(generation_root: Path) -> None:
 def slot_chain_for_action(plan: dict[str, Any], slot_id: str) -> SlotChainKind:
 
     return classify_slot_material_chain(list(plan.get("completionActions") or []), slot_id)
+
+
+def load_material_gate_revise_slot_ids(generation_root: Path) -> set[str] | None:
+    """Return scoped slot ids for an in-progress material gate NL revise (queue may already be consumed)."""
+    payload = _load_revise_context_payload(generation_root)
+    gate = payload.get(MATERIAL_GATE_REVISE_KEY)
+    if not isinstance(gate, dict):
+        return None
+    if gate.get("source") != MATERIAL_GATE_REVISE_SOURCE:
+        return None
+    slot_ids = gate.get("affectedSlotIds")
+    if not isinstance(slot_ids, list):
+        return None
+    filtered = {str(item).strip() for item in slot_ids if str(item).strip()}
+    return filtered or None
 
 

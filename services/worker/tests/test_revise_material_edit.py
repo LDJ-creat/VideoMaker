@@ -13,6 +13,9 @@ from app.pipelines.revise_material_edit import (
     classify_slot_material_chain,
     collect_seed_invalidate_plan,
     load_archived_material_spec,
+    load_revise_material_edit_context,
+    material_edit_context_applies_to_slot,
+    normalize_material_edit_context,
     normalize_plan_storyboard_timing,
     normalize_scene_start_end,
     persist_material_spec_after_render,
@@ -363,4 +366,126 @@ def test_resolve_material_edit_author_state_uses_generation_root(tmp_path: Path)
     assert "居中" in instruction
     assert existing_spec is not None
     assert existing_spec["durationSec"] == 2.7
+    assert warning is None
+
+
+def test_normalize_material_edit_context_reads_nested_material_gate_revise() -> None:
+    payload = {
+        "sourceGenerationId": "gen-source",
+        "materialGateRevise": {
+            "source": "material_gate_revise",
+            "materialEditMode": "edit",
+            "editInstruction": "画面居中，背景改为暖白色",
+            "affectedSlotIds": ["slot-6"],
+            "slotChainKinds": {"slot-6": "hf_only"},
+        },
+    }
+
+    normalized = normalize_material_edit_context(payload)
+
+    assert normalized is not None
+    assert normalized["materialEditMode"] == "edit"
+    assert normalized["editInstruction"] == "画面居中，背景改为暖白色"
+    assert normalized["affectedSlotIds"] == ["slot-6"]
+    assert normalized["slotChainKinds"]["slot-6"] == "hf_only"
+
+
+def test_load_revise_material_edit_context_from_nested_gate(tmp_path: Path) -> None:
+    generation_root = tmp_path / "generations" / "gen-1"
+    generation_root.mkdir(parents=True)
+    (generation_root / "revise-context.json").write_text(
+        json.dumps(
+            {
+                "materialGateRevise": {
+                    "materialEditMode": "edit",
+                    "editInstruction": "更亮一点",
+                    "affectedSlotIds": ["hook"],
+                    "slotChainKinds": {"hook": "hf_only"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    context = load_revise_material_edit_context(generation_root)
+
+    assert context is not None
+    assert context["materialEditMode"] == "edit"
+    assert context["editInstruction"] == "更亮一点"
+
+
+def test_material_edit_context_applies_to_slot_respects_affected_ids() -> None:
+    context = {"affectedSlotIds": ["slot-6"], "materialEditMode": "edit"}
+
+    assert material_edit_context_applies_to_slot(context, "slot-6") is True
+    assert material_edit_context_applies_to_slot(context, "slot-1") is False
+
+
+def test_resolve_material_edit_author_state_reads_nested_gate_revise(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from app.pipelines.material_slot_revise import prepare_material_slot_revise
+    from app.providers.hyperframes_material_provider import _resolve_material_edit_author_state
+    from app.providers.material_types import MaterialContext
+
+    generation_root = tmp_path / "projects" / "proj" / "generations" / "gen-1"
+    generated_root = generation_root / "generated"
+    slot_id = "slot-6"
+    action_id = "action-slot-6"
+    generated_root.mkdir(parents=True)
+    (generated_root / action_id).mkdir(parents=True)
+    (generated_root / action_id / "material-spec.json").write_text(
+        json.dumps(
+            {
+                "template": "composition",
+                "durationSec": 6.1,
+                "composition": {"bodyHtml": "<div/>"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (generated_root / f"{action_id}.mp4").write_bytes(b"\x00" * 128)
+    plan = {
+        "completionActions": [
+            {
+                "id": action_id,
+                "slotId": slot_id,
+                "provider": "hyperframes_material",
+                "completionMode": "source_then_polish",
+            }
+        ]
+    }
+    (generation_root / "material-state.json").write_text(
+        json.dumps({"videoGenQuota": {}, "completedActionIds": [action_id]}),
+        encoding="utf-8",
+    )
+
+    prepare_material_slot_revise(
+        generation_root=generation_root,
+        plan=plan,
+        slot_id=slot_id,
+        instruction="画面居中，背景改为暖白色",
+    )
+
+    ctx = MaterialContext(
+        project_id="proj",
+        generation_id="gen-1",
+        render_root=tmp_path / "renders" / "gen-1",
+        generated_root=generated_root,
+        storage_root=tmp_path,
+        gateway=MagicMock(),
+        quota=MagicMock(),
+        inventory={"assets": []},
+        slot_matches=[],
+        storyboard=[],
+        structure={"slots": [{"id": slot_id, "role": "cta"}]},
+        emit_progress=lambda *_args, **_kwargs: None,
+        register_artifact=lambda *_args, **_kwargs: {},
+    )
+
+    mode, instruction, existing_spec, warning = _resolve_material_edit_author_state(ctx, slot_id)
+
+    assert mode == "edit"
+    assert "暖白" in instruction
+    assert existing_spec is not None
     assert warning is None
