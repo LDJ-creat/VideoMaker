@@ -87,7 +87,7 @@
 | API       | `services/api/app/main.py` → `create_app()`                                    |
 | 任务 SSE    | `services/api/app/routers/tasks.py`                                            |
 | Worker 调度 | `services/api/app/services/pipeline_runner.py`                                 |
-| 样例分析      | `services/worker/app/pipelines/p0_demo_pipeline.py` → `SampleAnalysisPipeline` |
+| 样例分析      | `services/worker/app/pipelines/videomaker_pipeline.py` → `SampleAnalysisPipeline` |
 | 生成管线      | `services/worker/app/pipelines/generation_pipeline.py`                         |
 | 包装片段引擎    | `services/composition/composition/api.py` → 包装创作引擎入口                           |
 

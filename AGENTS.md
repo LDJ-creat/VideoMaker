@@ -142,6 +142,7 @@ P1 upgrades P0 from deterministic demo to **LLM Agent + ModelGateway + AIGC mate
 | `2026-06-19-composition-acp-author-plan.md` | ACP 外部 agent（Claude/Codex/Cursor）可选 material author；Python MCP 工具桥；render 路径不变 | `docs/demos/composition-acp-author-e2e-checklist.md` |
 | `2026-06-19-acp-lint-cli-plan.md` | ACP session 内 lint 迭代 + `python -m composition.cli lint-spec` + spec hash 缓存加速 | `docs/demos/composition-acp-author-e2e-checklist.md` |
 | `2026-06-09-llm-vo-directive-tts-plan.md` | LLM `narrationVoProfile` / 分镜 `voDirective` → 四层 merge → global `master.wav`（快路径/分段拼接）；冻结 per_scene | `docs/demos/narration-alignment-e2e-checklist.md` § VO directive |
+| `2026-07-04-evaluation-system-plan.md` | L0–L2 评测 + 五类 billingUnit 用量 + timing 三层；lazy/rebuild API；EvaluationPanel | `docs/demos/evaluation-system-e2e-checklist.md` |
 | HyperFrames Agent composition (in-repo) | `services/composition/` ReAct material author, `template=composition`, skill_view bootstrap, pattern deposit/promote | `docs/demos/composition-agent-e2e-checklist.md` |
 
 ## Current Implementation State
@@ -295,7 +296,14 @@ POST /api/generations/{generation_id}/revise/cancel
 POST /api/generations/{generation_id}/revise
 POST /api/generations/{generation_id}/script-draft/nl-revise
 GET /api/generations/{generation_id}/agent-runs
+GET /api/generations/{generation_id}/model-calls
+GET /api/generations/{generation_id}/evaluation
+POST /api/generations/{generation_id}/evaluation/rebuild
+GET /api/projects/{project_id}/generation-runs/{run_id}/evaluation-summary
+POST /api/projects/{project_id}/generation-runs/{run_id}/evaluation-summary/rebuild
 ```
+
+**Evaluation (L0–L2, no VLM):** Worker writes `evaluation-report.json` on generation success (`VIDEOMAKER_EVAL_ENABLED`, default `true`); human gates optionally write `evaluation-report.partial.json` (`VIDEOMAKER_EVAL_PARTIAL_ON_GATE`). Report bundles quality scores (`technical` / `plan` / `perceptual` + optional `migration` / `knowledge_fit`), **usageByCategory** by `billingUnit` (text/vision=tokens, TTS=chars, image=images, video=seconds+`jobs[]`), and **timing** three layers (`wallClock` incl. `humanWaitMs`, `stages[]`, `modelLatency`). Rollup authority is `model-calls` sum, not agent-runs. Historical tasks: `GET .../evaluation` lazy-builds from artifacts + logs (`VIDEOMAKER_EVAL_LAZY_BUILD`); `POST .../evaluation/rebuild` recomputes without re-running pipeline. Dual-variant run summary: `generation-runs/{runId}/evaluation-summary.json`. Sample analysis: `samples/{sampleId}/analysis/evaluation-report.json`. Workbench **EvaluationPanel** in Result area. E2E: `docs/demos/evaluation-system-e2e-checklist.md`. Env: `VIDEOMAKER_EVAL_TECHNICAL_BLOCK`, `VIDEOMAKER_EVAL_DURATION_DRIFT_MAX`, `VIDEOMAKER_EVAL_PRICE_TABLE`.
 
 **NL revise (post-generation):** `revise/plan` runs `revise_planner` → user confirms → `revise/execute`. Low-cost plans (`executionMode=in_place`: `subtitle_patch`, `timeline_scene_patch`, `packaging_scene_patch`) update the same `generationId`. Scoped `material_regen` forks a new generation but only invalidates/regenerates `affectedSlotIds`. Packaging-only fork (`packaging_agent`, `materialScope=none`) preserves `generated/` and skips AIGC. Full storyboard/hook forks still regenerate all materials. Session history: `revise-session.json` on the source generation. **Script review NL:** `script-draft/nl-revise` during `awaiting_*_review` (stateless per request; session optional).
 
@@ -327,7 +335,7 @@ python -m compileall app
 Pipelines and tools:
 
 - **Perception:** `SampleAnalysisPipeline` — metadata, shots, Whisper ASR, keyframe extraction (algorithm inputs to Agents)
-- **Sample analysis:** `p0_demo_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
+- **Sample analysis:** `videomaker_pipeline.analyze_sample` — perception → **`structure_analyst`** LLM → `structure_coercer` validation → optional **`knowledge_author`** draft
 - **Generation:** `generation_pipeline` — `content_strategist` → optional **`structure_synthesizer`** (multi-sample) → `slot_mapper` → `gap_planner` → **`storyboard_writer`** (two-phase master/storyboard when human review enabled) → user approval gates → `packaging_designer` → material completion (`long_form_composed`: global TTS + per-slot gap completion) → HyperFrames / FFmpeg render
 - **Revise:** `revise_pipeline` — `edit_intent_parser` + partial stage re-run
 - **ModelGateway:** `app/gateway/` — OpenAI-compatible text/vision/TTS; pluggable image/video (DashScope Wan, etc.); TTS factory supports `openai_compatible` + **`volcengine_tts`** (Seed TTS 2.0 V3 chunked stream)

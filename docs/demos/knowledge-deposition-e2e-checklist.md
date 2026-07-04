@@ -79,7 +79,7 @@ cd D:\VideoMaker\services\shared
 python -m pytest tests/test_knowledge_*.py -q
 
 cd D:\VideoMaker\services\worker
-python -m pytest tests/test_knowledge_*.py tests/test_p0_demo_pipeline_knowledge.py -q
+python -m pytest tests/test_knowledge_*.py tests/test_videomaker_pipeline_knowledge.py -q
 
 cd D:\VideoMaker\services\api
 python -m pytest tests/test_knowledge_routes.py -q --basetemp=$env:TEMP\vm-pytest-api
