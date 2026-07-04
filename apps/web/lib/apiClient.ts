@@ -963,6 +963,25 @@ export type CompositionPatternsResponse = {
   patterns: CompositionPatternCandidate[];
 };
 
+export type GenerationEvaluationResponse = {
+  report: import("@videomaker/contracts").EvaluationReport;
+  rebuilt?: boolean;
+};
+
+export async function getGenerationEvaluation(
+  generationId: string,
+): Promise<ApiResult<GenerationEvaluationResponse>> {
+  return apiFetch(`/api/generations/${generationId}/evaluation`);
+}
+
+export async function rebuildGenerationEvaluation(
+  generationId: string,
+): Promise<ApiResult<GenerationEvaluationResponse>> {
+  return apiFetch(`/api/generations/${generationId}/evaluation/rebuild`, {
+    method: "POST",
+  });
+}
+
 export async function getCompositionPatterns(
   generationId: string,
 ): Promise<ApiResult<CompositionPatternsResponse>> {

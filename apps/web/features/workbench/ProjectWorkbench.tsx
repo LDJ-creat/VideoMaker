@@ -42,6 +42,7 @@ import {
 } from "@/features/knowledge/KnowledgeSelectionPanel";
 import { GenerationResultView } from "@/features/generation-result/GenerationResultView";
 import { CompositionPatternPromotePanel } from "@/features/knowledge/CompositionPatternPromotePanel";
+import { EvaluationPanel } from "@/features/evaluation/EvaluationPanel";
 import {
   getDefaultSelectedVariantIds,
 } from "@/features/generation-variants/VariantPicker";
@@ -2892,6 +2893,10 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   ),
                 )}
               />
+            ) : null}
+
+            {activeResultGenerationId ? (
+              <EvaluationPanel generationId={activeResultGenerationId} />
             ) : null}
 
             {reviseSession && (
