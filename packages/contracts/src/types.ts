@@ -207,6 +207,7 @@ export type MaterialReviewInputs = {
   framePaths?: string[];
   frameTimestamps?: number[];
   beatSources?: MaterialReviewBeatSource[];
+  reviewReuse?: "in_session" | "report_reused";
 };
 
 export type MaterialReviewTraceRoute =
@@ -214,7 +215,8 @@ export type MaterialReviewTraceRoute =
   | "frames"
   | "text_only"
   | "skipped"
-  | "hard_gate";
+  | "hard_gate"
+  | "promoted";
 
 export type MaterialReviewTrace = {
   reviewRoute: MaterialReviewTraceRoute;
@@ -238,6 +240,9 @@ export type MaterialReviewReport = {
   provider?: string;
   reviewUnavailable?: boolean;
   previewArtifactRef?: ArtifactRef;
+  reviewPhase?: "in_session" | "promoted";
+  finalSource?: "preview_copy" | "render";
+  reviewBypass?: string;
   trace?: MaterialReviewTrace;
 };
 
@@ -266,6 +271,8 @@ export type MaterialReviewState = {
   status: "draft" | "approved";
   approvedAt?: string;
   approvedBy?: string;
+  humanOverride?: boolean;
+  overriddenSlotIds?: string[];
   slots: Record<string, MaterialReviewSlotEntry>;
 };
 

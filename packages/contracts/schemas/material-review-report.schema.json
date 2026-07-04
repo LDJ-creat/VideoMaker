@@ -39,10 +39,23 @@
             "type": "string",
             "enum": ["spec_timeline", "spec_html", "ratio_fill"]
           }
+        },
+        "reviewReuse": {
+          "type": "string",
+          "enum": ["in_session", "report_reused"]
         }
       },
       "additionalProperties": false
     },
+    "reviewPhase": {
+      "type": "string",
+      "enum": ["in_session", "promoted"]
+    },
+    "finalSource": {
+      "type": "string",
+      "enum": ["preview_copy", "render"]
+    },
+    "reviewBypass": { "type": "string" },
     "agentReviewRound": { "type": "integer", "minimum": 0 },
     "provider": { "type": "string" },
     "reviewUnavailable": { "type": "boolean" },
@@ -52,7 +65,7 @@
       "properties": {
         "reviewRoute": {
           "type": "string",
-          "enum": ["video", "frames", "text_only", "skipped", "hard_gate"]
+          "enum": ["video", "frames", "text_only", "skipped", "hard_gate", "promoted"]
         },
         "modelCallId": { "type": "string" },
         "agentRunId": { "type": "string" },
