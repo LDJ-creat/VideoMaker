@@ -80,7 +80,7 @@ def update_slot_review_entry(
     elif report.get("hardGateFailed"):
         entry["status"] = "hard_gate_failed"
         entry["hardGateFailed"] = True
-    elif report.get("reviewInputs", {}).get("mode") == "skipped":
+    elif report.get("reviewInputs", {}).get("mode") == "skipped" and report.get("approved"):
         entry["status"] = "skipped"
     else:
         entry["status"] = "agent_passed" if report.get("approved") else "agent_failed"

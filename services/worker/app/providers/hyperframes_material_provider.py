@@ -55,8 +55,10 @@ def _resolve_material_edit_author_state(
     )
 
     generation_root = _generation_root(ctx)
+    from app.pipelines.revise_material_edit import material_edit_context_applies_to_slot
+
     revise_context = load_revise_material_edit_context(generation_root)
-    if revise_context is None:
+    if revise_context is None or not material_edit_context_applies_to_slot(revise_context, slot_id):
         return "full", "", None, None
 
     requested_mode = str(revise_context.get("materialEditMode") or "full")
@@ -590,6 +592,7 @@ class HyperFramesMaterialProvider:
         if edit_warning:
             ctx.emit_progress("rendering_material", edit_warning)
 
+        partial_harvest = False
         spec = action.get("materialSpec")
         if spec is None:
             if ctx.runner is None or ctx.task_context is None:
@@ -628,6 +631,7 @@ class HyperFramesMaterialProvider:
                     partial_spec = _try_harvest_acp_partial_spec(ctx, slot_id)
                     if partial_spec is not None:
                         spec = partial_spec
+                        partial_harvest = True
                         ctx.emit_progress(
                             "rendering_material",
                             f"槽位 {slot_id} ACP 未完整结束，已采用 lint 通过的 composition spec",
@@ -646,6 +650,20 @@ class HyperFramesMaterialProvider:
                                 f"槽位 {slot_id}: {fallback_warning}",
                             )
 
+        generation_root = _generation_root(ctx)
+        scratch_dir = generation_root / "acp-author" / slot_id
+        force_render = material_edit_mode == "edit"
+        from app.pipelines.material_gate_promote import (
+            materialize_final_to_generated,
+            should_materialize_final,
+        )
+
+        materialize_mode = should_materialize_final(
+            scratch_dir=scratch_dir,
+            spec=spec if isinstance(spec, dict) else None,
+            force_render=force_render,
+        )
+
         output_dir = ctx.generated_root / action_id / "composition"
         output_clip = expected_hyperframes_output(action, ctx.generated_root)
         log_path = ctx.generated_root / f"{action_id}-render-log.json"
@@ -660,29 +678,58 @@ class HyperFramesMaterialProvider:
             if body_html.strip():
                 ensure_base_video_aliases_in_asset_root(body_html, ctx.generated_root)
 
-        tool = self._tool or HyperFramesMaterialTool(emit_progress=ctx.emit_progress)
-        render_result = tool.render_material(
-            spec,
-            project_root=ctx.project_root,
-            output_dir=output_dir,
-            output_clip=output_clip,
-            log_path=log_path,
-            asset_root=ctx.generated_root,
-            aspect_ratio=ctx.aspect_ratio,
-        )
-        if not render_result.get("ok"):
-            error = render_result.get("error") or {}
-            return {
-                "ok": False,
-                "actionId": action_id,
-                "slotId": slot_id,
-                "provider": self.name,
-                "error": {
-                    "code": str(error.get("code", "material_render_failed")),
-                    "message": str(error.get("message", "HyperFrames material render failed")),
-                    "retryable": bool(error.get("retryable", False)),
-                },
-            }
+        final_source: str | None = None
+        skipped_render = False
+        render_result: dict[str, Any] = {}
+
+        if materialize_mode == "copy_preview":
+            mat_result = materialize_final_to_generated(
+                scratch_dir=scratch_dir,
+                generated_root=ctx.generated_root,
+                action_id=action_id,
+                spec=spec if isinstance(spec, dict) else None,
+                mode=materialize_mode,
+            )
+            if mat_result.ok and mat_result.final_path is not None:
+                output_clip = mat_result.final_path
+                final_source = mat_result.final_source
+                skipped_render = True
+            else:
+                materialize_mode = "render"
+
+        if not skipped_render:
+            if materialize_mode == "skip":
+                return _failure(
+                    action,
+                    slot_id,
+                    code="material_render_failed",
+                    message="No preview or spec available to materialize slot output",
+                    retryable=False,
+                )
+            tool = self._tool or HyperFramesMaterialTool(emit_progress=ctx.emit_progress)
+            render_result = tool.render_material(
+                spec,
+                project_root=ctx.project_root,
+                output_dir=output_dir,
+                output_clip=output_clip,
+                log_path=log_path,
+                asset_root=ctx.generated_root,
+                aspect_ratio=ctx.aspect_ratio,
+            )
+            if not render_result.get("ok"):
+                error = render_result.get("error") or {}
+                return {
+                    "ok": False,
+                    "actionId": action_id,
+                    "slotId": slot_id,
+                    "provider": self.name,
+                    "error": {
+                        "code": str(error.get("code", "material_render_failed")),
+                        "message": str(error.get("message", "HyperFrames material render failed")),
+                        "retryable": bool(error.get("retryable", False)),
+                    },
+                }
+            final_source = "render"
 
         registered = ctx.register_artifact("video", output_clip)
         ctx.emit_progress(
@@ -690,10 +737,12 @@ class HyperFramesMaterialProvider:
             f"HyperFrames material ready for slot {slot_id}",
         )
 
-        lint_passed = bool(render_result.get("lintPassed"))
-        lint_skipped = bool(render_result.get("lintSkipped"))
-        composition_dir = render_result.get("compositionDir")
-        resolved_lint_log = render_result.get("lintLogPath") or str(lint_log_path)
+        lint_passed = bool(render_result.get("lintPassed")) if not skipped_render else True
+        lint_skipped = bool(render_result.get("lintSkipped")) if not skipped_render else True
+        composition_dir = render_result.get("compositionDir") if not skipped_render else str(output_dir)
+        resolved_lint_log = (
+            render_result.get("lintLogPath") or str(lint_log_path) if not skipped_render else ""
+        )
 
         if (
             not _should_defer_pattern_deposit(ctx)
@@ -731,13 +780,12 @@ class HyperFramesMaterialProvider:
             action_id=action_id,
         )
 
-        from app.pipelines.material_review_finalize import persist_slot_material_review
+        from app.pipelines.material_gate_finalize import finalize_slot_material_gate
         from app.pipelines.revise_material_edit import (
             resolve_slot_timing_from_generation_plan,
             resolve_slot_timing_from_storyboard,
         )
 
-        generation_root = _generation_root(ctx)
         plan_path = generation_root / "generation-plan.json"
         plan_payload: dict[str, Any] = {"completionActions": []}
         if plan_path.is_file():
@@ -751,7 +799,7 @@ class HyperFramesMaterialProvider:
         slot_timing = resolve_slot_timing_from_generation_plan(generation_root, slot_id)
         if slot_timing is None:
             slot_timing = resolve_slot_timing_from_storyboard(storyboard_source, slot_id)
-        persist_slot_material_review(
+        finalize_slot_material_gate(
             generation_root=generation_root,
             generation_id=ctx.generation_id,
             project_id=ctx.project_id,
@@ -763,10 +811,9 @@ class HyperFramesMaterialProvider:
             artifact_ref=registered if isinstance(registered, dict) else None,
             slot_timing=slot_timing,
             storyboard=list(plan_payload.get("storyboard") or ctx.storyboard),
-            gateway=ctx.gateway,
-            runner=ctx.runner,
-            task_context=ctx.task_context,
             generated_root=ctx.generated_root,
+            final_source=final_source,  # type: ignore[arg-type]
+            partial_harvest=partial_harvest,
         )
         ctx.emit_progress(
             "reviewing_material",
@@ -779,7 +826,9 @@ class HyperFramesMaterialProvider:
             "slotId": slot_id,
             "provider": self.name,
             "artifactRef": registered,
-            "clipDurationSec": float(render_result.get("durationSec", spec.get("durationSec", 0))),
+            "clipDurationSec": float(
+                render_result.get("durationSec", spec.get("durationSec", 0) if isinstance(spec, dict) else 0)
+            ),
         }
 
 

@@ -687,3 +687,56 @@ def test_hyperframes_provider_uses_acp_author_backend(
     summary = json.loads(agent_payload["inputSummary"])
     assert summary["slotId"] == slot_id
     assert summary["backend"] == "acp"
+
+
+def test_hyperframes_provider_copies_scratch_preview_without_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    structure = _load_structure_fixture()
+    slot_id = "seg-2-benefit_card-1"
+    action_id = "action-benefit-card"
+    spec = _load_material_spec_fixture()
+
+    render_called = {"value": False}
+
+    class _NoRenderTool(HyperFramesMaterialTool):
+        def render_material(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            render_called["value"] = True
+            raise AssertionError("render_material should not run when scratch preview exists")
+
+    material_tool = _NoRenderTool(hyperframes_tool=_mock_cli_runner())
+    ctx = _make_hf_ctx(tmp_path, structure=structure, material_tool=material_tool)
+    generation_root = ctx.generated_root.parent
+    scratch = generation_root / "acp-author" / slot_id
+    scratch.mkdir(parents=True)
+    (scratch / "preview.mp4").write_bytes(b"\x00" * 20_000)
+    (scratch / "material-spec.json").write_text(json.dumps(spec), encoding="utf-8")
+    (generation_root / "generation-plan.json").write_text(
+        json.dumps(
+            {
+                "id": "gen-1",
+                "variant": "high_click",
+                "completionActions": [
+                    {"id": action_id, "slotId": slot_id, "provider": "hyperframes_material"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    action = {
+        "id": action_id,
+        "slotId": slot_id,
+        "provider": "hyperframes_material",
+        "materialSpec": spec,
+    }
+
+    result = ctx.providers["hyperframes_material"].execute(action, ctx)
+
+    assert result["ok"] is True
+    assert render_called["value"] is False
+    assert (ctx.generated_root / f"{action_id}.mp4").read_bytes() == b"\x00" * 20_000
+    report_path = generation_root / "material-reviews" / slot_id / "report.json"
+    assert report_path.is_file()

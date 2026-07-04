@@ -1431,12 +1431,6 @@ def run_generating_material(
                     structure=ctx.structure,
                     storyboard=list(plan.get("storyboard") or ctx.storyboard),
                     generated_root=generated_root,
-                    gateway=ctx.gateway,
-                    runner=ctx.runner,
-                    task_context=ctx.task_context,
-                    store=material_review_store,
-                    database_path=database_path,
-                    storage_root=material_review_storage,
                 )
         return plan, sync_results
 
@@ -1493,12 +1487,6 @@ def run_generating_material(
                 structure=ctx.structure,
                 storyboard=list(updated_plan.get("storyboard") or ctx.storyboard),
                 generated_root=generated_root,
-                gateway=ctx.gateway,
-                runner=ctx.runner,
-                task_context=ctx.task_context,
-                store=material_review_store,
-                database_path=database_path,
-                storage_root=material_review_storage,
             )
     return updated_plan, results
 

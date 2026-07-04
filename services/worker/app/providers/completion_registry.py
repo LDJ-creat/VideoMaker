@@ -461,10 +461,16 @@ def invalidate_material_for_slots(
     slot_ids: set[str],
     material_state_path: Path,
     preserve_action_ids: set[str] | None = None,
+    clear_material_gate: bool = False,
+    generation_root: Path | None = None,
 ) -> None:
     """Remove on-disk artifacts for targeted slots so material regen can resume selectively."""
     if not slot_ids:
         return
+    if clear_material_gate and generation_root is not None:
+        from app.pipelines.material_review_revise import clear_slot_material_gate_artifacts
+
+        clear_slot_material_gate_artifacts(generation_root, slot_ids)
     preserved = preserve_action_ids or set()
     quota, completed_ids = load_material_state(material_state_path)
     for action in actions:

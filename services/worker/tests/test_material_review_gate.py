@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from app.pipelines.material_review_finalize import finalize_visual_material_reviews
 from app.pipelines.material_review_state import load_material_review_state
@@ -14,7 +13,7 @@ def test_finalize_visual_material_reviews_writes_skipped_for_stock_slot(tmp_path
     generated_root.mkdir(parents=True)
     slot_id = "usage"
     action_id = "action-usage-stock"
-    (generated_root / f"{slot_id}-stock.mp4").write_bytes(b"\x00" * 256)
+    (generated_root / f"{slot_id}-stock.mp4").write_bytes(b"\x00" * 120_000)
     plan = {
         "id": "gen-1",
         "variant": "high_click",
@@ -43,9 +42,6 @@ def test_finalize_visual_material_reviews_writes_skipped_for_stock_slot(tmp_path
         structure=structure,
         storyboard=list(plan["storyboard"]),
         generated_root=generated_root,
-        gateway=MagicMock(),
-        runner=None,
-        task_context=None,
     )
 
     state = load_material_review_state(generation_root)
