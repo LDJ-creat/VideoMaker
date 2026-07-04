@@ -1197,6 +1197,12 @@ class PipelineRunner:
                         gap_report=result.get("gapReport"),
                         plan=result.get("plan"),
                     )
+                    self._ensure_task_failed(
+                        task_id,
+                        result=worker_result,
+                        default_stage=initial_stage,
+                        default_code="generation_failed",
+                    )
             except Exception as exc:  # pragma: no cover
                 logger.exception(
                     "Generation failed task_id=%s generation_id=%s",
@@ -1808,31 +1814,32 @@ class PipelineRunner:
 
             revise_context_path = generation_root / "revise-context.json"
             if revise_context_path.is_file():
+                from material_review_revise_context import is_fork_revise_context
+
                 revise_context = json.loads(revise_context_path.read_text(encoding="utf-8"))
-                source_generation_id = str(revise_context.get("sourceGenerationId", ""))
-                instruction = str(revise_context.get("instruction") or "")
-                intents: list[dict[str, Any]] = []
-                edit_intent_path = generation_root / "edit-intent.json"
-                if edit_intent_path.is_file():
-                    payload = json.loads(edit_intent_path.read_text(encoding="utf-8"))
-                    if isinstance(payload.get("intents"), list):
-                        intents = payload["intents"]
-                if not source_generation_id:
-                    raise ValueError("Revise generation is missing sourceGenerationId")
-                self.start_revise(
-                    project_id=generation["projectId"],
-                    source_generation_id=source_generation_id,
-                    generation_id=generation["id"],
-                    task_id=task_id,
-                    instruction=instruction,
-                    intents=intents,
-                    structure=structure,
-                    user_brief=brief,
-                    assets=assets,
-                    variant=variant,
-                    resume=True,
-                )
-                return updated
+                if isinstance(revise_context, dict) and is_fork_revise_context(revise_context):
+                    source_generation_id = str(revise_context.get("sourceGenerationId", ""))
+                    instruction = str(revise_context.get("instruction") or "")
+                    intents: list[dict[str, Any]] = []
+                    edit_intent_path = generation_root / "edit-intent.json"
+                    if edit_intent_path.is_file():
+                        payload = json.loads(edit_intent_path.read_text(encoding="utf-8"))
+                        if isinstance(payload.get("intents"), list):
+                            intents = payload["intents"]
+                    self.start_revise(
+                        project_id=generation["projectId"],
+                        source_generation_id=source_generation_id,
+                        generation_id=generation["id"],
+                        task_id=task_id,
+                        instruction=instruction,
+                        intents=intents,
+                        structure=structure,
+                        user_brief=brief,
+                        assets=assets,
+                        variant=variant,
+                        resume=True,
+                    )
+                    return updated
 
             self.start_generation(
                 project_id=generation["projectId"],

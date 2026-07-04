@@ -719,12 +719,22 @@ def approve_material(generation_id: str, request: Request) -> dict[str, Any]:
     plan_path = generation_root / "generation-plan.json"
     plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.is_file() else {}
     completion_actions = plan.get("completionActions") if isinstance(plan, dict) else []
+    generated_root = generation_root / "generated"
     approvable, reason = material_review_approvable(
         state=state,
         completion_actions=completion_actions if isinstance(completion_actions, list) else [],
+        generated_root=generated_root,
     )
     if not approvable:
         raise HTTPException(status_code=400, detail=reason)
+    failed_slot_ids = [
+        slot_id
+        for slot_id, entry in (state.get("slots") or {}).items()
+        if isinstance(entry, dict) and str(entry.get("status") or "") == "agent_failed"
+    ]
+    if failed_slot_ids:
+        state["humanOverride"] = True
+        state["overriddenSlotIds"] = sorted(failed_slot_ids)
     state["status"] = "approved"
     from datetime import UTC, datetime
 

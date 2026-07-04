@@ -194,6 +194,11 @@ def test_approve_material(material_review_client, monkeypatch: pytest.MonkeyPatc
     generation_id = created["id"]
     _write_material_review_state(storage_root, project_id=project_id, generation_id=generation_id)
     _write_generation_plan(storage_root, project_id=project_id, generation_id=generation_id)
+    generated_root = (
+        storage_root / "projects" / project_id / "generations" / generation_id / "generated"
+    )
+    generated_root.mkdir(parents=True, exist_ok=True)
+    (generated_root / "action-hook.mp4").write_bytes(b"\x00" * 120_000)
     _set_task_awaiting_material_review(app_paths["database_path"], task["taskId"])
 
     called: list[str] = []
@@ -234,7 +239,9 @@ def test_approve_material_rejects_when_gate_inactive(material_review_client) -> 
     assert response.json()["detail"] == "Generation is not awaiting material review"
 
 
-def test_approve_material_rejects_when_slots_not_ready(material_review_client) -> None:
+def test_approve_material_allows_agent_failed_override_with_artifact(
+    material_review_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client, app_paths, tmp_path = material_review_client
     storage_root = app_paths["storage_root"]
     from app.db.session import Database
@@ -267,6 +274,104 @@ def test_approve_material_rejects_when_slots_not_ready(material_review_client) -
         },
     )
     _write_generation_plan(storage_root, project_id=project_id, generation_id=generation_id)
+    generated_root = (
+        storage_root / "projects" / project_id / "generations" / generation_id / "generated"
+    )
+    generated_root.mkdir(parents=True, exist_ok=True)
+    (generated_root / "action-hook.mp4").write_bytes(b"\x00" * 120_000)
+    _set_task_awaiting_material_review(app_paths["database_path"], task["taskId"])
+
+    monkeypatch.setattr(
+        "app.services.pipeline_runner.PipelineRunner.retry_task",
+        lambda _self, task_id: None,
+    )
+
+    response = client.post(f"/api/generations/{generation_id}/approve-material")
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["state"]["status"] == "approved"
+    assert payload["state"].get("humanOverride") is True
+    assert payload["state"].get("overriddenSlotIds") == ["hook"]
+
+
+def test_approve_material_rejects_agent_failed_without_artifact(material_review_client) -> None:
+    client, app_paths, tmp_path = material_review_client
+    storage_root = app_paths["storage_root"]
+    from app.db.session import Database
+    from app.services.project_store import ProjectStore
+    from app.services.task_events import TaskEventService
+
+    database = Database(app_paths["database_path"])
+    project_store = ProjectStore(database)
+    task_events = TaskEventService(database)
+    project = _prepare_project_with_structure(client, tmp_path)
+    project_id = str(project["id"])
+    task = task_events.create_task(
+        project_id=project_id,
+        stage="awaiting_material_review",
+        message="paused",
+    )
+    created = project_store.create_generation(
+        project_id=project_id,
+        task_id=task["taskId"],
+        status="awaiting_review",
+        variant="high_click",
+    )
+    generation_id = created["id"]
+    _write_material_review_state(
+        storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+        slots={
+            "hook": {"status": "agent_failed"},
+        },
+    )
+    _write_generation_plan(storage_root, project_id=project_id, generation_id=generation_id)
+    _set_task_awaiting_material_review(app_paths["database_path"], task["taskId"])
+
+    response = client.post(f"/api/generations/{generation_id}/approve-material")
+    assert response.status_code == 400
+    assert "hook" in response.json()["detail"]
+
+
+def test_approve_material_rejects_hard_gate_failed(material_review_client) -> None:
+    client, app_paths, tmp_path = material_review_client
+    storage_root = app_paths["storage_root"]
+    from app.db.session import Database
+    from app.services.project_store import ProjectStore
+    from app.services.task_events import TaskEventService
+
+    database = Database(app_paths["database_path"])
+    project_store = ProjectStore(database)
+    task_events = TaskEventService(database)
+    project = _prepare_project_with_structure(client, tmp_path)
+    project_id = str(project["id"])
+    task = task_events.create_task(
+        project_id=project_id,
+        stage="awaiting_material_review",
+        message="paused",
+    )
+    created = project_store.create_generation(
+        project_id=project_id,
+        task_id=task["taskId"],
+        status="awaiting_review",
+        variant="high_click",
+    )
+    generation_id = created["id"]
+    _write_material_review_state(
+        storage_root,
+        project_id=project_id,
+        generation_id=generation_id,
+        slots={
+            "hook": {"status": "hard_gate_failed", "hardGateFailed": True},
+        },
+    )
+    _write_generation_plan(storage_root, project_id=project_id, generation_id=generation_id)
+    generated_root = (
+        storage_root / "projects" / project_id / "generations" / generation_id / "generated"
+    )
+    generated_root.mkdir(parents=True, exist_ok=True)
+    (generated_root / "action-hook.mp4").write_bytes(b"\x00" * 120_000)
     _set_task_awaiting_material_review(app_paths["database_path"], task["taskId"])
 
     response = client.post(f"/api/generations/{generation_id}/approve-material")
@@ -347,7 +452,7 @@ def test_get_material_review_includes_stock_preview_url(material_review_client) 
     assert response.status_code == 200
     previews = response.json()["slotPreviewUrls"]
     assert "usage" in previews
-    assert previews["usage"].endswith("/generated/usage-stock.mp4")
+    assert "/generated/usage-stock.mp4" in previews["usage"]
 
 
 def test_get_material_review_preview_url_includes_cache_version(

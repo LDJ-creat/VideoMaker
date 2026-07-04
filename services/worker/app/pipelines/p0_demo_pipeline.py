@@ -1339,6 +1339,7 @@ class P0DemoPipeline:
         from app.pipelines.material_slot_revise import (
             clear_material_gate_revise_context,
             consume_material_slot_revise_queue,
+            load_material_gate_revise_slot_ids,
             prepare_material_slot_revise,
         )
 
@@ -1366,6 +1367,10 @@ class P0DemoPipeline:
                     json.dumps(plan, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
+            elif resume and slot_filter is None:
+                gate_slot_filter = load_material_gate_revise_slot_ids(generation_root)
+                if gate_slot_filter:
+                    slot_filter = gate_slot_filter
 
         if use_material_gate:
             visual_material_skipped = resume and is_visual_material_stage_done(
