@@ -18,7 +18,9 @@ MASTER_TTS_SLOT_ID = "__master__"
 MIN_STOCK_VIDEO_BYTES = 100_000
 MIN_HYPERFRAMES_VIDEO_BYTES = 15_000
 
-MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES = frozenset({"agent_passed", "skipped", "review_unavailable"})
+MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES = frozenset(
+    {"agent_passed", "agent_failed", "skipped", "review_unavailable"}
+)
 
 
 def _min_video_bytes_for_path(path: Path) -> int:
@@ -73,6 +75,21 @@ def action_artifact_satisfied(action: dict[str, Any], generated_root: Path) -> b
                 return True
     output = expected_output_path(action, generated_root)
     return is_valid_visual_artifact(output)
+
+
+def material_review_slot_artifact_satisfied(
+    *,
+    action: dict[str, Any] | None,
+    generated_root: Path,
+    slot_status: str,
+) -> bool:
+    """Gate approve artifact check; agent_failed allows any non-empty on-disk preview."""
+    if action is None:
+        return False
+    output = expected_output_path(action, generated_root)
+    if slot_status in {"agent_failed", "review_unavailable"}:
+        return output.is_file() and output.stat().st_size > 0
+    return action_artifact_satisfied(action, generated_root)
 
 
 def infer_completed_slot_ids(
@@ -131,6 +148,7 @@ def material_review_approvable(
     *,
     state: dict[str, Any],
     completion_actions: list[dict[str, Any]],
+    generated_root: Path | None = None,
 ) -> tuple[bool, str]:
     slots_state = state.get("slots")
     if not isinstance(slots_state, dict):
@@ -140,6 +158,7 @@ def material_review_approvable(
     if not visual_slot_ids:
         return True, ""
 
+    terminal_by_slot = terminal_visual_action_by_slot(completion_actions)
     for slot_id in sorted(visual_slot_ids):
         entry = slots_state.get(slot_id)
         if not isinstance(entry, dict):
@@ -147,6 +166,16 @@ def material_review_approvable(
         status = str(entry.get("status") or "")
         if status not in MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES:
             return False, f"Slot {slot_id} is not ready for approval (status={status or 'unknown'})"
+        if generated_root is not None:
+            action = terminal_by_slot.get(slot_id)
+            if not isinstance(action, dict):
+                return False, f"Slot {slot_id} has no terminal completion action"
+            if not material_review_slot_artifact_satisfied(
+                action=action,
+                generated_root=generated_root,
+                slot_status=status,
+            ):
+                return False, f"Slot {slot_id} is missing a usable preview artifact"
     return True, ""
 
 

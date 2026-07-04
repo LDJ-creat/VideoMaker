@@ -7,6 +7,7 @@ import pytest
 
 from material_review_revise_context import (
     build_material_review_revise_context_payload,
+    is_fork_revise_context,
     load_material_review_revise_context,
     material_review_on_revise_enabled,
     parse_material_review_revise_context,
@@ -52,3 +53,9 @@ def test_parse_and_load_material_review_revise_context(tmp_path: Path) -> None:
         "scope": "all",
         "sourceGenerationId": "",
     }
+
+
+def test_is_fork_revise_context() -> None:
+    assert is_fork_revise_context({"sourceGenerationId": "gen-src", "instruction": "x"}) is True
+    assert is_fork_revise_context({"materialGateRevise": {"affectedSlotIds": ["slot-6"]}}) is False
+    assert is_fork_revise_context({}) is False

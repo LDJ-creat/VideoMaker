@@ -58,6 +58,11 @@ def parse_material_review_revise_context(payload: dict[str, Any]) -> dict[str, A
     return result
 
 
+def is_fork_revise_context(payload: dict[str, Any]) -> bool:
+    """NL-revise fork generations carry sourceGenerationId; in-place material gate revise does not."""
+    return bool(str(payload.get("sourceGenerationId") or "").strip())
+
+
 def load_material_review_revise_context(generation_root: Path) -> dict[str, Any] | None:
     path = generation_root / "revise-context.json"
     if not path.is_file():
