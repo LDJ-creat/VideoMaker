@@ -40,9 +40,24 @@ GENERATION_STAGES = (
     "rendering",
 )
 
+HUMAN_GATE_STAGES = frozenset({
+    "awaiting_master_review",
+    "awaiting_storyboard_review",
+    "awaiting_material_review",
+})
+
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _read_json(path: Path) -> Any | None:
@@ -59,10 +74,12 @@ class AnalysisCheckpoint:
     version: str = CHECKPOINT_VERSION
     sampleId: str = ""
     completedStages: list[str] = field(default_factory=list)
+    stageTimings: list[dict[str, Any]] = field(default_factory=list)
     failedStage: str | None = None
     videoPath: str | None = None
     analysisRoute: str | None = None
     updatedAt: str = field(default_factory=_utc_now_iso)
+    _stage_started_at: str | None = field(default=None, repr=False)
 
     @classmethod
     def load(cls, path: Path) -> AnalysisCheckpoint:
@@ -75,18 +92,50 @@ class AnalysisCheckpoint:
             version=str(data.get("version", CHECKPOINT_VERSION)),
             sampleId=str(data.get("sampleId", "")),
             completedStages=list(data.get("completedStages", [])),
+            stageTimings=[
+                item for item in (data.get("stageTimings") or []) if isinstance(item, dict)
+            ],
             failedStage=data.get("failedStage"),
             videoPath=data.get("videoPath"),
             analysisRoute=data.get("analysisRoute"),
             updatedAt=str(data.get("updatedAt", _utc_now_iso())),
+            _stage_started_at=data.get("_stageStartedAt"),
         )
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.updatedAt = _utc_now_iso()
-        path.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = asdict(self)
+        payload.pop("_stage_started_at", None)
+        if self._stage_started_at:
+            payload["_stageStartedAt"] = self._stage_started_at
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def begin_stage(self, stage: str) -> None:
+        now = _utc_now_iso()
+        if self._stage_started_at is None and not self.stageTimings:
+            self._stage_started_at = self.updatedAt or now
+        if self._stage_started_at is None:
+            self._stage_started_at = now
 
     def mark_stage_complete(self, stage: str) -> None:
+        now = _utc_now_iso()
+        started = self._stage_started_at or self.updatedAt or now
+        started_dt = _parse_iso(started)
+        ended_dt = _parse_iso(now)
+        duration_ms = 0.0
+        if started_dt and ended_dt:
+            duration_ms = max(0.0, (ended_dt - started_dt).total_seconds() * 1000)
+        self.stageTimings.append(
+            {
+                "stage": stage,
+                "startedAt": started,
+                "endedAt": now,
+                "durationMs": round(duration_ms, 3),
+                "status": "completed",
+            }
+        )
+        self._stage_started_at = now
         if stage not in self.completedStages:
             self.completedStages.append(stage)
         self.failedStage = None
@@ -100,12 +149,17 @@ class GenerationCheckpoint:
     version: str = CHECKPOINT_VERSION
     generationId: str = ""
     completedStages: list[str] = field(default_factory=list)
+    stageTimings: list[dict[str, Any]] = field(default_factory=list)
     failedStage: str | None = None
     inputsHash: str | None = None
     awaitingGate: str | None = None
     generationStrategy: str | None = None
     humanReviewMode: bool = True
     updatedAt: str = field(default_factory=_utc_now_iso)
+    _stage_started_at: str | None = field(default=None, repr=False)
+    _open_human_gate: str | None = field(default=None, repr=False)
+    _open_human_gate_started_at: str | None = field(default=None, repr=False)
+    _material_slot_breakdown: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     @classmethod
     def load(cls, path: Path) -> GenerationCheckpoint:
@@ -118,20 +172,119 @@ class GenerationCheckpoint:
             version=str(data.get("version", CHECKPOINT_VERSION)),
             generationId=str(data.get("generationId", "")),
             completedStages=list(data.get("completedStages", [])),
+            stageTimings=[
+                item for item in (data.get("stageTimings") or []) if isinstance(item, dict)
+            ],
             failedStage=data.get("failedStage"),
             inputsHash=data.get("inputsHash"),
             awaitingGate=data.get("awaitingGate"),
             generationStrategy=data.get("generationStrategy"),
             humanReviewMode=bool(data.get("humanReviewMode", True)),
             updatedAt=str(data.get("updatedAt", _utc_now_iso())),
+            _stage_started_at=data.get("_stageStartedAt"),
+            _open_human_gate=data.get("_openHumanGate"),
+            _open_human_gate_started_at=data.get("_openHumanGateStartedAt"),
         )
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.updatedAt = _utc_now_iso()
-        path.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = asdict(self)
+        payload.pop("_stage_started_at", None)
+        payload.pop("_open_human_gate", None)
+        payload.pop("_open_human_gate_started_at", None)
+        payload.pop("_material_slot_breakdown", None)
+        if self._stage_started_at:
+            payload["_stageStartedAt"] = self._stage_started_at
+        if self._open_human_gate:
+            payload["_openHumanGate"] = self._open_human_gate
+        if self._open_human_gate_started_at:
+            payload["_openHumanGateStartedAt"] = self._open_human_gate_started_at
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def open_human_gate(self, stage: str) -> None:
+        now = _utc_now_iso()
+        self._open_human_gate = stage
+        self._open_human_gate_started_at = now
+        self.stageTimings.append(
+            {
+                "stage": stage,
+                "startedAt": now,
+                "endedAt": None,
+                "durationMs": 0.0,
+                "status": "paused",
+                "kind": "human_gate",
+            }
+        )
+
+    def close_human_gate(self, stage: str | None = None) -> None:
+        target = stage or self._open_human_gate
+        if not target:
+            return
+        now = _utc_now_iso()
+        for entry in reversed(self.stageTimings):
+            if entry.get("stage") != target:
+                continue
+            if entry.get("endedAt") is not None:
+                continue
+            started = str(entry.get("startedAt") or self._open_human_gate_started_at or now)
+            started_dt = _parse_iso(started)
+            ended_dt = _parse_iso(now)
+            duration_ms = 0.0
+            if started_dt and ended_dt:
+                duration_ms = max(0.0, (ended_dt - started_dt).total_seconds() * 1000)
+            entry["endedAt"] = now
+            entry["durationMs"] = round(duration_ms, 3)
+            entry["status"] = "paused"
+            entry["kind"] = "human_gate"
+            break
+        if self._open_human_gate == target:
+            self._open_human_gate = None
+            self._open_human_gate_started_at = None
+        self._stage_started_at = now
+        if target not in self.completedStages:
+            self.completedStages.append(target)
+
+    def record_material_slot_duration(self, slot_id: str, duration_ms: float) -> None:
+        if not slot_id:
+            return
+        self._material_slot_breakdown.append(
+            {"slotId": slot_id, "durationMs": round(max(0.0, duration_ms), 3)}
+        )
+
+    def begin_stage(self, stage: str) -> None:
+        now = _utc_now_iso()
+        if self._stage_started_at is None and not self.stageTimings:
+            self._stage_started_at = self.updatedAt or now
+        if self._stage_started_at is None:
+            self._stage_started_at = now
 
     def mark_stage_complete(self, stage: str) -> None:
+        if stage in HUMAN_GATE_STAGES:
+            self.open_human_gate(stage)
+            return
+
+        now = _utc_now_iso()
+        started = self._stage_started_at or self.updatedAt or now
+        started_dt = _parse_iso(started)
+        ended_dt = _parse_iso(now)
+        duration_ms = 0.0
+        if started_dt and ended_dt:
+            duration_ms = max(0.0, (ended_dt - started_dt).total_seconds() * 1000)
+
+        entry: dict[str, Any] = {
+            "stage": stage,
+            "startedAt": started,
+            "endedAt": now,
+            "durationMs": round(duration_ms, 3),
+            "status": "completed",
+        }
+        if stage == "generating_material" and self._material_slot_breakdown:
+            entry["breakdown"] = list(self._material_slot_breakdown)
+            self._material_slot_breakdown = []
+        self.stageTimings.append(entry)
+        self._stage_started_at = now
+
         if stage not in self.completedStages:
             self.completedStages.append(stage)
         self.failedStage = None

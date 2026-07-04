@@ -117,10 +117,18 @@ class OpenAICompatibleChatProvider:
                     message = payload["choices"][0]["message"]
                     usage = payload.get("usage")
                     if isinstance(usage, dict):
-                        self.last_token_usage = {
-                            "prompt": int(usage.get("prompt_tokens") or 0),
-                            "completion": int(usage.get("completion_tokens") or 0),
-                        }
+                        from evaluation.usage_normalize import normalize_chat_usage
+
+                        normalized = normalize_chat_usage(usage)
+                        if normalized:
+                            self.last_token_usage = {
+                                "prompt": int(normalized.get("prompt") or 0),
+                                "completion": int(normalized.get("completion") or 0),
+                            }
+                            if normalized.get("total") is not None:
+                                self.last_token_usage["total"] = int(normalized["total"])
+                        else:
+                            self.last_token_usage = None
                     else:
                         self.last_token_usage = None
                 except (KeyError, IndexError, json.JSONDecodeError) as exc:

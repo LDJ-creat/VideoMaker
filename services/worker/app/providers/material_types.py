@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from app.gateway.model_gateway import ModelGateway
 from app.runtime.video_gen_quota import VideoGenQuota
@@ -151,6 +152,7 @@ class MaterialContext:
     sync_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
     gateway_factory: GatewayFactory | None = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    on_slot_chain_complete: Callable[[str, float], None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.storage_root is None:

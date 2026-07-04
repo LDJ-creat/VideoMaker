@@ -21,6 +21,7 @@ def record_model_call(
     output_valid: bool = True,
     error: Exception | None = None,
     token_usage: dict[str, float] | None = None,
+    usage_units: dict[str, Any] | None = None,
     job_id: str | None = None,
 ) -> str | None:
     observability = getattr(gateway, "observability", None)
@@ -65,6 +66,7 @@ def record_model_call(
         input_payload=prepare_payload(input_payload, capture=capture),
         output_payload=prepare_payload(output_payload, capture=capture),
         token_usage=token_usage,
+        usage_units=usage_units,
         error=error_payload,
     )
     payload = log.to_payload(project_id=observability.project_id)

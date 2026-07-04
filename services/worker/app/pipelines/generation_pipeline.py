@@ -1327,6 +1327,7 @@ def run_generating_material(
     visual_only: bool = False,
     master_only: bool = False,
     database_path: Path | str | None = None,
+    on_slot_chain_complete: Callable[[str, float], None] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actions = filter_aigc_completion_actions(plan.get("completionActions", []))
     generated_root = generation_root / "generated"
@@ -1384,6 +1385,7 @@ def run_generating_material(
         ),
         material_state_path=state_path,
         gateway_factory=gateway_factory,
+        on_slot_chain_complete=on_slot_chain_complete,
     )
     register_default_providers(ctx)
 

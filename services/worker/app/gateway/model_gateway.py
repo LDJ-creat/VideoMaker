@@ -92,8 +92,17 @@ class ModelGateway:
             "prompt": float(usage.get("prompt", 0)),
             "completion": float(usage.get("completion", 0)),
         }
+        if usage.get("total") is not None:
+            normalized["total"] = float(usage["total"])
+        else:
+            normalized["total"] = normalized["prompt"] + normalized["completion"]
         self.last_token_usage = normalized
         return normalized
+
+    def _chat_usage_units(self) -> dict[str, Any] | None:
+        from evaluation.usage_normalize import usage_units_from_tokens
+
+        return usage_units_from_tokens(self.last_token_usage)
 
     def _chat_provider(self, profile: str) -> OpenAICompatibleChatProvider:
         if profile not in self._chat_providers:
@@ -383,6 +392,7 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 token_usage=self.last_token_usage,
+                usage_units=self._chat_usage_units(),
             )
 
     def complete_text(
@@ -420,6 +430,7 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 token_usage=self.last_token_usage,
+                usage_units=self._chat_usage_units(),
             )
 
     def complete_json(
@@ -478,6 +489,7 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 token_usage=self.last_token_usage,
+                usage_units=self._chat_usage_units(),
             )
 
     def complete_with_tools(
@@ -552,6 +564,7 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 token_usage=self.last_token_usage,
+                usage_units=self._chat_usage_units(),
             )
 
     def generate_image(self, prompt: str, *, options: dict[str, Any] | None = None) -> bytes:
@@ -560,6 +573,7 @@ class ModelGateway:
         started = time.perf_counter()
         output_payload: dict[str, Any] | None = None
         error: Exception | None = None
+        usage_units: dict[str, Any] | None = None
         try:
             result = provider.generate(prompt, options=options)
             self.last_latency_ms = provider.last_latency_ms
@@ -567,6 +581,9 @@ class ModelGateway:
                 "bytes": len(result),
                 "mime": "image/png",
             }
+            from evaluation.usage_normalize import usage_units_images
+
+            usage_units = usage_units_images(1)
             return result
         except Exception as exc:
             error = exc
@@ -583,6 +600,7 @@ class ModelGateway:
                 output_payload=output_payload,
                 output_valid=error is None,
                 error=error,
+                usage_units=usage_units if error is None else None,
             )
 
     def synthesize_speech(self, text: str, *, options: dict[str, Any] | None = None) -> bytes:
@@ -592,6 +610,7 @@ class ModelGateway:
         output_payload: dict[str, Any] | None = None
         error: Exception | None = None
         merged = dict(options or {})
+        usage_units: dict[str, Any] | None = None
         try:
             result = provider.synthesize(text, options=merged or None)
             self.last_latency_ms = provider.last_latency_ms
@@ -600,6 +619,9 @@ class ModelGateway:
                 "mime": "audio/wav",
                 "charCount": len(text),
             }
+            from evaluation.usage_normalize import usage_units_chars
+
+            usage_units = usage_units_chars(len(text))
             return result
         except Exception as exc:
             error = exc
@@ -616,6 +638,7 @@ class ModelGateway:
                 output_payload=output_payload,
                 output_valid=error is None,
                 error=error,
+                usage_units=usage_units,
             )
 
     def submit_video_job(self, prompt: str, *, options: dict[str, Any] | None = None) -> str:
@@ -628,9 +651,16 @@ class ModelGateway:
         output_payload: dict[str, Any] | None = None
         error: Exception | None = None
         job_id: str | None = None
+        usage_units: dict[str, Any] | None = None
         try:
             job_id = provider.submit(prompt, opts)
             output_payload = {"jobId": job_id}
+            from evaluation.usage_normalize import usage_units_video_seconds
+
+            requested = opts.get("durationSec")
+            usage_units = usage_units_video_seconds(
+                requested=float(requested) if requested is not None else None,
+            )
             return job_id
         except Exception as exc:
             error = exc
@@ -648,6 +678,7 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 job_id=job_id,
+                usage_units=usage_units,
             )
 
     def poll_video_job(self, job_id: str) -> VideoJobResult:
@@ -656,6 +687,7 @@ class ModelGateway:
         started = time.perf_counter()
         output_payload: dict[str, Any] | None = None
         error: Exception | None = None
+        usage_units: dict[str, Any] | None = None
         try:
             result = provider.poll(job_id)
             self.last_latency_ms = result.latency_ms
@@ -663,6 +695,14 @@ class ModelGateway:
                 "status": result.status,
                 "bytes": len(result.video_bytes or b""),
             }
+            if result.video_bytes:
+                from evaluation.ffprobe_util import probe_video_bytes_duration_sec
+                from evaluation.usage_normalize import usage_units_video_seconds
+
+                actual = probe_video_bytes_duration_sec(result.video_bytes)
+                if actual is not None:
+                    output_payload["durationSec"] = actual
+                    usage_units = usage_units_video_seconds(actual=actual)
             return result
         except Exception as exc:
             error = exc
@@ -680,4 +720,5 @@ class ModelGateway:
                 output_valid=error is None,
                 error=error,
                 job_id=job_id,
+                usage_units=usage_units,
             )

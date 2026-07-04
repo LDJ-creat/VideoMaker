@@ -153,9 +153,26 @@ def _pause_for_review(
     stage: str,
     message: str,
     progress: int,
+    storage_root: Path | None = None,
+    project_id: str | None = None,
+    generation_id: str | None = None,
+    task_id: str | None = None,
+    variant_id: str | None = None,
 ) -> dict[str, Any]:
+    checkpoint.open_human_gate(stage)
     checkpoint.awaitingGate = gate
     checkpoint.save(checkpoint_path)
+    if storage_root is not None and project_id and generation_id:
+        from app.evaluation_hook import maybe_write_generation_evaluation
+
+        maybe_write_generation_evaluation(
+            storage_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            variant_id=variant_id,
+            partial=True,
+        )
     emit(
         status="awaiting_review",
         stage=stage,
@@ -165,7 +182,7 @@ def _pause_for_review(
     return {"ok": True, "paused": True, "gate": gate}
 
 
-class P0DemoPipeline:
+class VideoMakerPipeline:
     def __init__(
         self,
         storage_root: str | Path,
@@ -651,6 +668,14 @@ class P0DemoPipeline:
             message="Sample analysis and structure extraction completed",
             artifact_refs=sample_run_result.get("artifactRefs"),
         )
+        from app.evaluation_hook import maybe_write_sample_analysis_evaluation
+
+        maybe_write_sample_analysis_evaluation(
+            self._storage_root,
+            project_id=project_id,
+            sample_id=sample_id,
+            task_id=task_id,
+        )
         return {
             "ok": True,
             "structure": structure,
@@ -1127,8 +1152,14 @@ class P0DemoPipeline:
                         stage="awaiting_master_review",
                         message="Review and approve master narration script",
                         progress=47,
+                        storage_root=self._storage_root,
+                        project_id=project_id,
+                        generation_id=generation_id,
+                        task_id=task_id,
+                        variant_id=variant,
                     )
 
+                checkpoint.close_human_gate("awaiting_master_review")
                 checkpoint.awaitingGate = None
                 script_draft = load_script_draft(generation_root)
                 if not storyboard_is_approved(script_draft):
@@ -1173,8 +1204,14 @@ class P0DemoPipeline:
                         stage="awaiting_storyboard_review",
                         message="Review and approve storyboard script",
                         progress=52,
+                        storage_root=self._storage_root,
+                        project_id=project_id,
+                        generation_id=generation_id,
+                        task_id=task_id,
+                        variant_id=variant,
                     )
 
+                checkpoint.close_human_gate("awaiting_storyboard_review")
                 checkpoint.awaitingGate = None
                 emit(
                     status="running",
@@ -1426,6 +1463,7 @@ class P0DemoPipeline:
                         gap_report_path.read_text(encoding="utf-8"),
                     )
                 material_gateway = self._build_material_gateway()
+                checkpoint.begin_stage("generating_material")
                 plan, _material_results = run_generating_material(
                     plan=plan,
                     inventory=inventory,
@@ -1448,6 +1486,7 @@ class P0DemoPipeline:
                     slot_filter=slot_filter,
                     visual_only=use_material_gate,
                     database_path=self._database_path,
+                    on_slot_chain_complete=checkpoint.record_material_slot_duration,
                 )
             except ToolError as exc:
                 checkpoint.mark_failed("generating_material")
@@ -1491,7 +1530,17 @@ class P0DemoPipeline:
                 stage="awaiting_material_review",
                 message="Review slot material previews before final assembly",
                 progress=72,
+                storage_root=self._storage_root,
+                project_id=project_id,
+                generation_id=generation_id,
+                task_id=task_id,
+                variant_id=variant,
             )
+
+        if use_material_gate and material_is_approved(generation_root):
+            checkpoint.close_human_gate("awaiting_material_review")
+            checkpoint.awaitingGate = None
+            checkpoint.save(checkpoint_path)
 
         if use_material_gate and not (
             resume and is_master_material_stage_done(generation_root, plan)
@@ -1707,6 +1756,16 @@ class P0DemoPipeline:
             )
 
         artifact_refs = render_output.artifact_refs if render_output is not None else []
+        from app.evaluation_hook import maybe_write_generation_evaluation
+
+        maybe_write_generation_evaluation(
+            self._storage_root,
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            variant_id=variant,
+            partial=False,
+        )
         emit(
             status="succeeded",
             stage="completed",

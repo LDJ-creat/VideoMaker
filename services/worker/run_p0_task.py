@@ -100,10 +100,10 @@ def main() -> int:
     pipeline = None
 
     try:
-        from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+        from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 
         database_path = payload.get("databasePath")
-        pipeline = P0DemoPipeline(
+        pipeline = VideoMakerPipeline(
             storage_root,
             database_path=database_path,
         )
@@ -232,7 +232,7 @@ def main() -> int:
             result = {"ok": True, "selection": parsed}
         elif mode == "composition_pattern_promote":
             from app.agents.composition_pattern_author import run_composition_pattern_author
-            from app.pipelines.p0_demo_pipeline import is_fixture_mode
+            from model_gateway.fixture import is_fixture_mode
             from app.runtime.task_context import TaskContext
             from composition.patterns.promote_prepare import PromotePrepareContext, prepare_promoted_pattern_bundle
             from composition.patterns.sanitize import load_generation_plan_context

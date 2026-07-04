@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 from app.pipelines.revise_pipeline import seed_revise_generation
 from app.pipelines.intent_applier import apply_intents_to_context
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
@@ -296,7 +296,7 @@ def _mock_successful_render(monkeypatch: pytest.MonkeyPatch) -> None:
             return RenderOutput(artifact_refs=[{"type": "video", "uri": str(output_path)}])
 
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        "app.pipelines.videomaker_pipeline.build_render_backend",
         lambda *args, **kwargs: _FakeRenderBackend(),
     )
 
@@ -320,7 +320,7 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
         _fake_render_material,
     )
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        "app.pipelines.videomaker_pipeline.run_generating_material",
         lambda **kwargs: (kwargs["plan"], []),
     )
     _mock_successful_render(monkeypatch)
@@ -334,7 +334,7 @@ def test_run_revise_reexecutes_storyboard_and_packaging_stages(
     ).hexdigest()
 
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
-    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    pipeline = VideoMakerPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:
@@ -586,7 +586,7 @@ def test_run_revise_scoped_material_regen_pauses_at_material_gate(
             return RenderOutput(artifact_refs=[])
 
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        "app.pipelines.videomaker_pipeline.build_render_backend",
         lambda *args, **kwargs: _FakeRenderBackend(),
     )
 
@@ -609,7 +609,7 @@ def test_run_revise_scoped_material_regen_pauses_at_material_gate(
         return kwargs["plan"], []
 
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        "app.pipelines.videomaker_pipeline.run_generating_material",
         _fake_run_generating_material,
     )
 
@@ -619,7 +619,7 @@ def test_run_revise_scoped_material_regen_pauses_at_material_gate(
     _write_source_for_scoped_material_regen(tmp_path, project_id=project_id, generation_id=source_id)
 
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
-    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    pipeline = VideoMakerPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:
@@ -709,11 +709,11 @@ def test_run_revise_scoped_material_regen_skips_gate_when_on_revise_disabled(
             return RenderOutput(artifact_refs=[{"type": "video", "uri": str(output_path)}])
 
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.build_render_backend",
+        "app.pipelines.videomaker_pipeline.build_render_backend",
         lambda *args, **kwargs: _FakeRenderBackend(),
     )
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.run_generating_material",
+        "app.pipelines.videomaker_pipeline.run_generating_material",
         lambda **kwargs: (kwargs["plan"], []),
     )
 
@@ -723,7 +723,7 @@ def test_run_revise_scoped_material_regen_skips_gate_when_on_revise_disabled(
     _write_source_for_scoped_material_regen(tmp_path, project_id=project_id, generation_id=source_id)
 
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
-    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    pipeline = VideoMakerPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:

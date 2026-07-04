@@ -79,6 +79,9 @@ def execute_slot_chain(
 ) -> list[MaterialResult]:
     from app.providers.completion_registry import _execute_single_action
 
+    import time
+
+    started = time.monotonic()
     results: list[MaterialResult] = []
     for action in actions:
         if ctx.is_cancelled():
@@ -101,7 +104,11 @@ def execute_slot_chain(
             continue
         results.append(result)
         if not result.get("ok"):
+            if ctx.on_slot_chain_complete is not None:
+                ctx.on_slot_chain_complete(slot_id, (time.monotonic() - started) * 1000.0)
             return results
+    if ctx.on_slot_chain_complete is not None:
+        ctx.on_slot_chain_complete(slot_id, (time.monotonic() - started) * 1000.0)
     return results
 
 

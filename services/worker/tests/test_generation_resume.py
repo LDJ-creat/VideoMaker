@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.pipelines.p0_demo_pipeline import P0DemoPipeline, _generation_inputs_hash
+from app.pipelines.videomaker_pipeline import VideoMakerPipeline, _generation_inputs_hash
 
 
 def test_run_generation_resume_skips_inventory_and_planning(
@@ -84,7 +84,7 @@ def test_run_generation_resume_skips_inventory_and_planning(
     render_root.mkdir(parents=True, exist_ok=True)
     (render_root / "preview.html").write_text("<html></html>", encoding="utf-8")
 
-    pipeline = P0DemoPipeline(tmp_path)
+    pipeline = VideoMakerPipeline(tmp_path)
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:
@@ -229,7 +229,7 @@ def test_run_generation_resume_normalizes_legacy_short_form_plan(
     render_root.mkdir(parents=True, exist_ok=True)
     (render_root / "preview.html").write_text("<html></html>", encoding="utf-8")
 
-    pipeline = P0DemoPipeline(tmp_path)
+    pipeline = VideoMakerPipeline(tmp_path)
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:

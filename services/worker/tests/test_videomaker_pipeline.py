@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
 
 
-class _RecordingPipeline(P0DemoPipeline):
+class _RecordingPipeline(VideoMakerPipeline):
     def __init__(self, storage_root: Path, sample_result: dict[str, Any], structure: dict[str, Any]) -> None:
         fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
         super().__init__(
@@ -61,7 +61,7 @@ class _StubSamplePipeline:
         }
 
 
-class _DirectRoutePipeline(P0DemoPipeline):
+class _DirectRoutePipeline(VideoMakerPipeline):
     def _resolve_structure_analysis_route(self) -> str:
         return "direct_multimodal"
 
@@ -154,7 +154,7 @@ def test_run_generation_fails_when_agent_fixture_invalid(tmp_path: Path) -> None
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
     fixtures["slot_mapper"] = {"slotMatches": [{"slotId": "incomplete"}]}
 
-    pipeline = P0DemoPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
+    pipeline = VideoMakerPipeline(tmp_path, llm=LLMTool(fixture_mode=True, fixtures=fixtures))
     events: list[dict[str, Any]] = []
 
     def emit(**kwargs: Any) -> dict[str, Any]:
@@ -188,7 +188,7 @@ def test_run_generation_fails_when_agent_fixture_invalid(tmp_path: Path) -> None
 def test_analyze_sample_fails_when_structure_agent_invalid(tmp_path: Path) -> None:
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
     fixtures["segment_proposer"] = {"segments": [{"id": "bad-only"}]}
-    pipeline = P0DemoPipeline(
+    pipeline = VideoMakerPipeline(
         tmp_path,
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
     )

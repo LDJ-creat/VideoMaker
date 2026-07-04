@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 from app.tools.llm_tool import LLMTool
 
 
-class _FailAllAgentsPipeline(P0DemoPipeline):
+class _FailAllAgentsPipeline(VideoMakerPipeline):
     def __init__(self, storage_root) -> None:  # noqa: ANN001
         super().__init__(storage_root, llm=LLMTool(fixture_mode=True, fixtures={}))
 

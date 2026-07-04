@@ -31,6 +31,7 @@ class ModelCallLog:
     input_payload: Any = None
     output_payload: Any = None
     token_usage: dict[str, float] | None = None
+    usage_units: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
     run_id: str | None = None
     created_at: str | None = None
@@ -65,6 +66,8 @@ class ModelCallLog:
             payload["output"] = self.output_payload
         if self.token_usage:
             payload["tokenUsage"] = self.token_usage
+        if self.usage_units:
+            payload["usageUnits"] = self.usage_units
         if self.error:
             payload["error"] = self.error
         return payload

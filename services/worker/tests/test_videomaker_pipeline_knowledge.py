@@ -11,7 +11,7 @@ from app.gateway.providers.base import GatewayError
 from app.knowledge.deposit import deposit_knowledge_draft
 from app.knowledge.skill_writer import write_knowledge_draft
 from app.observability.sink import build_observability_sink
-from app.pipelines.p0_demo_pipeline import P0DemoPipeline
+from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
 
@@ -97,7 +97,7 @@ def test_deposit_knowledge_draft(tmp_path: Path) -> None:
 
 def test_render_knowledge_draft_fails_when_agent_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fixtures = load_agent_fixtures(Path(__file__).parent / "fixtures" / "agents")
-    pipeline = P0DemoPipeline(
+    pipeline = VideoMakerPipeline(
         tmp_path,
         llm=LLMTool(fixture_mode=True, fixtures=fixtures),
     )
@@ -117,7 +117,7 @@ def test_render_knowledge_draft_fails_when_agent_invalid(tmp_path: Path, monkeyp
         raise GatewayError(code="invalid_json", message="Model output is not valid JSON", retryable=False)
 
     monkeypatch.setattr(
-        "app.pipelines.p0_demo_pipeline.deposit_knowledge_draft",
+        "app.pipelines.videomaker_pipeline.deposit_knowledge_draft",
         _raise_invalid_json,
     )
 
