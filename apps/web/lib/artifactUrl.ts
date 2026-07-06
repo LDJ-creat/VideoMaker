@@ -78,6 +78,17 @@ export function generationNarrationPreviewAudioUrl(
   );
 }
 
+/** Browser URL for canonical TTS wav under generations/{generationId}/narration/ */
+export function generationCanonicalNarrationAudioUrl(
+  projectId: string,
+  generationId: string,
+): string {
+  return projectFileMediaUrl(
+    projectId,
+    `generations/${generationId}/narration/canonical.wav`,
+  );
+}
+
 /** Browser URL for rendered demo MP4 when the HyperFrames CLI produced output.mp4 */
 export function generationRenderVideoUrl(
   projectId: string,

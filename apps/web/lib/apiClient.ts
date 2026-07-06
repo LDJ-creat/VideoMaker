@@ -1182,6 +1182,40 @@ export async function approveMasterScript(
   });
 }
 
+export async function getNarrationTiming(
+  generationId: string,
+): Promise<ApiResult<Record<string, unknown>>> {
+  return apiFetch(`/api/generations/${generationId}/narration-timing`);
+}
+
+export async function getNarrationDrift(
+  generationId: string,
+): Promise<ApiResult<{ slots?: Array<Record<string, unknown>> }>> {
+  return apiFetch(`/api/generations/${generationId}/narration-drift`);
+}
+
+export type FixNarrationScriptResponse = {
+  generationId: string;
+  taskId: string;
+  slotId: string;
+  queued: boolean;
+};
+
+export async function fixNarrationScriptSlot(
+  generationId: string,
+  slotId: string,
+  body: { instruction?: string },
+): Promise<ApiResult<FixNarrationScriptResponse>> {
+  return apiFetch(
+    `/api/generations/${generationId}/narration-slots/${encodeURIComponent(slotId)}/fix-script`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 export async function approveStoryboardScript(
   generationId: string,
 ): Promise<ApiResult<{ generationId: string; taskId: string; draft: ScriptDraft }>> {
