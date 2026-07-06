@@ -27,14 +27,24 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["pending", "agent_passed", "agent_failed", "skipped", "hard_gate_failed", "review_unavailable"]
+            "enum": [
+              "pending",
+              "agent_passed",
+              "agent_failed",
+              "skipped",
+              "hard_gate_failed",
+              "review_unavailable",
+              "review_bypass",
+              "review_exhausted"
+            ]
           },
           "previewArtifactRef": { "$ref": "artifact-ref.schema.json" },
           "specUri": { "type": "string" },
           "latestReportUri": { "type": "string" },
           "agentReviewRounds": { "type": "integer", "minimum": 0 },
           "userReviseCount": { "type": "integer", "minimum": 0 },
-          "hardGateFailed": { "type": "boolean" }
+          "hardGateFailed": { "type": "boolean" },
+          "reviewBypass": { "type": "string" }
         },
         "additionalProperties": false
       }

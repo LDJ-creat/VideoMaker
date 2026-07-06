@@ -263,7 +263,9 @@ export type MaterialReviewSlotStatus =
   | "agent_failed"
   | "skipped"
   | "hard_gate_failed"
-  | "review_unavailable";
+  | "review_unavailable"
+  | "review_bypass"
+  | "review_exhausted";
 
 export type MaterialReviewSlotEntry = {
   status: MaterialReviewSlotStatus;
@@ -273,6 +275,7 @@ export type MaterialReviewSlotEntry = {
   agentReviewRounds?: number;
   userReviseCount?: number;
   hardGateFailed?: boolean;
+  reviewBypass?: string;
 };
 
 export type MaterialReviewState = {
