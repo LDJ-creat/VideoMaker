@@ -255,6 +255,11 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 | `VIDEOMAKER_STOCK_MAX_CANDIDATES` | Max Pexels results evaluated per query | `5` |
 | `VIDEOMAKER_TTS_MODE` | Deprecated; TTS is always **global** (`master.wav`). Env value ignored. | `global` |
 | `VIDEOMAKER_NARRATION_TIMELINE_MODE` | After TTS: `hold_tail` (extend last scene), `global_ripple` (scale all scenes for global TTS), `ripple_overflow` (per-scene shift), or `scale_to_target` | `hold_tail` |
+| `VIDEOMAKER_DRIFT_LLM_VISUAL` | Strong narration drift: invoke `scene_visual_adaptor` for HF slots | `true` |
+| `VIDEOMAKER_DRIFT_AUTO_SCRIPT` | Auto `scene_script_adaptor` + canonical resync on constraint drift (else user fix-script) | `false` |
+| `VIDEOMAKER_DRIFT_MAX_SCRIPT_PASSES` | Max automatic script adaptor passes per slot per drift cycle | `1` |
+| `VIDEOMAKER_TTS_SEGMENT_INCREMENTAL` | Segmented canonical TTS with per-slot segment cache (v1.1) | `false` |
+| `VIDEOMAKER_COMPOSITION_BRIEF_MODE` | `compositionAuthorBrief` enforcement: `off`, `warn`, or `require` | `require` |
 | `VIDEOMAKER_RENDER_BACKEND` | Final MP4: `ffmpeg`, `hyperframes`, or unset (auto: ffmpeg with HF fallback on effect/packaging text) | unset (auto) |
 | `VIDEOMAKER_FFMPEG_RENDER_FPS` | FFmpeg render FPS for still→video and re-encode | `30` |
 | `VIDEOMAKER_FFMPEG_VIDEO_CRF` | libx264 CRF for FFmpeg final encode | `23` |
@@ -264,7 +269,7 @@ Model gateway provider credentials (base URL, model, encrypted API key) persist 
 
 Material completion: different `slotId` chains run concurrently (default 3); same slot (`stock` → `-finish`) stays serial; `__master__` TTS runs after all visual slots. Parallel cross-slot execution requires `gateway_factory` (per-slot ModelGateway for ReAct/ACP); without it, visual slots run serially. `fail_fast` cancels not-yet-started slot chains; in-flight provider work may continue until its current action finishes. Combined with API `VIDEOMAKER_MAX_CONCURRENT_GENERATIONS=2`, default worst case ≈ 6 parallel ACP/HF authors.
 
-Subtitles are rebuilt after material completion from voiceover WAV windows (not storyboard char-weight placeholders). Global TTS writes one `vo-master` clip; timeline may extend to `narrationDurationSec` when narration exceeds the planned duration.
+Subtitles are rebuilt after material completion from voiceover WAV windows (not storyboard char-weight placeholders). **Assembly TTS is reuse-only:** `generating_material` / `assembling_final` copies `narration/canonical.wav` when `narration-timing.json` content hash matches; missing or stale canonical → `canonical_narration_unavailable` (re-run `synthesizing_canonical_narration`). Canonical synthesis runs after storyboard approval and `compositionAuthorBrief` normalization; drift response may adapt visual briefs or (on user action) script + resync.
 
 Pexels API key also persists in SQLite `stock_media_providers` (encrypted with `storage/global/model-gateway.key`). Worker subprocesses receive `VIDEOMAKER_PEXELS_API_KEY` from API `pipeline_runner` when env is unset.
 
