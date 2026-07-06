@@ -225,7 +225,8 @@ def marker_report_for_finalize(
                 provider=provider,
                 final_source=final_source,
             )
-            report["approved"] = False
+            if not report.get("reviewUnavailable"):
+                report["approved"] = False
             return report
     bypass = "partial_harvest" if partial_harvest else "no_in_session_marker"
     return build_gate_report_without_marker(

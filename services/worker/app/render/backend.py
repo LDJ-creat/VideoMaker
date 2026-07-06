@@ -21,6 +21,7 @@ class RenderOptions:
     emit_progress: ProgressEmitter = _noop_progress
     aspect_ratio: str = "9:16"
     tts_mode: str | None = None
+    storyboard: list[dict[str, Any]] | None = None
 
 
 @dataclass(slots=True)

@@ -33,6 +33,8 @@ GENERATION_STAGES = (
     "mapping_slots",
     "drafting_master_script",
     "drafting_storyboard",
+    "synthesizing_canonical_narration",
+    "adapting_narration_density",
     "planning_completion",
     "generating_material",
     "assembling_final",
@@ -476,6 +478,33 @@ def is_generation_stage_done(stage: str, generation_root: Path, *, render_root: 
         storyboard = draft.get("storyboard") if isinstance(draft, dict) else None
         return isinstance(storyboard, list) and len(storyboard) > 0
 
+    if stage == "synthesizing_canonical_narration":
+        from app.pipelines.narration_scene_timing import (
+            load_narration_timing,
+            narration_timing_is_current,
+        )
+
+        draft = _read_json(generation_root / "script-draft.json")
+        structure = _read_json(generation_root / "structure-scaled.json")
+        if not isinstance(draft, dict):
+            return False
+        timing = load_narration_timing(generation_root)
+        if timing is None or timing.get("role") != "canonical":
+            return False
+        return narration_timing_is_current(
+            generation_root,
+            draft,
+            structure=structure if isinstance(structure, dict) else None,
+            generation_id=str(draft.get("generationId") or generation_root.name),
+        )
+
+    if stage == "adapting_narration_density":
+        drift_path = generation_root / "narration" / "drift-report.json"
+        if not drift_path.is_file():
+            return False
+        payload = _read_json(drift_path)
+        return isinstance(payload, dict) and "slots" in payload
+
     if stage == "planning_completion":
         gap = _read_json(generation_root / "gap-report.json")
         plan = _read_json(generation_root / "generation-plan.json")
@@ -547,7 +576,26 @@ def should_skip_planning_completion_resumable(
         resume=resume,
     ):
         return False
-    return (
+    if not (
         (generation_root / "gap-report.json").is_file()
         and (generation_root / "generation-plan.json").is_file()
+    ):
+        return False
+    from app.pipelines.narration_scene_timing import (
+        load_narration_timing,
+        narration_timing_is_current,
+    )
+
+    draft = _read_json(generation_root / "script-draft.json")
+    structure = _read_json(generation_root / "structure-scaled.json")
+    if not isinstance(draft, dict):
+        return False
+    timing = load_narration_timing(generation_root)
+    if timing is None or timing.get("role") != "canonical":
+        return False
+    return narration_timing_is_current(
+        generation_root,
+        draft,
+        structure=structure if isinstance(structure, dict) else None,
+        generation_id=str(draft.get("generationId") or generation_root.name),
     )

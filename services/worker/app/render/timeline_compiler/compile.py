@@ -15,7 +15,10 @@ from app.render.timeline_compiler.audio_mixer import (
 )
 from app.render.timeline_compiler.hold_tail import apply_hold_tail_to_segments, timeline_target_duration
 from app.render.timeline_compiler.normalize import normalize_timeline
-from app.render.timeline_compiler.scene_segments import extract_scene_segments
+from app.render.timeline_compiler.scene_segments import (
+    extract_scene_segments,
+    normalize_non_overlapping_segments,
+)
 from app.render.timeline_compiler.subtitle_ass import write_ass_subtitles
 from app.render.timeline_compiler.video_builder import build_video_track, pad_video_to_duration
 from app.tools.ffmpeg_tool import FFmpegTool
@@ -69,6 +72,7 @@ def compile_timeline_to_mp4(
     normalized = normalize_timeline(timeline)
     segments = extract_scene_segments(normalized, render_root=render_root)
     target_duration = timeline_target_duration(normalized, segments)
+    segments = normalize_non_overlapping_segments(segments, target_duration)
     segments = apply_hold_tail_to_segments(segments, target_duration)
 
     stage_timings: dict[str, int] = {}

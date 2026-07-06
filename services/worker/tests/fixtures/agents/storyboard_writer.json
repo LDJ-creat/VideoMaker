@@ -15,7 +15,13 @@
       "endSec": 3.0,
       "visual": "暖色自然光下手持产品特写，竖屏9:16，浅米白背景",
       "script": "还在担心出门效率低？",
-      "source": "text_completion"
+      "source": "text_completion",
+      "compositionAuthorBrief": {
+        "mode": "source_then_polish",
+        "authorPrompt": "竖屏9:16暖色自然光产品特写底片，手持轻稳；后续 overlay 仅作轻微润色，不遮挡产品主体。",
+        "layoutAnchor": "upper_third",
+        "templatePreference": "composition"
+      }
     },
     {
       "id": "scene-2",
@@ -24,7 +30,13 @@
       "endSec": 3.0,
       "visual": "同系暖色包装字幕，珊瑚橙强调关键词",
       "script": "便携果汁机让你随时喝鲜榨。",
-      "source": "packaging_completion"
+      "source": "packaging_completion",
+      "compositionAuthorBrief": {
+        "mode": "hf_native",
+        "authorPrompt": "竖屏 hook 标题字卡，主信息垂直居中，珊瑚橙强调关键词，禁止贴底 lower third。",
+        "layoutAnchor": "upper_third",
+        "templatePreference": "title-lower-third"
+      }
     },
     {
       "id": "scene-3",
@@ -33,7 +45,13 @@
       "endSec": 10.5,
       "visual": "benefit 真实 使用 效率 提升",
       "script": "真实场景对比，效率提升看得见。",
-      "source": "packaging_completion"
+      "source": "packaging_completion",
+      "compositionAuthorBrief": {
+        "mode": "hf_native",
+        "authorPrompt": "竖屏居中卖点字卡，三行利益点垂直居中揭示，关键词高亮，无口播重复字幕。",
+        "layoutAnchor": "center",
+        "templatePreference": "benefit-card"
+      }
     },
     {
       "id": "scene-4",
@@ -42,7 +60,13 @@
       "endSec": 22.5,
       "visual": "proof 真实 使用 场景 对比",
       "script": "",
-      "source": "asset_reuse"
+      "source": "packaging_completion",
+      "compositionAuthorBrief": {
+        "mode": "hf_native",
+        "authorPrompt": "竖屏 proof 对比金句大字垂直居中，关键词高亮，主信息居中不贴底。",
+        "layoutAnchor": "center",
+        "templatePreference": "composition"
+      }
     },
     {
       "id": "scene-5",
@@ -51,7 +75,13 @@
       "endSec": 30.0,
       "visual": "cta 购买 点击",
       "script": "现在下单，点击购买。",
-      "source": "text_completion"
+      "source": "text_completion",
+      "compositionAuthorBrief": {
+        "mode": "hf_native",
+        "authorPrompt": "竖屏居中 CTA 收束卡片，主文案垂直居中，口播由字幕轨承担，HF 内避免底部叠字。",
+        "layoutAnchor": "center",
+        "templatePreference": "composition"
+      }
     }
   ]
 }

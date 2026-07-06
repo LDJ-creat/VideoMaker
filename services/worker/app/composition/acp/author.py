@@ -560,6 +560,27 @@ def _try_accept_lint_passed_harvest(
     return loaded
 
 
+def _resolve_acp_gateway_env_paths(
+    *,
+    database_path: str | Path | None,
+    storage_root: Path | None,
+    generation_root: Path | None = None,
+) -> tuple[str | None, str | None]:
+    from app.pipelines.material_review_finalize import (
+        resolve_database_path,
+        resolve_storage_root_path,
+    )
+
+    resolved_storage = resolve_storage_root_path(
+        storage_root,
+        generation_root=generation_root,
+    )
+    resolved_db = resolve_database_path(database_path, storage_root=resolved_storage)
+    db_str = str(resolved_db) if resolved_db is not None else None
+    storage_str = str(resolved_storage) if resolved_storage is not None else None
+    return db_str, storage_str
+
+
 def _mcp_server_env(
     *,
     scratch_dir: Path,
@@ -571,6 +592,7 @@ def _mcp_server_env(
     storage_root: Path | None = None,
     acp_observability_run_id: str | None = None,
     in_session_review: bool = True,
+    generation_root: Path | None = None,
 ) -> list[EnvVariable]:
     composition_root = repo_root / "services" / "composition"
     worker_root = repo_root / "services" / "worker"
@@ -593,8 +615,11 @@ def _mcp_server_env(
         EnvVariable(name="VM_ACP_IN_SESSION_REVIEW", value="true" if in_session_review else "false"),
         EnvVariable(name="PYTHONPATH", value=pythonpath),
     ]
-    db_path = str(database_path).strip() if database_path else os.environ.get("VM_DATABASE_PATH", "").strip()
-    storage = str(storage_root).strip() if storage_root else os.environ.get("VM_STORAGE_ROOT", "").strip()
+    db_path, storage = _resolve_acp_gateway_env_paths(
+        database_path=database_path,
+        storage_root=storage_root,
+        generation_root=generation_root,
+    )
     if db_path:
         env.append(EnvVariable(name="VM_DATABASE_PATH", value=db_path))
     if storage:
@@ -642,7 +667,21 @@ def _review_spec_after_turn(
     asset_root: Path | None,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     from composition.material_review.preview import render_material_preview_spec, run_review_via_worker
-    from composition.material_review.session import write_review_marker
+    from composition.material_review.session import marker_path, validate_review_marker, write_review_marker
+
+    marker_error = validate_review_marker(scratch_dir, spec)
+    if marker_error is None:
+        try:
+            marker_payload = json.loads(marker_path(scratch_dir).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            marker_payload = None
+        cached_report = (
+            marker_payload.get("report")
+            if isinstance(marker_payload, dict) and isinstance(marker_payload.get("report"), dict)
+            else None
+        )
+        if isinstance(cached_report, dict) and cached_report.get("approved"):
+            return cached_report, []
 
     render_result = render_material_preview_spec(
         spec,
@@ -663,18 +702,43 @@ def _review_spec_after_turn(
     generation_root_raw = author_payload.get("generationRoot")
     generation_root = Path(str(generation_root_raw)) if generation_root_raw else None
 
-    review_result = run_review_via_worker(
-        preview_path=preview_path,
-        spec=spec,
-        author_payload=author_payload,
-        slot_id=slot_id,
-        generation_id=generation_id,
-        generation_root=generation_root,
-    )
+    review_result: dict[str, Any]
+    try:
+        review_result = run_review_via_worker(
+            preview_path=preview_path,
+            spec=spec,
+            author_payload=author_payload,
+            slot_id=slot_id,
+            generation_id=generation_id,
+            generation_root=generation_root,
+        )
+    except Exception as exc:
+        review_result = {"ok": False, "error": {"code": "review_failed", "message": str(exc)}}
     if not review_result.get("ok"):
         error = review_result.get("error") if isinstance(review_result.get("error"), dict) else {}
         code = str(error.get("code") or "review_failed")
         message = str(error.get("message") or "material review failed")
+        combined = f"{code}:{message}"
+        from app.pipelines.material_review import (
+            build_failed_review_report,
+            is_review_infrastructure_error,
+        )
+        from composition.material_review.preview import _should_waive_review_infrastructure_error
+
+        if (
+            _should_waive_review_infrastructure_error(message)
+            or _should_waive_review_infrastructure_error(combined)
+            or is_review_infrastructure_error(message)
+            or is_review_infrastructure_error(combined)
+        ):
+            report = build_failed_review_report(
+                slot_id=slot_id,
+                generation_id=generation_id,
+                provider="hyperframes_material",
+                error_message=message,
+            )
+            write_review_marker(scratch_dir, spec=spec, report=report)
+            return report, []
         return None, [f"{code}:{message}"]
 
     report = review_result.get("report")
@@ -1165,6 +1229,15 @@ async def _author_async(
     ).strip(os.pathsep)
     if pythonpath:
         spawn_env["PYTHONPATH"] = pythonpath
+    acp_db_path, acp_storage_root = _resolve_acp_gateway_env_paths(
+        database_path=database_path,
+        storage_root=storage_root,
+        generation_root=generation_root,
+    )
+    if acp_db_path:
+        spawn_env["VM_DATABASE_PATH"] = acp_db_path
+    if acp_storage_root:
+        spawn_env["VM_STORAGE_ROOT"] = acp_storage_root
 
     mcp_server = McpServerStdio(
         name="videomaker-composition",
@@ -1180,6 +1253,7 @@ async def _author_async(
             storage_root=storage_root,
             acp_observability_run_id=observability.run_id if observability is not None else None,
             in_session_review=in_session_review,
+            generation_root=generation_root,
         ),
     )
 

@@ -20,6 +20,7 @@ from app.providers.completion_registry import (
     execute_completion_plan,
     register_default_providers,
 )
+from tests.helpers.canonical_narration_fixture import write_canonical_fixture
 from app.render.render_timeline_to_hyperframes import write_composition
 from app.runtime.video_gen_quota import VideoGenQuota
 
@@ -67,6 +68,14 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(
     storyboard = _load_fixture("storyboard_writer")["storyboard"]
     packaging_plan = _load_fixture("packaging_designer")["packagingPlan"]
     master_narration = "全片口播测试文案。"
+    for scene in storyboard:
+        if isinstance(scene, dict) and scene.get("script"):
+            master_narration = "".join(
+                str(item.get("script") or "")
+                for item in storyboard
+                if isinstance(item, dict)
+            )
+            break
 
     plan = assemble_generation_plan(
         structure=structure,
@@ -109,6 +118,7 @@ def test_fixture_pipeline_produces_voiceover_and_subtitles_in_composition(
         },
         master_narration=master_narration,
     )
+    write_canonical_fixture(ctx)
     register_default_providers(ctx)
     results = execute_completion_plan(tts_actions, ctx)
     assert results

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from app.agents.runner import AgentRunner
 from app.gateway.model_gateway import ModelGateway
 from app.observability.gateway_context import attach_gateway_observability, resolve_profile_model
 from app.observability.sink import ObservabilitySink, build_observability_sink
+from app.runtime.token_usage import normalize_token_usage
 from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool
@@ -19,6 +21,9 @@ from app.tools.llm_tool import LLMTool
 MaterialReviewTraceRoute = Literal["video", "frames", "text_only", "skipped", "hard_gate"]
 
 MATERIAL_REVIEWER_AGENT = "material_reviewer"
+logger = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -168,11 +173,16 @@ def record_material_reviewer_agent_run(
         task_id=task_id,
         generation_id=generation_id,
         validation_errors=list(validation_errors or []),
-        token_usage=token_usage,
+        token_usage=normalize_token_usage(token_usage),
         run_id=agent_run_id,
     ).to_payload()
     payload["projectId"] = project_id
-    sink.record_agent_run(payload)
+    try:
+        sink.record_agent_run(payload)
+    except ValueError as exc:
+        if "Invalid AgentRunLog payload" not in str(exc):
+            raise
+        logger.warning("material_reviewer agent-run log skipped: %s", exc)
     return agent_run_id
 
 
@@ -282,22 +292,27 @@ class MaterialReviewLlmSession:
             token_usage = None
             if self.gateway is not None:
                 model = resolve_profile_model(self.gateway, profile)
-                token_usage = getattr(self.gateway, "last_token_usage", None)
-            self.agent_run_id = record_material_reviewer_agent_run(
-                sink=self.sink,
-                project_id=self.project_id,
-                task_id=self.task_id,
-                generation_id=self.generation_id,
-                route=self.route,
-                slot_id=self.slot_id,
-                agent_review_round=self.agent_review_round,
-                payload_keys=self.payload_keys,
-                output_valid=self.output_valid,
-                latency_ms=(time.perf_counter() - self._started) * 1000,
-                model=model,
-                token_usage=token_usage if isinstance(token_usage, dict) else None,
-                validation_errors=self.validation_errors,
-            )
+                token_usage = normalize_token_usage(getattr(self.gateway, "last_token_usage", None))
+            try:
+                self.agent_run_id = record_material_reviewer_agent_run(
+                    sink=self.sink,
+                    project_id=self.project_id,
+                    task_id=self.task_id,
+                    generation_id=self.generation_id,
+                    route=self.route,
+                    slot_id=self.slot_id,
+                    agent_review_round=self.agent_review_round,
+                    payload_keys=self.payload_keys,
+                    output_valid=self.output_valid,
+                    latency_ms=(time.perf_counter() - self._started) * 1000,
+                    model=model,
+                    token_usage=token_usage,
+                    validation_errors=self.validation_errors,
+                )
+            except ValueError as exc:
+                if "Invalid AgentRunLog" not in str(exc):
+                    raise
+                logger.warning("material review agent-run log skipped: %s", exc)
         return build_material_review_trace(
             route=self.route,
             model_call_id=self.model_call_id,

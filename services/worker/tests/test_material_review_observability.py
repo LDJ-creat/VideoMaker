@@ -76,6 +76,55 @@ def test_record_material_reviewer_agent_run_writes_log(tmp_path: Path) -> None:
     assert payload["generationId"] == "gen-1"
 
 
+def test_record_material_reviewer_agent_run_strips_token_usage_total(tmp_path: Path) -> None:
+    sink = LocalFileSink(AgentRunStore(tmp_path), ModelCallStore(tmp_path))
+    run_id = record_material_reviewer_agent_run(
+        sink=sink,
+        project_id="project-1",
+        task_id="task-1",
+        generation_id="gen-1",
+        route="video",
+        slot_id="hook",
+        agent_review_round=1,
+        payload_keys=["slotId"],
+        output_valid=True,
+        latency_ms=12.0,
+        model="gpt-test",
+        token_usage={"prompt": 100, "completion": 50, "total": 150},
+    )
+    log_path = tmp_path / "projects" / "project-1" / "logs" / "agent-runs" / f"{run_id}.json"
+    payload = json.loads(log_path.read_text(encoding="utf-8"))
+    assert payload["tokenUsage"] == {"prompt": 100.0, "completion": 50.0}
+
+
+def test_record_material_reviewer_agent_run_skips_invalid_agent_run_log(tmp_path: Path) -> None:
+    class FailingSink(LocalFileSink):
+        def record_agent_run(self, log: dict) -> None:
+            raise ValueError(
+                "Invalid AgentRunLog payload: "
+                "[ValidationErrorItem(path='$.tokenUsage', message=\"Additional properties are not allowed ('total' was unexpected)\", validator='additionalProperties')]"
+            )
+
+    sink = FailingSink(AgentRunStore(tmp_path), ModelCallStore(tmp_path))
+    run_id = record_material_reviewer_agent_run(
+        sink=sink,
+        project_id="project-1",
+        task_id="task-1",
+        generation_id="gen-1",
+        route="video",
+        slot_id="hook",
+        agent_review_round=1,
+        payload_keys=["slotId"],
+        output_valid=True,
+        latency_ms=12.0,
+        model="gpt-test",
+        token_usage={"prompt": 100, "completion": 50, "total": 150},
+    )
+    assert run_id
+    log_dir = tmp_path / "projects" / "project-1" / "logs" / "agent-runs"
+    assert not any(log_dir.glob("*.json")) if log_dir.exists() else True
+
+
 def test_run_slot_review_persists_trace_and_model_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation_root = tmp_path / "projects" / "project-1" / "generations" / "gen-1"
     generation_root.mkdir(parents=True)

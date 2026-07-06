@@ -7,6 +7,7 @@ from typing import Any
 import json
 import uuid
 
+from app.runtime.token_usage import normalize_token_usage
 from app.validation.schema_loader import validate_contract
 
 
@@ -64,8 +65,9 @@ class ModelCallLog:
             payload["input"] = self.input_payload
         if self.output_payload is not None:
             payload["output"] = self.output_payload
-        if self.token_usage:
-            payload["tokenUsage"] = self.token_usage
+        normalized_usage = normalize_token_usage(self.token_usage)
+        if normalized_usage:
+            payload["tokenUsage"] = normalized_usage
         if self.usage_units:
             payload["usageUnits"] = self.usage_units
         if self.error:

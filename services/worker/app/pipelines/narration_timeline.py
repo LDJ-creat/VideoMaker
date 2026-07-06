@@ -149,6 +149,49 @@ def _sorted_storyboard(storyboard: list[dict[str, Any]]) -> list[dict[str, Any]]
     return sorted(storyboard, key=lambda scene: float(scene.get("startSec", 0.0)))
 
 
+def _ripple_normalize_storyboard_scenes(
+    scenes: list[dict[str, Any]],
+    *,
+    narration_end: float,
+) -> list[dict[str, Any]]:
+    """Remove overlap and pin the last scene end to narration_end."""
+    ordered = _sorted_storyboard([dict(scene) for scene in scenes if isinstance(scene, dict)])
+    if not ordered or narration_end <= 0:
+        return ordered
+
+    durations = [
+        max(0.1, float(scene.get("endSec", 0.0)) - float(scene.get("startSec", 0.0)))
+        for scene in ordered
+    ]
+    total = sum(durations)
+    if total <= 0:
+        return ordered
+
+    scale = 1.0 if total <= narration_end + 0.01 else narration_end / total
+    cursor = 0.0
+    rippled: list[dict[str, Any]] = []
+    for index, scene in enumerate(ordered):
+        item = dict(scene)
+        duration = max(0.1, durations[index] * scale)
+        if index == len(ordered) - 1:
+            item["endSec"] = round(narration_end, 3)
+            item["startSec"] = round(max(0.0, narration_end - duration), 3)
+        else:
+            item["startSec"] = round(cursor, 3)
+            item["endSec"] = round(min(narration_end, cursor + duration), 3)
+            cursor = float(item["endSec"])
+        rippled.append(item)
+
+    for index in range(1, len(rippled)):
+        if rippled[index]["startSec"] < rippled[index - 1]["endSec"]:
+            rippled[index]["startSec"] = rippled[index - 1]["endSec"]
+        if rippled[index]["endSec"] <= rippled[index]["startSec"]:
+            rippled[index]["endSec"] = round(float(rippled[index]["startSec"]) + 0.1, 3)
+
+    rippled[-1]["endSec"] = round(narration_end, 3)
+    return rippled
+
+
 def _ripple_scene_timing(
     storyboard: list[dict[str, Any]],
     *,
@@ -335,11 +378,7 @@ def _global_proportional_scale(
         item["endSec"] = round(float(item.get("endSec", 0.0)) * ratio, 3)
         scaled.append(item)
 
-    if scaled:
-        scaled[-1]["endSec"] = round(narration_end, 3)
-        for index in range(1, len(scaled)):
-            if scaled[index]["startSec"] < scaled[index - 1]["endSec"]:
-                scaled[index]["startSec"] = scaled[index - 1]["endSec"]
+    scaled = _ripple_normalize_storyboard_scenes(scaled, narration_end=narration_end)
 
     timing_by_id = {str(scene.get("id", "")): scene for scene in scaled}
     updated = []
@@ -423,6 +462,59 @@ def _hold_tail(
     _apply_storyboard_to_timeline_clips(plan["timeline"], updated)
 
 
+def _canonical_timing_already_applied(
+    plan: dict[str, Any],
+    *,
+    render_root: Path | None,
+    narration_end: float,
+) -> bool:
+    if render_root is None:
+        return False
+    generation_root = render_root.parent if render_root.name == "generated" else render_root
+    from app.pipelines.narration_scene_timing import (
+        load_narration_timing,
+        narration_timing_is_current,
+    )
+
+    timing = load_narration_timing(generation_root)
+    if not isinstance(timing, dict) or timing.get("role") != "canonical":
+        return False
+    draft_path = generation_root / "script-draft.json"
+    if not draft_path.is_file():
+        return False
+    try:
+        import json
+
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(draft, dict):
+        return False
+    if not narration_timing_is_current(
+        generation_root,
+        draft,
+        structure=None,
+        generation_id=str(draft.get("generationId") or generation_root.name),
+    ):
+        return False
+    timing_duration = float(timing.get("durationSec") or 0.0)
+    plan_narration = float(plan.get("narrationDurationSec") or 0.0)
+    if plan_narration <= 0 or abs(plan_narration - timing_duration) > 0.2:
+        return False
+    if abs(narration_end - timing_duration) > 0.2:
+        return False
+    storyboard = plan.get("storyboard")
+    if isinstance(storyboard, list) and storyboard:
+        last_end = max(
+            float(scene.get("endSec", 0.0))
+            for scene in storyboard
+            if isinstance(scene, dict)
+        )
+        if abs(last_end - timing_duration) > 0.2:
+            return False
+    return True
+
+
 def sync_timeline_to_narration(
     plan: dict[str, Any],
     *,
@@ -435,6 +527,24 @@ def sync_timeline_to_narration(
     tts_mode = str(plan.get("ttsMode") or resolve_tts_mode(plan))
     narration_end = narration_end_sec(plan, render_root=render_root)
     if narration_end is None or narration_end <= 0:
+        return plan
+
+    if _canonical_timing_already_applied(
+        plan,
+        render_root=render_root,
+        narration_end=narration_end,
+    ):
+        plan["narrationDurationSec"] = round(narration_end, 3)
+        timeline = plan.get("timeline", {})
+        if isinstance(timeline, dict):
+            storyboard = plan.get("storyboard", [])
+            if isinstance(storyboard, list):
+                _refresh_voiceover_clips(
+                    timeline,
+                    storyboard,
+                    render_root=render_root,
+                    tts_mode=tts_mode,
+                )
         return plan
 
     plan["narrationDurationSec"] = round(narration_end, 3)

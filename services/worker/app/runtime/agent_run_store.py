@@ -7,6 +7,7 @@ from typing import Any
 import json
 import uuid
 
+from app.runtime.token_usage import normalize_token_usage
 from app.validation.schema_loader import validate_contract
 
 
@@ -48,8 +49,9 @@ class AgentRunLog:
             payload["generationId"] = self.generation_id
         if self.validation_errors:
             payload["validationErrors"] = self.validation_errors
-        if self.token_usage:
-            payload["tokenUsage"] = self.token_usage
+        normalized_usage = normalize_token_usage(self.token_usage)
+        if normalized_usage:
+            payload["tokenUsage"] = normalized_usage
         return payload
 
 

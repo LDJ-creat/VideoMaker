@@ -30,6 +30,23 @@ class FfmpegRenderBackend(RenderBackend):
     def render(self, options: RenderOptions) -> RenderOutput:
         started = time.perf_counter()
         options.emit_progress("building_timeline")
+
+        if options.storyboard and options.timeline.get("narrationDurationSec") is not None:
+            from app.pipelines.composition_validator import validate_storyboard_timing_consistency
+
+            timing_errors = validate_storyboard_timing_consistency(
+                storyboard=options.storyboard,
+                narration_duration_sec=float(options.timeline["narrationDurationSec"]),
+            )
+            if timing_errors:
+                return RenderOutput(
+                    error={
+                        "code": "storyboard_timing_invalid",
+                        "message": timing_errors[0],
+                        "retryable": False,
+                    }
+                )
+
         preview = build_composition_preview(options)
 
         options.emit_progress("compiling_timeline")

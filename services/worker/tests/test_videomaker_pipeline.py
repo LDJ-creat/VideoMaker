@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.pipelines.videomaker_pipeline import VideoMakerPipeline
 from app.tools.llm_tool import LLMTool, load_agent_fixtures
 
@@ -73,8 +75,11 @@ def _load_structure_fixture() -> dict[str, Any]:
 
 def test_p0_demo_pipeline_fixture_e2e_dual_variant_and_revise_without_hf_cli(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Full fixture-mode generation + revise must not require live HyperFrames CLI."""
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_MAX_CONCURRENT_SLOTS", "1")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ON_REVISE", "false")
     fixture_path = Path(__file__).parent / "fixtures" / "sample_analysis.json"
     sample_analysis = json.loads(fixture_path.read_text(encoding="utf-8"))
     structure = _load_structure_fixture()
@@ -112,7 +117,7 @@ def test_p0_demo_pipeline_fixture_e2e_dual_variant_and_revise_without_hf_cli(
             variant=variant,
             human_review_mode=False,
         )
-        assert result["ok"] is True
+        assert result["ok"] is True, result.get("error") or events[-1].get("error")
         assert result["plan"]["variant"] == variant
         assert result["gapReport"]["projectId"] == "project-1"
         assert result["plan"]["timeline"]["tracks"]

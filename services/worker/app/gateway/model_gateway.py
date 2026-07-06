@@ -92,17 +92,21 @@ class ModelGateway:
             "prompt": float(usage.get("prompt", 0)),
             "completion": float(usage.get("completion", 0)),
         }
-        if usage.get("total") is not None:
-            normalized["total"] = float(usage["total"])
-        else:
-            normalized["total"] = normalized["prompt"] + normalized["completion"]
         self.last_token_usage = normalized
         return normalized
 
     def _chat_usage_units(self) -> dict[str, Any] | None:
         from evaluation.usage_normalize import usage_units_from_tokens
 
-        return usage_units_from_tokens(self.last_token_usage)
+        units = usage_units_from_tokens(self.last_token_usage)
+        if (
+            isinstance(units, dict)
+            and "total" not in units
+            and "prompt" in units
+            and "completion" in units
+        ):
+            units = {**units, "total": units["prompt"] + units["completion"]}
+        return units
 
     def _chat_provider(self, profile: str) -> OpenAICompatibleChatProvider:
         if profile not in self._chat_providers:

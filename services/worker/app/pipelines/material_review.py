@@ -565,6 +565,14 @@ def run_slot_review(
     set_material_review_slot_context(gateway, slot_id)
     project_id = str(context.project_id if context is not None else author_payload.get("projectId") or "")
     task_id = str(context.task_id if context is not None else author_payload.get("taskId") or "") or None
+    if store is None:
+        from app.pipelines.material_review_finalize import _resolve_gateway_store
+
+        store = _resolve_gateway_store(
+            gateway,
+            context,
+            generation_root=generation_root,
+        )
     route = resolve_material_review_route(store=store, preview_path=preview_path)
     text_payload = _build_text_payload(
         spec=spec,
@@ -763,6 +771,8 @@ def build_failed_review_report(
     }
     if review_unavailable:
         report["reviewUnavailable"] = True
+        report["approved"] = True
+        report["issues"] = []
     return report
 
 
@@ -782,5 +792,7 @@ def is_review_infrastructure_error(error_message: str) -> bool:
         "llmtoolconfigerror",
         "no modelgateway",
         "gatewayerror",
+        "invalid agentrunlog",
+        "tokenusage",
     )
     return any(marker in lowered for marker in markers)

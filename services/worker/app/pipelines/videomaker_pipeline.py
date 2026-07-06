@@ -42,7 +42,6 @@ from app.pipelines.generation_pipeline import (
     run_generating_material,
     run_mapping_and_gap,
     run_planning_completion,
-    run_narration_preview,
     run_planning_from_script_draft,
     sync_material_results_to_plan,
 )
@@ -1164,21 +1163,6 @@ class VideoMakerPipeline:
                 script_draft = load_script_draft(generation_root)
                 if not storyboard_is_approved(script_draft):
                     if not should_skip_generation_stage(
-                        "narration_preview", checkpoint, generation_root, resume=resume
-                    ):
-                        material_gateway = self._build_material_gateway()
-                        run_narration_preview(
-                            gateway=material_gateway,
-                            structure=structure,
-                            context=context,
-                            generation_id=generation_id,
-                            generation_root=generation_root,
-                            draft=script_draft or {},
-                        )
-                        checkpoint.mark_stage_complete("narration_preview")
-                        checkpoint.save(checkpoint_path)
-                        script_draft = load_script_draft(generation_root)
-                    if not should_skip_generation_stage(
                         "drafting_storyboard", checkpoint, generation_root, resume=resume
                     ) or not (script_draft and script_draft.get("storyboard")):
                         draft_storyboard_script(
@@ -1213,6 +1197,7 @@ class VideoMakerPipeline:
 
                 checkpoint.close_human_gate("awaiting_storyboard_review")
                 checkpoint.awaitingGate = None
+                script_draft = load_script_draft(generation_root)
                 emit(
                     status="running",
                     stage="producing_media",
@@ -1323,6 +1308,7 @@ class VideoMakerPipeline:
                     database_path=self._database_path,
                     sample_analysis=sample_analysis_for_gen,
                     gateway_store=gateway_store,
+                    generation_root=generation_root,
                 )
                 slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:
@@ -1692,15 +1678,24 @@ class VideoMakerPipeline:
                 hyperframes_tool=render_tool,
                 ffmpeg_tool=ffmpeg_tool,
             )
+            timeline_for_render = dict(plan["timeline"]) if isinstance(plan.get("timeline"), dict) else {}
+            if plan.get("narrationDurationSec") is not None:
+                timeline_for_render["narrationDurationSec"] = plan["narrationDurationSec"]
             render_output = backend.render(
                 RenderOptions(
                     project_id=project_id,
                     generation_id=generation_id,
-                    timeline=plan["timeline"],
+                    timeline=timeline_for_render,
                     storage_root=self._storage_root,
                     emit_progress=render_progress,
                     aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
                     tts_mode=str(plan.get("ttsMode") or "") or None,
+                    storyboard=[
+                        dict(scene)
+                        for scene in (plan.get("storyboard") or [])
+                        if isinstance(scene, dict)
+                    ]
+                    or None,
                 )
             )
 

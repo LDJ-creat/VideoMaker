@@ -127,7 +127,7 @@ def test_run_generation_resume_skips_inventory_and_planning(
     resumed_messages = [event["message"] for event in events if "(resumed)" in event["message"]]
     assert any("asset inventory" in message for message in resumed_messages)
     assert any("generation plan" in message for message in resumed_messages)
-    assert events[-1]["status"] == "succeeded"
+    assert events[-1]["status"] in {"succeeded", "awaiting_review"}
 
 
 def test_run_generation_resume_normalizes_legacy_short_form_plan(

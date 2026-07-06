@@ -354,7 +354,7 @@ def _author_spec(
         elif isinstance(author_finish_brief, dict) and author_finish_brief.get("durationSec") is not None:
             prefer_duration = float(author_finish_brief["durationSec"])
         if prefer_duration is not None:
-            target_duration = max(target_duration, prefer_duration)
+            target_duration = min(prefer_duration, float(slot_timing["durationSec"]))
     started = time.perf_counter()
     errors: list[str] = []
     trace_dir: str | None = None
@@ -649,6 +649,28 @@ class HyperFramesMaterialProvider:
                                 "rendering_material",
                                 f"槽位 {slot_id}: {fallback_warning}",
                             )
+
+        if isinstance(spec, dict):
+            slot_timing = _slot_timing_for_slot(ctx, slot_id)
+            from app.pipelines.composition_validator import validate_material_spec_duration
+
+            spec = _enforce_spec_duration(
+                spec,
+                float(slot_timing["durationSec"]),
+                prefer_duration_sec=float(slot_timing["durationSec"]),
+            )
+            duration_errors = validate_material_spec_duration(
+                spec=spec,
+                slot_timing=slot_timing,
+            )
+            if duration_errors:
+                return _failure(
+                    action,
+                    slot_id,
+                    code="material_spec_duration_exceeded",
+                    message=duration_errors[0],
+                    retryable=False,
+                )
 
         generation_root = _generation_root(ctx)
         scratch_dir = generation_root / "acp-author" / slot_id

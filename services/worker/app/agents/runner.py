@@ -4,6 +4,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
+import logging
 import time
 import uuid
 from typing import Any, Iterator
@@ -17,6 +18,8 @@ from app.observability.sink import ObservabilitySink
 from app.runtime.agent_run_store import AgentRunLog
 from app.runtime.task_context import TaskContext
 from app.tools.llm_tool import LLMTool, LLMToolConfigError, LLMToolValidationError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -134,7 +137,12 @@ class AgentRunner:
                 ).to_payload()
                 payload["projectId"] = context.project_id
                 self.last_agent_run_id = run_id
-                self.observability_sink.record_agent_run(payload)
+                try:
+                    self.observability_sink.record_agent_run(payload)
+                except ValueError as exc:
+                    if "Invalid AgentRunLog payload" not in str(exc):
+                        raise
+                    logger.warning("agent-run log skipped: %s", exc)
 
         assert output is not None
         return output

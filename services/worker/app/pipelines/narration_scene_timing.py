@@ -565,3 +565,97 @@ def reconcile_storyboard_to_segment_durations(
         else scene
         for scene in storyboard
     ]
+
+
+NARRATION_TIMING_FILENAME = "narration-timing.json"
+
+
+def narration_timing_path(generation_root: Path) -> Path:
+    return generation_root / NARRATION_TIMING_FILENAME
+
+
+def load_narration_timing(generation_root: Path) -> dict[str, Any] | None:
+    path = narration_timing_path(generation_root)
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
+def save_narration_timing(generation_root: Path, timing: dict[str, Any]) -> dict[str, Any]:
+    validate_contract("narration-timing", timing)
+    path = narration_timing_path(generation_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(timing, ensure_ascii=False, indent=2), encoding="utf-8")
+    return timing
+
+
+def _storyboard_timing_fingerprint(storyboard: list[Any]) -> list[dict[str, Any]]:
+    fingerprint: list[dict[str, Any]] = []
+    for scene in storyboard:
+        if not isinstance(scene, dict):
+            continue
+        script = str(scene.get("script") or "").strip()
+        if not script:
+            continue
+        entry: dict[str, Any] = {
+            "slotId": str(scene.get("slotId") or ""),
+            "script": script,
+        }
+        vo_directive = scene.get("voDirective")
+        if isinstance(vo_directive, dict):
+            entry["voDirective"] = vo_directive
+        fingerprint.append(entry)
+    return fingerprint
+
+
+def canonical_content_hash(
+    draft: dict[str, Any],
+    *,
+    structure: dict[str, Any] | None = None,
+    workbench_prefs: dict[str, Any] | None = None,
+    generation_id: str | None = None,
+    tts_options_key: str | None = None,
+) -> str:
+    resolved_tts_key = resolve_tts_options_key(
+        structure=structure,
+        workbench_prefs=workbench_prefs,
+        generation_id=generation_id,
+        draft=draft,
+        tts_options_key=tts_options_key,
+    )
+    payload = {
+        "masterNarration": str(draft.get("masterNarration") or "").strip(),
+        "narrationVoProfile": draft.get("narrationVoProfile")
+        if isinstance(draft.get("narrationVoProfile"), dict)
+        else None,
+        "storyboard": _storyboard_timing_fingerprint(list(draft.get("storyboard") or [])),
+        "ttsOptionsKey": resolved_tts_key,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return f"sha256:{digest}"
+
+
+def narration_timing_is_current(
+    generation_root: Path,
+    draft: dict[str, Any],
+    *,
+    structure: dict[str, Any] | None = None,
+    workbench_prefs: dict[str, Any] | None = None,
+    generation_id: str | None = None,
+) -> bool:
+    timing = load_narration_timing(generation_root)
+    if timing is None or timing.get("role") != "canonical":
+        return False
+    wav_path = generation_root / str(timing.get("wavUri") or "narration/canonical.wav")
+    if not wav_path.is_file() or wav_path.stat().st_size <= 0:
+        return False
+    expected = canonical_content_hash(
+        draft,
+        structure=structure,
+        workbench_prefs=workbench_prefs,
+        generation_id=generation_id,
+    )
+    return timing.get("contentHash") == expected
