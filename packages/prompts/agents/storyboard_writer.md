@@ -174,6 +174,7 @@ HyperFrames motion templates (`spec.template.json`) are resolved later during ma
 - One scene per slot.
 - When **`narrationTiming.sceneTiming`** is provided, treat it as the **authoritative timeline**. Set each scene `startSec` / `endSec` to the matching `slotId` entry (tolerance ±0.05s). Do **not** fall back to raw structure slot seconds.
 - When `narrationTiming` is absent (legacy), preserve structure slot timing unless gap completion requires minor packaging adjustment.
+- **Word budget (WPM):** for each scene window `durationSec = endSec - startSec`, compute `wordBudget = round(durationSec × wpm / 60)` with default wpm=240 (4 chars/sec Chinese). Hook/CTA slots ×1.15; proof/benefit ×0.95. `voDirective.pace=fast` → wpm×1.2; `slow` → wpm×0.85. Each scene `script` char count should fall within `wordBudget × [0.8, 1.2]`; if outside, add a short note in optional scene `warnings[]` (do not fail the output).
 - Each scene `script` must be a **contiguous substring** of the locked master (same wording). Together, scenes cover the master in slot order.
 - Leave `script` empty only when the slot truly has no narration (that portion omitted from master).
 - Assign `source` using gapReport (see Source rules).
