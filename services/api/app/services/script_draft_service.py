@@ -18,10 +18,12 @@ def clear_narration_preview_artifacts(storage_root: Path, project_id: str, gener
     root = generation_root(storage_root, project_id, generation_id)
     preview_json = root / "narration-preview.json"
     preview_wav = root / "preview" / "master.wav"
-    if preview_json.is_file():
-        preview_json.unlink()
-    if preview_wav.is_file():
-        preview_wav.unlink()
+    timing_json = root / "narration-timing.json"
+    canonical_wav = root / "narration" / "canonical.wav"
+    drift_report = root / "narration" / "drift-report.json"
+    for path in (preview_json, preview_wav, timing_json, canonical_wav, drift_report):
+        if path.is_file():
+            path.unlink()
 
 
 def script_draft_path(storage_root: Path, project_id: str, generation_id: str) -> Path:

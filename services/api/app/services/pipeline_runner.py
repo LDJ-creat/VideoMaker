@@ -92,6 +92,18 @@ class DemoPipeline(Protocol):
         emit: Any,
     ) -> dict[str, Any]: ...
 
+    def fix_narration_script(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        slot_id: str,
+        instruction: str | None,
+        structure: dict[str, Any] | None,
+        emit: Any,
+    ) -> dict[str, Any]: ...
+
 
 def _worker_root() -> Path:
     return Path(__file__).resolve().parents[3] / "worker"
@@ -555,6 +567,31 @@ class SubprocessDemoPipeline:
             "scope": scope,
             "instruction": instruction,
         }
+        if structure is not None:
+            payload["structure"] = structure
+        return self._invoke(payload)
+
+    def fix_narration_script(
+        self,
+        *,
+        project_id: str,
+        task_id: str,
+        generation_id: str,
+        slot_id: str,
+        instruction: str | None,
+        structure: dict[str, Any] | None,
+        emit: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            **self._payload_base(),
+            "mode": "fix_narration_script",
+            "taskId": task_id,
+            "projectId": project_id,
+            "generationId": generation_id,
+            "slotId": slot_id,
+        }
+        if instruction:
+            payload["instruction"] = instruction
         if structure is not None:
             payload["structure"] = structure
         return self._invoke(payload)
@@ -1275,6 +1312,103 @@ class PipelineRunner:
                 emit=self._make_emit(task_id),
             )
         raise RuntimeError("Pipeline does not support revise_script_draft")
+
+    def fix_narration_script(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        slot_id: str,
+        instruction: str | None,
+        structure: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        pipeline = self._get_pipeline()
+        if hasattr(pipeline, "fix_narration_script"):
+            return pipeline.fix_narration_script(
+                project_id=project_id,
+                task_id=task_id,
+                generation_id=generation_id,
+                slot_id=slot_id,
+                instruction=instruction,
+                structure=structure,
+                emit=self._make_emit(task_id),
+            )
+        raise RuntimeError("Pipeline does not support fix_narration_script")
+
+    def start_fix_narration_script(
+        self,
+        *,
+        project_id: str,
+        generation_id: str,
+        task_id: str,
+        slot_id: str,
+        instruction: str | None,
+        structure: dict[str, Any] | None,
+    ) -> str:
+        fix_task = self.task_events.create_task(
+            project_id,
+            stage="adapting_narration_density",
+            message=f"Fixing narration script for {slot_id}",
+        )
+        fix_task_id = str(fix_task["taskId"])
+
+        def job() -> None:
+            try:
+                self._emit(
+                    fix_task_id,
+                    status="running",
+                    stage="adapting_narration_density",
+                    progress=40,
+                    message=f"Fixing narration script for {slot_id}",
+                )
+                result = self._get_pipeline().fix_narration_script(
+                    project_id=project_id,
+                    task_id=fix_task_id,
+                    generation_id=generation_id,
+                    slot_id=slot_id,
+                    instruction=instruction,
+                    structure=structure,
+                    emit=self._make_emit(fix_task_id),
+                )
+                if result.get("ok"):
+                    self._emit(
+                        fix_task_id,
+                        status="succeeded",
+                        stage="adapting_narration_density",
+                        progress=100,
+                        message="Narration script fix completed",
+                    )
+                    return
+                self._ensure_task_failed(
+                    fix_task_id,
+                    result=result,
+                    default_stage="adapting_narration_density",
+                    default_code="fix_narration_script_failed",
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.exception(
+                    "Fix narration script failed generation_id=%s slot_id=%s",
+                    generation_id,
+                    slot_id,
+                )
+                latest = self.task_events.get_task(fix_task_id)
+                if latest is None or latest.get("status") != "failed":
+                    self._emit(
+                        fix_task_id,
+                        status="failed",
+                        stage="adapting_narration_density",
+                        progress=0,
+                        message="Fix narration script failed",
+                        error={
+                            "code": "fix_narration_script_failed",
+                            "message": str(exc),
+                            "retryable": True,
+                        },
+                    )
+
+        self._run_task(fix_task_id, job)
+        return fix_task_id
 
     @staticmethod
     def build_planner_output_from_rules(
