@@ -7,6 +7,14 @@ from pathlib import Path
 from typing import Any
 
 
+def _should_waive_review_infrastructure_error(message: str) -> bool:
+    """Local guard so observability schema drift never blocks material review."""
+    lowered = str(message or "").lower()
+    return "invalid agentrunlog" in lowered or (
+        "tokenusage" in lowered and "additional properties" in lowered
+    )
+
+
 def render_material_preview_spec(
     spec: dict[str, Any],
     *,
@@ -81,28 +89,52 @@ def run_review_via_worker(
     if generation_root is not None:
         generation_root = Path(generation_root)
 
-    database_path = os.environ.get("VM_DATABASE_PATH", "").strip()
-    storage_root = os.environ.get("VM_STORAGE_ROOT", "").strip()
+    from app.pipelines.material_review_finalize import (
+        _resolve_gateway_store,
+        resolve_database_path,
+        resolve_storage_root_path,
+    )
+
     store = None
     runner = None
     sink = None
-    if not storage_root:
-        if generation_root is not None and len(generation_root.parents) >= 3:
-            storage_root = str(generation_root.parents[2])
-        elif generation_root is not None:
-            storage_root = str(generation_root.parents[1])
-        else:
-            storage_root = "."
-    storage_root_path = Path(storage_root)
+    storage_root_path = resolve_storage_root_path(
+        os.environ.get("VM_STORAGE_ROOT", "").strip() or None,
+        generation_root=generation_root,
+    )
+    if storage_root_path is None:
+        storage_root_path = Path(".")
+    database_path = resolve_database_path(
+        os.environ.get("VM_DATABASE_PATH", "").strip() or None,
+        storage_root=storage_root_path,
+    )
     project_id = str(author_payload.get("projectId") or "")
     task_id = str(author_payload.get("taskId") or "mcp-review")
-    if database_path and storage_root and gateway is None:
-        from model_gateway.store import ModelGatewayStore
+    context = TaskContext(
+        task_id=task_id,
+        project_id=project_id,
+        storage_root=storage_root_path,
+    )
+    if gateway is None:
+        store = _resolve_gateway_store(
+            None,
+            context,
+            database_path=database_path,
+            storage_root=storage_root_path,
+            generation_root=generation_root,
+        )
+        if store is not None:
+            from app.gateway.model_gateway import ModelGateway
 
-        from app.gateway.model_gateway import ModelGateway
-
-        store = ModelGatewayStore(Path(database_path), storage_root_path)
-        gateway = ModelGateway.from_store(store)
+            gateway = ModelGateway.from_store(store)
+    elif store is None:
+        store = _resolve_gateway_store(
+            gateway,
+            context,
+            database_path=database_path,
+            storage_root=storage_root_path,
+            generation_root=generation_root,
+        )
 
     if gateway is not None and project_id:
         gateway, sink = setup_material_review_observability(
@@ -115,12 +147,6 @@ def run_review_via_worker(
         )
         if sink is not None and runner is None:
             runner = build_material_review_runner(gateway=gateway, sink=sink)
-
-    context = TaskContext(
-        task_id=task_id,
-        project_id=project_id,
-        storage_root=storage_root_path,
-    )
 
     started = time.perf_counter()
     try:
@@ -153,20 +179,40 @@ def run_review_via_worker(
             )
         return {"ok": True, "report": report}
     except Exception as exc:
+        message = str(exc)
         if sink is not None and project_id:
-            record_material_review_tool_run(
-                sink=sink,
-                project_id=project_id,
-                task_id=task_id,
-                generation_id=generation_id,
+            try:
+                record_material_review_tool_run(
+                    sink=sink,
+                    project_id=project_id,
+                    task_id=task_id,
+                    generation_id=generation_id,
+                    slot_id=slot_id,
+                    preview_path=preview_path,
+                    ok=False,
+                    error={"code": "review_failed", "message": message},
+                    parent_observability_run_id=acp_parent_observability_run_id(),
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+            except Exception:
+                pass
+        from app.pipelines.material_review import (
+            build_failed_review_report,
+            is_review_infrastructure_error,
+        )
+
+        if (
+            _should_waive_review_infrastructure_error(message)
+            or is_review_infrastructure_error(message)
+        ):
+            report = build_failed_review_report(
                 slot_id=slot_id,
-                preview_path=preview_path,
-                ok=False,
-                error={"code": "review_failed", "message": str(exc)},
-                parent_observability_run_id=acp_parent_observability_run_id(),
-                latency_ms=(time.perf_counter() - started) * 1000,
+                generation_id=generation_id,
+                provider="hyperframes_material",
+                error_message=message,
             )
-        return {"ok": False, "error": {"code": "review_failed", "message": str(exc)}}
+            return {"ok": True, "report": report}
+        return {"ok": False, "error": {"code": "review_failed", "message": message}}
 
 
 def review_material_preview_tool(
@@ -179,6 +225,24 @@ def review_material_preview_tool(
     asset_root: Path | None,
     review_gateway: Any | None = None,
 ) -> str:
+    from composition.material_review.session import marker_path, validate_review_marker
+
+    if validate_review_marker(scratch_dir, spec_json) is None:
+        try:
+            marker_payload = json.loads(marker_path(scratch_dir).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            marker_payload = None
+        cached_report = (
+            marker_payload.get("report")
+            if isinstance(marker_payload, dict) and isinstance(marker_payload.get("report"), dict)
+            else None
+        )
+        if isinstance(cached_report, dict) and cached_report.get("approved"):
+            return json.dumps(
+                {"ok": True, "report": cached_report, "cached": True},
+                ensure_ascii=False,
+            )
+
     preview_path = scratch_dir / "preview.mp4"
     if not preview_path.is_file():
         render_result = render_material_preview_spec(
