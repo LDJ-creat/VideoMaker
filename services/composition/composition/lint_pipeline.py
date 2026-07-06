@@ -109,8 +109,20 @@ def validate_spec_gate(spec: dict[str, Any], author_payload: dict[str, Any]) -> 
     return errors
 
 
+def fixture_lint_enabled() -> bool:
+    if os.getenv("VIDEOMAKER_FIXTURE_MODE", "").strip().lower() in {"1", "true", "yes"}:
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return True
+    return False
+
+
 def hyperframes_cli_for_repo(repo_root: Path) -> HyperFramesCli:
-    if os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {"1", "true", "yes"}:
+    if fixture_lint_enabled():
         return HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root)
     return HyperFramesCli(repo_root=repo_root)
 

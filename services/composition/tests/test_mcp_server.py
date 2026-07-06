@@ -19,7 +19,9 @@ def _server_env(scratch: Path, payload_path: Path) -> dict[str, str]:
     env["VM_REPO_ROOT"] = str(REPO_ROOT)
     env["VM_AUTHOR_PAYLOAD_PATH"] = str(payload_path)
     env["VM_ASPECT_RATIO"] = "9:16"
-    env["VM_ACP_FIXTURE_LINT"] = "1"
+    env["VIDEOMAKER_FIXTURE_MODE"] = "true"
+    env["VM_ACP_IN_SESSION_REVIEW"] = "false"
+    env["VIDEOMAKER_MATERIAL_REVIEW_ENABLED"] = "false"
     env["PYTHONPATH"] = os.pathsep.join(
         [str(COMPOSITION_ROOT), str(REPO_ROOT / "services" / "shared"), env.get("PYTHONPATH", "")]
     )

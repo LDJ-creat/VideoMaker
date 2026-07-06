@@ -22,6 +22,14 @@ def _material_review_tools_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
+def material_review_max_rounds() -> int:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "2").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 2
+
+
 def tool_definitions() -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = [
         {
@@ -132,6 +140,7 @@ class CompositionToolExecutor:
         self._author_payload = author_payload or {}
         self._review_gateway = review_gateway
         self._last_review_report: dict[str, Any] | None = None
+        self._review_rounds_used = 0
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         if name == "skill_view":
@@ -206,15 +215,43 @@ class CompositionToolExecutor:
             from composition.paths import detect_repo_root
 
             repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
-            observation = review_material_preview_tool(
-                spec_json=spec,
-                scratch_dir=self._lint_root.resolve(),
-                repo_root=repo,
-                author_payload=self._author_payload,
-                aspect_ratio=self._build_ctx.aspect_ratio,
-                asset_root=self._build_ctx.asset_root,
-                review_gateway=self._review_gateway,
-            )
+            scratch = self._lint_root.resolve()
+            if validate_review_marker(scratch, spec) is None:
+                observation = review_material_preview_tool(
+                    spec_json=spec,
+                    scratch_dir=scratch,
+                    repo_root=repo,
+                    author_payload=self._author_payload,
+                    aspect_ratio=self._build_ctx.aspect_ratio,
+                    asset_root=self._build_ctx.asset_root,
+                    review_gateway=self._review_gateway,
+                )
+            elif self._review_rounds_used >= material_review_max_rounds():
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": "review_rounds_exhausted",
+                        "reviewRoundsUsed": self._review_rounds_used,
+                        "reviewMaxRounds": material_review_max_rounds(),
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                observation = review_material_preview_tool(
+                    spec_json=spec,
+                    scratch_dir=scratch,
+                    repo_root=repo,
+                    author_payload=self._author_payload,
+                    aspect_ratio=self._build_ctx.aspect_ratio,
+                    asset_root=self._build_ctx.asset_root,
+                    review_gateway=self._review_gateway,
+                )
+                try:
+                    parsed = json.loads(observation)
+                    if not parsed.get("cached") and not parsed.get("skipped"):
+                        self._review_rounds_used += 1
+                except json.JSONDecodeError:
+                    self._review_rounds_used += 1
             try:
                 parsed = json.loads(observation)
                 if isinstance(parsed, dict) and isinstance(parsed.get("report"), dict):

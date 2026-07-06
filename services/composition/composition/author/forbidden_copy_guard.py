@@ -161,6 +161,14 @@ def check_forbidden_copy_in_spec(
         return []
 
     allowed = _allowed_display_copy(payload)
+    contract = payload.get("authorContract")
+    if isinstance(contract, dict):
+        contract_allowed = contract.get("allowedDisplayCopy")
+        if isinstance(contract_allowed, list) and contract_allowed:
+            for item in contract_allowed:
+                text = str(item).strip()
+                if text and text not in allowed:
+                    allowed.append(text)
     allowed_set = set(allowed)
     errors: list[str] = []
 
@@ -172,12 +180,20 @@ def check_forbidden_copy_in_spec(
                 f"Forbidden brief or voiceover copy rendered verbatim: {phrase[:80]}"
             )
 
-    if not allowed:
-        cjk_runs = re.findall(r"[\u4e00-\u9fff]{4,}", rendered)
-        if len(cjk_runs) >= 3:
+    cjk_runs = re.findall(r"[\u4e00-\u9fff]{4,}", rendered)
+    if allowed:
+        for run in cjk_runs:
+            if any(run in item or item in run for item in allowed):
+                continue
             errors.append(
-                "Readable Chinese copy detected without renderPolicy.allowedDisplayCopy — "
-                "prefer text-free packaging overlays."
+                f"Display copy not in renderPolicy.allowedDisplayCopy: {run[:80]}"
             )
+        return errors
+
+    if len(cjk_runs) >= 3:
+        errors.append(
+            "Readable Chinese copy detected without renderPolicy.allowedDisplayCopy "
+            "(empty_allowlist) — add allowed strings via authorContract or prefer text-free overlays."
+        )
 
     return errors

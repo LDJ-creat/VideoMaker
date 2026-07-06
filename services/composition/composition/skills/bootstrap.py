@@ -8,9 +8,11 @@ from composition.skills.usage_requirements import visual_craft_bootstrap_section
 
 _ACP_EXECUTION_BLOCK = """\
 # ACP execution
-One pass: required skill_view → draft spec → lint → write_material_spec.
-Forbidden: exploring repo source, schemas, CLI/MCP internals, other scratch dirs, or example specs.
-Use only videomaker-composition MCP tools + terminal lint-spec; no search/shell/node_repl unless repair cites a file."""
+Phase A (this session): required skill_view → draft spec → composition_lint_draft loop → write_material_spec.
+Phase B (after submit): worker runs preview review and may send one repair follow-up; only adjust spec/motion.
+Forbidden: exploring repo source, reading .py implementation files, schemas, CLI/MCP internals, or other scratch dirs.
+Use only videomaker-composition MCP tools for lint/write; skill_view only for paths listed in available_skills.
+write_material_spec does not require a review marker; never call review_material_preview."""
 
 
 def build_bootstrap_system_prompt(

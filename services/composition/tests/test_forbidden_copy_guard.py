@@ -70,6 +70,31 @@ def test_check_forbidden_copy_allows_display_copy_whitelist() -> None:
     assert check_forbidden_copy_in_spec(spec, payload) == []
 
 
+def test_check_forbidden_copy_allows_quote_line_from_allowlist() -> None:
+    payload = build_material_author_user_payload(
+        AuthorRequest(
+            slot={"role": "proof"},
+            finish_brief={
+                "renderPolicy": {"allowedDisplayCopy": ["价值对等才是长久往来的根本"]},
+            },
+            author_contract={
+                "displayCopyMode": "allowed_list",
+                "allowedDisplayCopy": ["价值对等才是长久往来的根本"],
+                "mustChangeSpec": True,
+            },
+        )
+    )
+    spec = {
+        "template": "composition",
+        "durationSec": 4,
+        "composition": {
+            "bodyHtml": '<div id="quote-line">价值对等才是长久往来的根本</div>',
+            "timelineScript": "tl.set('#quote-line', { autoAlpha: 1 }, 0);",
+        },
+    }
+    assert check_forbidden_copy_in_spec(spec, payload) == []
+
+
 def test_user_payload_includes_field_semantics_and_render_policy() -> None:
     payload = build_material_author_user_payload(
         AuthorRequest(

@@ -23,10 +23,11 @@ from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_r
 from composition.schema_loader import validate_contract
 from composition.skills.runtime import SkillRuntime
 from composition.types import BuildContext
+from composition.lint_pipeline import fixture_lint_enabled
 
 
 def _hyperframes_cli(repo_root: Path) -> HyperFramesCli:
-    if os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {"1", "true", "yes"}:
+    if fixture_lint_enabled():
         return HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root)
     return HyperFramesCli(repo_root=repo_root)
 
@@ -83,19 +84,41 @@ def handle_composition_lint_draft(
 ) -> str:
     if not isinstance(spec_json, dict):
         return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
-    lint_ctx = _lint_context(ctx)
-    errors, result = lint_material_spec_full(
-        spec_json,
-        lint_ctx,
-        schema_only=schema_only,
-        cli=_hyperframes_cli(ctx.repo_root),
-    )
+
+    import concurrent.futures
+
+    lint_timeout_sec = 90.0
+
+    def _run_lint() -> tuple[list[str], Any]:
+        lint_ctx = _lint_context(ctx)
+        return lint_material_spec_full(
+            spec_json,
+            lint_ctx,
+            schema_only=schema_only,
+            cli=_hyperframes_cli(ctx.repo_root),
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_run_lint)
+        try:
+            errors, result = future.result(timeout=lint_timeout_sec)
+        except concurrent.futures.TimeoutError:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "errors": [f"composition_lint_draft timed out after {lint_timeout_sec:.0f}s"],
+                    "hintCode": "lint_timeout",
+                    "fixRecipe": "Retry composition_lint_draft once; do not read repo source",
+                },
+                ensure_ascii=False,
+            )
+
     if result is None:
         return json.dumps({"ok": False, "errors": errors or ["lint failed"]}, ensure_ascii=False)
     if errors:
         payload = spec_lint_result_to_json(result)
         payload["ok"] = False
-        payload.update(enrich_lint_errors(errors))
+        payload.update(enrich_lint_errors(errors, author_payload=ctx.author_payload))
         return json.dumps(payload, ensure_ascii=False)
     payload = spec_lint_result_to_json(result)
     payload["ok"] = True
@@ -182,7 +205,7 @@ def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, A
     gate_errors = validate_spec_gate(spec_json, ctx.author_payload)
     if gate_errors:
         payload = {"ok": False, "errors": gate_errors}
-        payload.update(enrich_lint_errors(gate_errors))
+        payload.update(enrich_lint_errors(gate_errors, author_payload=ctx.author_payload))
         return json.dumps(payload, ensure_ascii=False)
 
     skip_lint = os.getenv("VIDEOMAKER_MCP_WRITE_SKIP_LINT", "").strip().lower() in {"1", "true", "yes"}
@@ -190,7 +213,7 @@ def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, A
         lint_errors = lint_material_spec(ctx, spec_json=spec_json)
         if lint_errors:
             payload = {"ok": False, "errors": lint_errors}
-            payload.update(enrich_lint_errors(lint_errors))
+            payload.update(enrich_lint_errors(lint_errors, author_payload=ctx.author_payload))
             return json.dumps(payload, ensure_ascii=False)
 
     target = ctx.material_spec_path
