@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/narration-timing.schema.json",
+  "title": "NarrationTiming",
+  "type": "object",
+  "required": [
+    "role",
+    "contentHash",
+    "durationSec",
+    "wavUri",
+    "alignmentMethod",
+    "sceneTiming",
+    "warnings"
+  ],
+  "properties": {
+    "role": { "type": "string", "const": "canonical" },
+    "contentHash": { "type": "string", "minLength": 1 },
+    "durationSec": { "type": "number", "minimum": 0 },
+    "wavUri": { "type": "string", "minLength": 1 },
+    "alignmentMethod": {
+      "type": "string",
+      "enum": ["whisper", "proportional_fallback", "structure_estimate", "segment_durations"]
+    },
+    "synthesisMode": {
+      "type": "string",
+      "enum": ["single_shot", "segmented"]
+    },
+    "ttsOptionsKey": { "type": "string", "minLength": 1 },
+    "segmentDurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "durationSec"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "durationSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sceneTiming": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["slotId", "startSec", "endSec"],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "startSec": { "type": "number", "minimum": 0 },
+          "endSec": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

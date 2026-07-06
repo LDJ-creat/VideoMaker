@@ -26,6 +26,8 @@
     },
     "narrationDurationSec": { "type": "number", "minimum": 0 },
     "narrationPreviewDurationSec": { "type": "number", "minimum": 0 },
+    "narrationTimingUri": { "type": "string", "minLength": 1 },
+    "narrationDriftReportUri": { "type": "string", "minLength": 1 },
     "masterNarration": { "type": "string" },
     "narrationVoProfile": { "$ref": "vo-directive.schema.json" },
     "visualStyleBible": { "$ref": "visual-style-bible.schema.json" },

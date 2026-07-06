@@ -34,6 +34,8 @@
         "awaiting_master_review",
         "synthesizing_narration_preview",
         "aligning_narration_timing",
+        "synthesizing_canonical_narration",
+        "adapting_narration_density",
         "drafting_storyboard",
         "awaiting_storyboard_review",
         "producing_media",

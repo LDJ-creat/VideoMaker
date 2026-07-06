@@ -36,6 +36,20 @@
         }
       },
       "additionalProperties": false
+    },
+    "timingContext": {
+      "type": "object",
+      "properties": {
+        "measuredDurationSec": { "type": "number", "minimum": 0 },
+        "estimatedDurationSec": { "type": "number", "minimum": 0 },
+        "driftRatio": { "type": "number", "minimum": 0 },
+        "motionDensity": {
+          "type": "string",
+          "enum": ["compact", "normal", "sparse", "dense"]
+        },
+        "beatCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
