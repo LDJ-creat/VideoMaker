@@ -64,8 +64,24 @@ class AcpAuthorTraceRecorder:
         merged = dict(payload)
         if observability_run_id:
             merged["observabilityRunId"] = observability_run_id
+        self._write_session_json(merged)
+
+    def record_acp_protocol_session(self, session_id: str) -> None:
+        path = self.trace_dir / "session.json"
+        payload: dict[str, Any] = {}
+        if path.is_file():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    payload = loaded
+            except json.JSONDecodeError:
+                payload = {}
+        payload["acpProtocolSessionId"] = str(session_id)
+        self._write_session_json(payload)
+
+    def _write_session_json(self, payload: dict[str, Any]) -> None:
         (self.trace_dir / "session.json").write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2),
+            json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 

@@ -111,6 +111,23 @@ def use_material_review_gate(
     return "generating_material" in stages
 
 
+def material_review_max_rounds() -> int:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "2").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 2
+
+
+def material_review_acp_in_session_enabled(*, revise: bool = False) -> bool:
+    """Worker post-turn vision for ACP author (first generation vs revise paths)."""
+    if revise:
+        raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION_REVISE", "true").strip().lower()
+    else:
+        raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def material_review_max_frames() -> int:
     raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_FRAMES", "4").strip()
     try:

@@ -50,6 +50,18 @@ def test_acp_in_session_review_disabled_for_revise_gate(
     assert _acp_in_session_review_enabled(payload) is False
 
 
+def test_acp_in_session_review_enabled_for_revise_gate_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.delenv("VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION_REVISE", raising=False)
+    payload = {
+        "materialGateRevise": {"affectedSlotIds": ["slot-5"]},
+        "materialEditMode": "edit",
+    }
+    assert _acp_in_session_review_enabled(payload) is True
+
+
 def test_acp_in_session_review_enabled_for_first_generation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -135,9 +147,10 @@ def test_acp_prompt_includes_execution_discipline(
         scratch_dir=repo_root / "storage" / "scratch" / "pytest-acp-prompt",
     )
     assert composition_template is True
-    assert "ACP execution" in system
-    assert "Forbidden: exploring repo source" in system
-    assert "Workflow: required skill_view" in user
+    assert "L0 STOP RULES" in system
+    assert "never Read/Grep/Shell repo" in system
+    assert "Phase A" in user
+    assert "skill_view" in user
     assert "terminal lint-spec only" not in user  # default agent, not codex
     monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_AGENT", "codex")
     _, user_codex, _ = _build_prompt_text(
@@ -361,7 +374,7 @@ def test_acp_turn_loop_retries_in_same_session(
     monkeypatch.setattr(
         author_module,
         "_review_spec_after_turn",
-        lambda *_a, **_k: ({"approved": True, "hardGateFailed": False, "issues": []}, []),
+        lambda *_a, **_k: ({"approved": True, "hardGateFailed": False, "issues": []}, [], False),
     )
 
     storage_root = tmp_path / "storage"
@@ -433,12 +446,12 @@ def test_build_review_followup_includes_report(repo_root: Path, tmp_path: Path) 
         },
         1,
         scratch_dir=scratch,
-        repo_root=repo_root,
     )
     assert "IN_SESSION_REPAIR" in text
     assert "preview_duration_drift" in text
     assert "hard_gate" in text
-    assert "review_material_preview" in text
+    assert "composition_lint_draft" in text
+    assert "review_material_preview" not in text
 
 
 def test_acp_turn_loop_retries_on_hard_gate_review(
@@ -491,7 +504,7 @@ def test_acp_turn_loop_retries_on_hard_gate_review(
     async def fake_spawn(*_args: object, **_kwargs: object):
         yield _Conn(), None
 
-    def fake_review(*_args: object, **_kwargs: object) -> tuple[dict[str, object], list[str]]:
+    def fake_review(*_args: object, **_kwargs: object) -> tuple[dict[str, object], list[str], bool]:
         review_calls["n"] += 1
         if review_calls["n"] == 1:
             return (
@@ -503,8 +516,9 @@ def test_acp_turn_loop_retries_on_hard_gate_review(
                     "trace": {"reviewRoute": "hard_gate"},
                 },
                 ["preview_duration_drift:5.70s vs 7.15s"],
+                True,
             )
-        return ({"approved": True, "hardGateFailed": False, "issues": []}, [])
+        return ({"approved": True, "hardGateFailed": False, "issues": []}, [], True)
 
     monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
     monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
@@ -560,7 +574,7 @@ def test_acp_turn_loop_retries_on_hard_gate_review(
     assert end_payload["metadata"]["repairAttempt"] == 1
 
 
-def test_acp_turn_loop_exhausted_raises(
+def test_acp_dialogue_safety_exceeded_raises(
     tmp_path: Path,
     repo_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -569,7 +583,7 @@ def test_acp_turn_loop_exhausted_raises(
 
     from app.composition.acp import author as author_module
 
-    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS", "1")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_DIALOGUE_SAFETY_MAX", "1")
     scratch = tmp_path / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     (scratch / "material-spec.json").write_text(
@@ -605,7 +619,7 @@ def test_acp_turn_loop_exhausted_raises(
         lambda *_a, **_k: (["simulated lint failure"], False),
     )
 
-    with pytest.raises(RuntimeError, match="acp_author_spec_invalid"):
+    with pytest.raises(RuntimeError, match="acp_author_dialogue_safety_exceeded"):
         author_material_spec_via_acp(
             AuthorRequest(
                 project_id="proj-acp",
@@ -617,6 +631,15 @@ def test_acp_turn_loop_exhausted_raises(
             scratch_dir=scratch,
             agent_command=fake_agent_command(),
         )
+
+
+def test_acp_turn_loop_exhausted_raises(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backward-compatible alias for dialogue safety exceeded."""
+    test_acp_dialogue_safety_exceeded_raises(tmp_path, repo_root, monkeypatch)
 
 
 def test_in_session_followup_includes_sandbox_recipe(
@@ -632,7 +655,6 @@ def test_in_session_followup_includes_sandbox_recipe(
         ["Path escapes project sandbox: generated/slot-1-stock.mp4"],
         1,
         scratch_dir=scratch,
-        repo_root=repo_root,
     )
     assert "IN_SESSION_REPAIR" in text
     assert "sandbox_path" in text
@@ -782,7 +804,7 @@ def test_review_spec_after_turn_uses_run_review_via_worker(
         fake_marker,
     )
 
-    report, errors = _review_spec_after_turn(
+    report, errors, vision_billed = _review_spec_after_turn(
         spec,
         scratch_dir=scratch,
         repo_root=repo_root,
@@ -794,4 +816,189 @@ def test_review_spec_after_turn_uses_run_review_via_worker(
     assert calls["review"] == 1
     assert report is not None
     assert errors == ["empty preview", "Add visible copy"]
+    assert vision_billed is True
     assert marker_written["ok"] is True
+
+
+def test_acp_lint_followups_do_not_charge_review_rounds(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.composition.acp import author as author_module
+
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_TIMEOUT_SEC", "120")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "2")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    spec_payload = {
+        "template": "benefit-card",
+        "durationSec": 8,
+        "params": {
+            "title": "Lint retry",
+            "bullets": ["A"],
+            "colors": {"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
+        },
+    }
+    (scratch / "material-spec.json").write_text(json.dumps(spec_payload), encoding="utf-8")
+
+    lint_calls = {"n": 0}
+    review_calls = {"n": 0}
+
+    class _Session:
+        session_id = "lint-only"
+
+    class _Conn:
+        async def initialize(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def new_session(self, **_kwargs: object) -> _Session:
+            return _Session()
+
+        async def prompt(self, *_args: object, **_kwargs: object) -> object:
+            return None
+
+        async def close_session(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_spawn(*_args: object, **_kwargs: object):
+        yield _Conn(), None
+
+    def fake_lint(*_args: object, **_kwargs: object) -> tuple[list[str], bool]:
+        lint_calls["n"] += 1
+        if lint_calls["n"] <= 3:
+            return [f"lint failure {lint_calls['n']}"], False
+        return [], False
+
+    def fake_review(*_args: object, **_kwargs: object) -> tuple[dict[str, object], list[str], bool]:
+        review_calls["n"] += 1
+        return ({"approved": True, "hardGateFailed": False, "issues": []}, [], True)
+
+    monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
+    monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
+    monkeypatch.setattr(author_module, "_lint_spec_after_turn", fake_lint)
+    monkeypatch.setattr(author_module, "_review_spec_after_turn", fake_review)
+
+    spec = author_material_spec_via_acp(
+        AuthorRequest(
+            project_id="proj-acp",
+            generation_id="gen-1",
+            slot={"role": "benefit_card"},
+            aspect_ratio="9:16",
+        ),
+        repo_root=repo_root,
+        scratch_dir=scratch,
+        agent_command=fake_agent_command(),
+    )
+    assert spec["params"]["title"] == "Lint retry"
+    assert lint_calls["n"] == 4
+    assert review_calls["n"] == 1
+
+
+def test_acp_review_rounds_exhausted_accepts_spec(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.composition.acp import author as author_module
+    from composition.material_review.session import marker_path
+
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "2")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    spec_payload = {
+        "template": "benefit-card",
+        "durationSec": 8,
+        "params": {
+            "title": "Review cap",
+            "bullets": ["A"],
+            "colors": {"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
+        },
+    }
+    (scratch / "material-spec.json").write_text(json.dumps(spec_payload), encoding="utf-8")
+
+    review_calls = {"n": 0}
+
+    class _Session:
+        session_id = "review-cap"
+
+    class _Conn:
+        async def initialize(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def new_session(self, **_kwargs: object) -> _Session:
+            return _Session()
+
+        async def prompt(self, *_args: object, **_kwargs: object) -> object:
+            return None
+
+        async def close_session(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_spawn(*_args: object, **_kwargs: object):
+        yield _Conn(), None
+
+    def fake_review(*_args: object, **_kwargs: object) -> tuple[dict[str, object], list[str], bool]:
+        review_calls["n"] += 1
+        return (
+            {
+                "approved": False,
+                "hardGateFailed": False,
+                "issues": ["copy on screen"],
+                "suggestions": ["Remove verbatim text"],
+            },
+            ["copy on screen"],
+            True,
+        )
+
+    monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
+    monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
+    monkeypatch.setattr(author_module, "_lint_spec_after_turn", lambda *_a, **_k: ([], False))
+    monkeypatch.setattr(author_module, "_review_spec_after_turn", fake_review)
+
+    spec = author_material_spec_via_acp(
+        AuthorRequest(
+            project_id="proj-acp",
+            generation_id="gen-1",
+            slot={"role": "benefit_card"},
+            aspect_ratio="9:16",
+        ),
+        repo_root=repo_root,
+        scratch_dir=scratch,
+        agent_command=fake_agent_command(),
+    )
+    assert spec["params"]["title"] == "Review cap"
+    assert review_calls["n"] == 2
+    marker = json.loads(marker_path(scratch).read_text(encoding="utf-8"))
+    assert marker["report"]["approved"] is False
+    assert "review_rounds_exhausted" in marker["report"].get("issues", [])
+
+
+def test_mcp_server_env_disables_in_session_review(repo_root: Path, tmp_path: Path) -> None:
+    from app.composition.acp.author import _mcp_server_env
+
+    env = _mcp_server_env(
+        scratch_dir=tmp_path / "scratch",
+        repo_root=repo_root,
+        payload_path=tmp_path / "task.json",
+        aspect_ratio="9:16",
+        asset_root=None,
+    )
+    review_flag = next(item for item in env if item.name == "VM_ACP_IN_SESSION_REVIEW")
+    assert review_flag.value == "false"
+
+
+def test_acp_dialogue_safety_max_reads_deprecated_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.composition.acp.author import acp_dialogue_safety_max
+
+    monkeypatch.delenv("VIDEOMAKER_COMPOSITION_ACP_DIALOGUE_SAFETY_MAX", raising=False)
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS", "7")
+    assert acp_dialogue_safety_max() == 7

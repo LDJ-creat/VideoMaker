@@ -176,7 +176,11 @@ def build_gate_report_without_marker(
         "reviewedAt": _utc_now_iso(),
         "approved": False,
         "issues": [f"review_bypass:{review_bypass}"],
-        "suggestions": ["Re-run author session or revise this slot before final assembly."],
+        "suggestions": [
+            "Preview is ready for manual review."
+            if preview_path is not None and preview_path.is_file()
+            else "Re-run author session or revise this slot before final assembly."
+        ],
         "reviewInputs": {"mode": "skipped"},
         "provider": provider,
         "reviewBypass": review_bypass,

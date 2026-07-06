@@ -154,24 +154,33 @@ class AcpAuthorObservabilityContext:
             },
         )
 
-    def record_turn_start(self, *, turn: int) -> None:
+    def record_turn_start(self, *, turn: int, dialogue_round: int | None = None) -> None:
+        resolved_dialogue = dialogue_round if dialogue_round is not None else turn
         self._emit_tool_run(
             tool_name="acp_turn_start",
             event_kind="turn_start",
-            input_payload={"turn": turn},
-            metadata={"turn": turn},
+            input_payload={"turn": turn, "dialogueRound": resolved_dialogue},
+            metadata={"turn": turn, "dialogueRound": resolved_dialogue},
         )
 
-    def record_turn_followup(self, *, turn: int, errors: list[str] | None = None) -> None:
+    def record_turn_followup(
+        self,
+        *,
+        turn: int,
+        errors: list[str] | None = None,
+        dialogue_round: int | None = None,
+    ) -> None:
+        resolved_dialogue = dialogue_round if dialogue_round is not None else turn
         self.note_session_progress(repair_attempt=turn, lint_cached=self._last_lint_cached)
         self._emit_tool_run(
             tool_name="acp_turn_followup",
             event_kind="turn_followup",
             input_payload={
                 "turn": turn,
+                "dialogueRound": resolved_dialogue,
                 "errors": "; ".join(errors or [])[:500],
             },
-            metadata={"turn": turn, "repairAttempt": turn},
+            metadata={"turn": turn, "dialogueRound": resolved_dialogue, "repairAttempt": turn},
         )
 
     def record_turn_lint_gate(
@@ -181,7 +190,9 @@ class AcpAuthorObservabilityContext:
         errors: list[str],
         lint_cached: bool,
         latency_ms: float = 0.0,
+        dialogue_round: int | None = None,
     ) -> None:
+        resolved_dialogue = dialogue_round if dialogue_round is not None else turn
         self.note_session_progress(repair_attempt=max(0, turn - 1), lint_cached=lint_cached)
         self._emit_tool_run(
             tool_name="acp_turn_lint_gate",
@@ -189,11 +200,13 @@ class AcpAuthorObservabilityContext:
             latency_ms=latency_ms,
             input_payload={
                 "turn": turn,
+                "dialogueRound": resolved_dialogue,
                 "errors": errors[:20],
                 "lintCached": lint_cached,
             },
             metadata={
                 "turn": turn,
+                "dialogueRound": resolved_dialogue,
                 "lintCached": lint_cached,
                 "repairAttempt": max(0, turn - 1),
                 "outputValid": not errors,
@@ -208,24 +221,37 @@ class AcpAuthorObservabilityContext:
         hard_gate_failed: bool,
         approved: bool,
         latency_ms: float = 0.0,
+        dialogue_round: int | None = None,
+        review_rounds_used: int | None = None,
+        skipped_reason: str | None = None,
     ) -> None:
+        resolved_dialogue = dialogue_round if dialogue_round is not None else turn
+        metadata: dict[str, Any] = {
+            "turn": turn,
+            "dialogueRound": resolved_dialogue,
+            "hardGateFailed": hard_gate_failed,
+            "approved": approved,
+            "repairAttempt": max(0, turn - 1),
+            "outputValid": not errors,
+        }
+        if review_rounds_used is not None:
+            metadata["reviewRoundsUsed"] = review_rounds_used
+        if skipped_reason:
+            metadata["skippedReason"] = skipped_reason
         self._emit_tool_run(
             tool_name="acp_turn_review_gate",
             event_kind="turn_review_gate",
             latency_ms=latency_ms,
             input_payload={
                 "turn": turn,
+                "dialogueRound": resolved_dialogue,
                 "errors": errors[:20],
                 "hardGateFailed": hard_gate_failed,
                 "approved": approved,
+                "reviewRoundsUsed": review_rounds_used,
+                "skippedReason": skipped_reason,
             },
-            metadata={
-                "turn": turn,
-                "hardGateFailed": hard_gate_failed,
-                "approved": approved,
-                "repairAttempt": max(0, turn - 1),
-                "outputValid": not errors,
-            },
+            metadata=metadata,
         )
 
     def record_session_retry(

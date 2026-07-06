@@ -188,7 +188,51 @@ def test_finalize_partial_harvest_sets_review_bypass(tmp_path: Path) -> None:
         )
     assert report["reviewBypass"] == "partial_harvest"
     state = load_material_review_state(generation_root)
-    assert state["slots"][slot_id]["status"] == "agent_failed"
+    assert state["slots"][slot_id]["status"] == "review_bypass"
+
+
+def test_finalize_no_marker_sets_review_bypass_status(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generated_root = generation_root / "generated"
+    action_id = "action-slot-2"
+    slot_id = "slot-2"
+    generated_root.mkdir(parents=True)
+    preview_path = generated_root / f"{action_id}.mp4"
+    preview_path.write_bytes(b"\x00" * 20_000)
+    spec = {
+        "template": "composition",
+        "durationSec": 4.0,
+        "composition": {"bodyHtml": "<div/>"},
+    }
+    _write_spec(generated_root, action_id, spec)
+    plan = {
+        "id": "gen-1",
+        "completionActions": [
+            {"id": action_id, "slotId": slot_id, "provider": "hyperframes_material"},
+        ],
+    }
+
+    with patch(
+        "app.pipelines.material_gate_finalize.check_preview_hard_gates",
+        return_value=[],
+    ):
+        report = finalize_slot_material_gate(
+            generation_root=generation_root,
+            generation_id="gen-1",
+            project_id="proj",
+            variant="high_click",
+            action=plan["completionActions"][0],
+            plan=plan,
+            preview_path=preview_path,
+            spec_uri=f"generated/{action_id}/material-spec.json",
+            artifact_ref=None,
+            generated_root=generated_root,
+            final_source="render",
+        )
+    assert report["reviewBypass"] == "no_in_session_marker"
+    state = load_material_review_state(generation_root)
+    assert state["slots"][slot_id]["status"] == "review_bypass"
+    assert state["slots"][slot_id]["reviewBypass"] == "no_in_session_marker"
 
 
 def test_finalize_missing_preview_sets_hard_gate_failed(tmp_path: Path) -> None:

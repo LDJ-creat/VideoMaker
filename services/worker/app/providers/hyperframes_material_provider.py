@@ -216,7 +216,82 @@ def _resolve_material_asset_refs(
     return [base]
 
 
+def _is_gate_revise_must_change(ctx: MaterialContext, slot_id: str) -> bool:
+    generation_root = _generation_root(ctx)
+    context_path = generation_root / "revise-context.json"
+    if not context_path.is_file():
+        return False
+    try:
+        payload = json.loads(context_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    gate = payload.get("materialGateRevise")
+    if not isinstance(gate, dict) or gate.get("source") != "material_gate_revise":
+        return False
+    contract = gate.get("authorContract")
+    return isinstance(contract, dict) and bool(contract.get("mustChangeSpec"))
+
+
+def _build_gate_revise_author_contract(
+    finish_brief: dict[str, Any] | None,
+    *,
+    edit_instruction: str,
+    material_edit_mode: MaterialEditMode,
+    storyboard: list[dict[str, Any]],
+    slot_id: str,
+) -> dict[str, Any] | None:
+    from app.pipelines.display_copy_policy import (
+        apply_display_copy_to_finish_brief,
+        build_author_contract,
+        derive_allowed_display_copy,
+    )
+
+    if not edit_instruction:
+        return None
+    scene = None
+    for item in storyboard:
+        if isinstance(item, dict) and str(item.get("slotId") or "") == slot_id:
+            scene = item
+            break
+    brief = apply_display_copy_to_finish_brief(
+        dict(finish_brief) if isinstance(finish_brief, dict) else {},
+        edit_instruction=edit_instruction,
+        storyboard_scene=scene,
+    )
+    allowed = derive_allowed_display_copy(
+        finish_brief=brief,
+        edit_instruction=edit_instruction,
+        storyboard_scene=scene,
+    )
+    return build_author_contract(
+        allowed_display_copy=allowed,
+        material_edit_mode=material_edit_mode,
+        must_change_spec=True,
+    )
+
+
+def _resolve_existing_spec_hash(
+    existing_material_spec: dict[str, Any] | None,
+    *,
+    generation_root: Path,
+    slot_id: str,
+) -> str | None:
+    from app.pipelines.material_review import material_spec_content_hash
+    from app.pipelines.revise_material_edit import load_archived_material_spec
+
+    if isinstance(existing_material_spec, dict) and existing_material_spec:
+        return material_spec_content_hash(existing_material_spec)
+    archived = load_archived_material_spec(generation_root, slot_id)
+    if isinstance(archived, dict) and archived:
+        return material_spec_content_hash(archived)
+    return None
+
+
 def _try_harvest_acp_partial_spec(ctx: MaterialContext, slot_id: str) -> dict[str, Any] | None:
+    if _is_gate_revise_must_change(ctx, slot_id):
+        return None
     generation_root = _generation_root(ctx)
     scratch = generation_root / "acp-author" / slot_id
     spec_path = scratch / "material-spec.json"
@@ -338,6 +413,33 @@ def _author_spec(
     elif material_edit_mode == "full" and edit_instruction:
         author_finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
 
+    author_contract: dict[str, Any] | None = None
+    existing_spec_hash: str | None = None
+    if edit_instruction:
+        from app.pipelines.display_copy_policy import apply_display_copy_to_finish_brief
+
+        scene = None
+        for item in list(ctx.storyboard):
+            if isinstance(item, dict) and str(item.get("slotId") or "") == slot_id:
+                scene = item
+                break
+        author_finish_brief = apply_display_copy_to_finish_brief(
+            author_finish_brief if isinstance(author_finish_brief, dict) else {},
+            edit_instruction=edit_instruction,
+            storyboard_scene=scene,
+        )
+        author_contract = _build_gate_revise_author_contract(
+            author_finish_brief,
+            edit_instruction=edit_instruction,
+            material_edit_mode=material_edit_mode,
+            storyboard=list(ctx.storyboard),
+            slot_id=slot_id,
+        )
+        existing_spec_hash = _resolve_existing_spec_hash(
+            existing_material_spec,
+            generation_root=_generation_root(ctx),
+            slot_id=slot_id,
+        )
     generation_root = _generation_root(ctx)
     slot_timing = resolve_slot_timing_for_revise(
         generation_root,
@@ -437,6 +539,8 @@ def _author_spec(
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
+                            author_contract=author_contract,
+                            existing_spec_hash=existing_spec_hash,
                         ),
                         storage_root=ctx.storage_root,
                         generated_root=ctx.generated_root,
@@ -484,6 +588,8 @@ def _author_spec(
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
+                            author_contract=author_contract,
+                            existing_spec_hash=existing_spec_hash,
                             review_gateway=ctx.gateway,
                         )
                     ),

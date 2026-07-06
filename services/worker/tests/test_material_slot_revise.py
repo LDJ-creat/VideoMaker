@@ -6,6 +6,7 @@ from pathlib import Path
 from app.pipelines.material_slot_revise import (
     MATERIAL_GATE_REVISE_KEY,
     REVISE_CONTEXT_FILENAME,
+    clear_acp_scratch_for_gate_revise,
     clear_material_gate_revise_context,
     prepare_material_slot_revise,
 )
@@ -18,12 +19,26 @@ def test_prepare_material_slot_revise_writes_revise_context(tmp_path: Path) -> N
     action_id = "action-hook-finish"
     slot_id = "hook"
     (generated_root / action_id).mkdir(parents=True)
+    (generated_root / "material-spec.json").write_text(
+        json.dumps({"template": "composition", "durationSec": 3.0}),
+        encoding="utf-8",
+    )
     (generated_root / action_id / "material-spec.json").write_text(
         json.dumps({"template": "composition", "durationSec": 3.0}),
         encoding="utf-8",
     )
     (generated_root / f"{action_id}.mp4").write_bytes(b"\x00" * 128)
+    scratch = generation_root / "acp-author" / slot_id
+    scratch.mkdir(parents=True)
+    (scratch / "material-spec.json").write_text("{}", encoding="utf-8")
+    (scratch / "material-review-marker.json").write_text("{}", encoding="utf-8")
     plan = {
+        "storyboard": [
+            {
+                "slotId": slot_id,
+                "script": "人脉不是刻意讨好混饭局，价值对等才是长久往来的根本。",
+            }
+        ],
         "completionActions": [
             {
                 "id": "action-hook-stock",
@@ -34,8 +49,13 @@ def test_prepare_material_slot_revise_writes_revise_context(tmp_path: Path) -> N
                 "id": action_id,
                 "slotId": slot_id,
                 "provider": "hyperframes_material",
+                "finishBrief": {
+                    "compositionAuthorBrief": {
+                        "authorPrompt": "beat2把「价值对等」居中放大",
+                    }
+                },
             },
-        ]
+        ],
     }
     (generation_root / "material-state.json").write_text(
         json.dumps({"videoGenQuota": {}, "completedActionIds": [action_id]}),
@@ -46,19 +66,26 @@ def test_prepare_material_slot_revise_writes_revise_context(tmp_path: Path) -> N
         generation_root=generation_root,
         plan=plan,
         slot_id=slot_id,
-        instruction="标题更大一点",
+        instruction="请加核心文字重新生成",
     )
 
     context_path = generation_root / REVISE_CONTEXT_FILENAME
     assert context_path.is_file()
     context = json.loads(context_path.read_text(encoding="utf-8"))
     gate = context[MATERIAL_GATE_REVISE_KEY]
-    assert gate["materialEditMode"] == "edit"
-    assert gate["editInstruction"] == "标题更大一点"
+    assert gate["materialEditMode"] == "full"
+    assert gate["editInstruction"] == "请加核心文字重新生成"
     assert gate["source"] == "material_gate_revise"
+    assert gate["allowedDisplayCopy"]
+    assert "价值对等" in gate["allowedDisplayCopy"]
+    assert gate["authorContract"]["mustChangeSpec"] is True
     assert slot_filter == {slot_id}
     archive_spec = generation_root / "revise-material-archive" / slot_id / "material-spec.json"
     assert archive_spec.is_file()
+    assert not (scratch / "material-spec.json").exists()
+    assert not (scratch / "material-review-marker.json").exists()
+    hf_action = plan["completionActions"][1]
+    assert hf_action["finishBrief"]["renderPolicy"]["allowedDisplayCopy"]
 
 
 def test_prepare_material_slot_revise_preserves_fork_revise_context(tmp_path: Path) -> None:

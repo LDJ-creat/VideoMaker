@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from app.pipelines.material_review import (
     apply_infrastructure_review_waiver,
     classify_review_rejection,
+    material_review_max_rounds,
 )
 from app.validation.schema_loader import validate_contract
 
@@ -46,3 +49,10 @@ def test_infrastructure_waiver_report_matches_material_review_schema() -> None:
     )
     validation = validate_contract("material-review-report", merged)
     assert validation.valid, validation.errors
+
+
+def test_material_review_max_rounds_default_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", raising=False)
+    assert material_review_max_rounds() == 2
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "3")
+    assert material_review_max_rounds() == 3
