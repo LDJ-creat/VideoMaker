@@ -25,6 +25,12 @@ type UseGenerationMigrationArtifactsOptions = {
   enabled?: boolean;
   /** Bump after cancel/retry to drop stale migration snapshot state. */
   resetKey?: number;
+  regeneratingSlotIds?: string[];
+};
+
+type ArtifactSnapshot = {
+  resetKey: number;
+  artifacts: GenerationMigrationArtifacts | null;
 };
 
 export function useGenerationMigrationArtifacts({
@@ -33,6 +39,7 @@ export function useGenerationMigrationArtifacts({
   event,
   enabled = true,
   resetKey = 0,
+  regeneratingSlotIds,
 }: UseGenerationMigrationArtifactsOptions): {
   artifacts: GenerationMigrationArtifacts | null;
   progressGroup: ReturnType<typeof resolveEffectiveMigrationGroup>;
@@ -41,47 +48,57 @@ export function useGenerationMigrationArtifacts({
     generationId && projectId
       ? peekMigrationSnapshotCache(projectId, generationId)
       : null;
-  const [artifacts, setArtifacts] = useState<GenerationMigrationArtifacts | null>(
-    cached,
-  );
+  const [snapshot, setSnapshot] = useState<ArtifactSnapshot>(() => ({
+    resetKey,
+    artifacts: cached,
+  }));
   const snapshotKeyRef = useRef<string | null>(
     cached ? artifactsSnapshotKey(cached) : null,
   );
-  const lastResetKeyRef = useRef(resetKey);
+
+  const effectiveArtifacts =
+    snapshot.resetKey === resetKey ? snapshot.artifacts : null;
 
   const progressGroup = resolveEffectiveMigrationGroup(
     event?.stage,
     event?.message,
-    artifacts,
+    effectiveArtifacts,
+    {
+      taskStatus: event?.status,
+      regeneratingSlotIds,
+    },
   );
   const shouldPoll = shouldPollMigrationArtifacts({
     enabled,
     generationId,
     event,
-    artifacts,
+    artifacts: effectiveArtifacts,
   });
 
   useEffect(() => {
-    if (lastResetKeyRef.current === resetKey) {
+    if (snapshot.resetKey === resetKey) {
       return;
     }
-    lastResetKeyRef.current = resetKey;
     snapshotKeyRef.current = null;
-    setArtifacts(null);
+    setSnapshot({ resetKey, artifacts: null });
     if (generationId) {
       invalidateMigrationSnapshotCache(generationId);
     }
-  }, [generationId, resetKey]);
+  }, [generationId, resetKey, snapshot.resetKey]);
 
   useEffect(() => {
     if (event?.status === "failed" || event?.status === "cancelled") {
       snapshotKeyRef.current = null;
-      setArtifacts(null);
+      setSnapshot((previous) =>
+        previous.resetKey === resetKey
+          ? { resetKey, artifacts: null }
+          : previous,
+      );
       if (generationId) {
         invalidateMigrationSnapshotCache(generationId);
       }
     }
-  }, [event?.status, generationId]);
+  }, [event?.status, generationId, resetKey]);
 
   useEffect(() => {
     if (!shouldPoll || !generationId) {
@@ -99,7 +116,7 @@ export function useGenerationMigrationArtifacts({
       const nextKey = artifactsSnapshotKey(next);
       if (nextKey !== snapshotKeyRef.current) {
         snapshotKeyRef.current = nextKey;
-        setArtifacts(next);
+        setSnapshot({ resetKey, artifacts: next });
       }
     };
 
@@ -115,7 +132,7 @@ export function useGenerationMigrationArtifacts({
   }, [generationId, projectId, resetKey, shouldPoll]);
 
   return {
-    artifacts,
+    artifacts: effectiveArtifacts,
     progressGroup,
   };
 }

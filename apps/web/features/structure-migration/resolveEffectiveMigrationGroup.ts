@@ -8,11 +8,32 @@ import {
 } from "@/features/structure-migration/generationMigrationStages";
 import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
 
+export type ResolveEffectiveMigrationGroupOptions = {
+  taskStatus?: string;
+  regeneratingSlotIds?: string[];
+};
+
 export function resolveEffectiveMigrationGroup(
   stage: TaskStage | undefined,
   message: string | undefined,
   artifacts: GenerationMigrationArtifacts | null | undefined,
+  options?: ResolveEffectiveMigrationGroupOptions,
 ): MigrationStageGroup {
+  if ((options?.regeneratingSlotIds?.length ?? 0) > 0) {
+    return "completing";
+  }
+  if (
+    (options?.taskStatus === "retrying" || options?.taskStatus === "running") &&
+    (stage === "awaiting_material_review" ||
+      stage === "reviewing_material" ||
+      stage === "generating_material" ||
+      stage === "generating_image" ||
+      stage === "generating_video" ||
+      stage === "rendering_material")
+  ) {
+    return "completing";
+  }
+
   const fromStage = migrationStageGroup(stage);
   if (fromStage !== "pending") {
     return fromStage;

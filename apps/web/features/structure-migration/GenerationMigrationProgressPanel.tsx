@@ -4,24 +4,21 @@ import type { TaskEvent, TaskStatus } from "@videomaker/contracts";
 import { useState } from "react";
 
 import { StructureMigrationPanel } from "@/features/structure-migration/StructureMigrationPanel";
+import {
+  useGenerationMigrationArtifacts,
+  type MigrationProgressContext,
+} from "@/features/structure-migration/useGenerationMigrationArtifacts";
 import { buildSlotMigrationRows } from "@/features/structure-migration/buildSlotMigrationRows";
 import {
   isGenerationMigrationStage,
 } from "@/features/structure-migration/generationMigrationStages";
 import {
-  useGenerationMigrationArtifacts,
-  type MigrationProgressContext,
-} from "@/features/structure-migration/useGenerationMigrationArtifacts";
-import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
-import {
   buildUnifiedMaterialProgressSummary,
   getActiveMaterialSlotIds,
-  mergeCompletedMaterialSlotIds,
-  reconcileMaterialSlotProgress,
-  shouldInferDiskCompletedSlots,
   type ParallelMaterialActivity,
 } from "@/lib/parallelMaterialActivity";
 import { parseTaskMaterialProgress } from "@/lib/parseTaskMaterialProgress";
+import { resolveMaterialProgressView } from "@/lib/resolveMaterialProgressView";
 import { cn } from "@/lib/utils";
 
 type GenerationMigrationProgressPanelProps = {
@@ -29,6 +26,7 @@ type GenerationMigrationProgressPanelProps = {
   event: TaskEvent | null;
   materialActivity: ParallelMaterialActivity;
   progressResetKey?: number;
+  regeneratingSlotIds?: string[];
   defaultExpanded?: boolean;
 };
 
@@ -50,6 +48,7 @@ export function GenerationMigrationProgressPanel({
   event,
   materialActivity,
   progressResetKey = 0,
+  regeneratingSlotIds,
   defaultExpanded = true,
 }: GenerationMigrationProgressPanelProps) {
   const { artifacts, progressGroup } = useGenerationMigrationArtifacts({
@@ -57,6 +56,7 @@ export function GenerationMigrationProgressPanel({
     generationId: context.generationId,
     event,
     resetKey: progressResetKey,
+    regeneratingSlotIds,
   });
 
   if (!event || !shouldShowMigrationShell(event)) {
@@ -66,20 +66,16 @@ export function GenerationMigrationProgressPanel({
   const materialProgress = parseTaskMaterialProgress(event.message);
   const isPreMigration =
     progressGroup === "pending" && !materialProgress.actionLabel;
-  const completedFromActions = deriveCompletedSlotIds(
-    artifacts?.completionActions ?? [],
-    artifacts?.materialState?.completedActionIds,
-  );
-  const completedSlotIds = mergeCompletedMaterialSlotIds(
+  const materialProgressView = resolveMaterialProgressView({
     materialActivity,
-    completedFromActions,
-    artifacts?.completedSlotIds,
-    { includeDisk: shouldInferDiskCompletedSlots(progressGroup) },
-  );
-  const resolvedActivity = reconcileMaterialSlotProgress(
-    materialActivity,
-    completedSlotIds,
-  );
+    regeneratingSlotIds,
+    completionActions: artifacts?.completionActions ?? [],
+    completedActionIds: artifacts?.materialState?.completedActionIds,
+    diskCompletedSlotIds: artifacts?.completedSlotIds,
+    progressGroup,
+  });
+  const resolvedActivity = materialProgressView.resolvedActivity;
+  const completedSlotIds = materialProgressView.completedSlotIds;
   const unifiedMaterial = buildUnifiedMaterialProgressSummary(
     resolvedActivity,
     event.message,
@@ -149,7 +145,9 @@ export function GenerationMigrationProgressPanel({
         : progressGroup === "completing"
           ? activeSlotIds.size > 1
             ? "补全策略已确定，正在并行生成或渲染多个槽位素材。"
-            : "补全策略已确定，正在生成或渲染各槽位素材。"
+            : activeSlotIds.size === 1
+              ? `补全策略已确定，正在生成或渲染 ${[...activeSlotIds][0]} 槽位素材。`
+              : "补全策略已确定，正在生成或渲染各槽位素材。"
           : "结构迁移进度将随任务阶段自动更新。";
 
   return (

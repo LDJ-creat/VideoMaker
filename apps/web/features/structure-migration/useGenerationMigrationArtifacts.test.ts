@@ -18,6 +18,7 @@ const mockArtifacts = {
   gapReport: null,
   completionActions: [],
   materialState: null,
+  completedSlotIds: [],
 };
 
 describe("useGenerationMigrationArtifacts", () => {
@@ -124,5 +125,45 @@ describe("useGenerationMigrationArtifacts", () => {
     expect(cache.fetchMigrationSnapshotCached).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+
+  it("drops stale cached artifacts immediately when resetKey bumps", async () => {
+    vi.spyOn(cache, "peekMigrationSnapshotCache").mockReturnValue({
+      ...mockArtifacts,
+      completionActions: [
+        {
+          id: "action-slot-2",
+          slotId: "slot-2",
+          provider: "hyperframes_material",
+          strategy: "hyperframes_material",
+          reason: "fill",
+          outputRef: "x",
+        },
+      ],
+      completedSlotIds: ["slot-1", "slot-2"],
+    });
+
+    const { result, rerender } = renderHook(
+      ({ resetKey }: { resetKey: number }) =>
+        useGenerationMigrationArtifacts({
+          projectId: "project-1",
+          generationId: "gen-1",
+          event: {
+            ...fixtureTaskEvent,
+            stage: "generating_material",
+            status: "retrying",
+          },
+          resetKey,
+          regeneratingSlotIds: resetKey > 0 ? ["slot-2"] : undefined,
+        }),
+      { initialProps: { resetKey: 0 } },
+    );
+
+    await waitFor(() => expect(result.current.artifacts).not.toBeNull());
+    expect(result.current.progressGroup).toBe("completing");
+
+    rerender({ resetKey: 1 });
+    expect(result.current.artifacts).toBeNull();
+    expect(result.current.progressGroup).toBe("completing");
   });
 });

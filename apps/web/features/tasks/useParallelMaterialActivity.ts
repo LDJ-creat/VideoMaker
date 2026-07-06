@@ -51,10 +51,6 @@ export function useParallelMaterialActivity(
     lastMessageRef.current = null;
     setActivity(EMPTY_PARALLEL_MATERIAL_ACTIVITY);
 
-    if (isRetryReset) {
-      return;
-    }
-
     let cancelled = false;
     void (async () => {
       try {

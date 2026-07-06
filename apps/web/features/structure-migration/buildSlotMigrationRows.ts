@@ -132,11 +132,11 @@ function resolveRowStatus(input: {
     case "planning":
       return input.hasGap || input.hasCompletion ? "planned" : "mapping";
     case "completing": {
-      if (input.completedSlotIds?.has(normalizedSlot)) {
-        return "completed";
-      }
       if (activeSlots.has(normalizedSlot)) {
         return "completing";
+      }
+      if (input.completedSlotIds?.has(normalizedSlot)) {
+        return "completed";
       }
       return "planned";
     }

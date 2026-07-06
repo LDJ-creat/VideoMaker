@@ -34,6 +34,7 @@ type MultiTaskProgressPanelProps = {
   onGoToScriptReview?: () => void;
   getMigrationContext?: (taskId: string) => MigrationProgressContext | null;
   taskWatchKeys?: Record<string, number>;
+  materialSlotRegenByTask?: Record<string, string[]>;
 };
 
 export function MultiTaskProgressPanel({
@@ -52,6 +53,7 @@ export function MultiTaskProgressPanel({
   onGoToScriptReview,
   getMigrationContext,
   taskWatchKeys = {},
+  materialSlotRegenByTask = {},
 }: MultiTaskProgressPanelProps) {
   const devMetrics =
     process.env.NODE_ENV === "development" ? getDevProgressMetrics() : null;
@@ -89,6 +91,7 @@ export function MultiTaskProgressPanel({
         onGoToScriptReview={onGoToScriptReview}
         migrationContext={getMigrationContext?.(single.taskId) ?? undefined}
         progressResetKey={taskWatchKeys[single.taskId] ?? 0}
+        regeneratingSlotIds={materialSlotRegenByTask[single.taskId]}
           onRetry={
             (single.retryable ||
               single.event?.status === "failed" ||
@@ -129,6 +132,7 @@ export function MultiTaskProgressPanel({
           onGoToScriptReview={onGoToScriptReview}
           migrationContext={getMigrationContext?.(task.taskId) ?? undefined}
           progressResetKey={taskWatchKeys[task.taskId] ?? 0}
+          regeneratingSlotIds={materialSlotRegenByTask[task.taskId]}
             onRetry={
               (task.retryable ||
                 task.event?.status === "failed" ||
