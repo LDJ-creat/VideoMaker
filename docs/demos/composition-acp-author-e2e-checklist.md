@@ -27,6 +27,7 @@ Copy [`services/api/.env.example`](../api/.env.example) → `services/api/.env` 
 | `VIDEOMAKER_ACP_SMOKE_SIMPLE` | **`false`** | **Production E2E must be `false`**; smoke scripts set `true` |
 | `VIDEOMAKER_MCP_WRITE_LINT_FOR_ACP` | `true` | MCP `write_material_spec` runs lint with `hintCode` / `fixRecipe` |
 | `VIDEOMAKER_MCP_WRITE_SKIP_LINT` | `false` (ACP) | When `true`, skips MCP lint; worker turn gate remains |
+| `VIDEOMAKER_FIXTURE_MODE` | `false` | **`true` only for CI/smoke**; enables fixture HyperFrames lint. **`VM_ACP_FIXTURE_LINT` is not passed to ACP MCP in production.** |
 
 ### Concurrency (dual-layer)
 
@@ -63,7 +64,7 @@ New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 @'
 {"template":"benefit-card","durationSec":3,"params":{"title":"Cli","bullets":["A"],"colors":{"primary":"#2563eb","background":"#0f172a","text":"#ffffff"}}}
 '@ | Set-Content -Encoding utf8 "$scratch\material-spec.json"
-$env:VM_ACP_FIXTURE_LINT="1"
+$env:VIDEOMAKER_FIXTURE_MODE="true"
 $env:PYTHONPATH="services\composition;services\shared"
 python -m composition.cli lint-spec --scratch $scratch --repo-root . --schema-only --json
 python -m composition.cli lint-spec --scratch $scratch --repo-root . --json

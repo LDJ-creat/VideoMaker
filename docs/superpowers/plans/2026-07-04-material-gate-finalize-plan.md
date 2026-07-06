@@ -44,7 +44,7 @@ Material Review Gate（2026-06-29）已在首次生成链路插入 `awaiting_mat
               awaiting_material_review（人工 gate）
 ```
 
-**In-session 轮次上限：** `VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS`（默认 **5**，与 lint repair 共用）；ReAct：`VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS`（代码默认 12）。`VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS` 未单独实现。
+**In-session 预算（2026-07-06 review-only）：** Lint 为 MCP `composition_lint_draft` 自循环，**不计次**。Vision 审片上限 **`VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS=2`**（ACP worker post-turn；ReAct `review_material_preview` tool 同 cap）。ACP `conn.prompt()` 安全阀 **`VIDEOMAKER_COMPOSITION_ACP_DIALOGUE_SAFETY_MAX=15`**（`VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS` 已 deprecated，仅作 fallback）。ReAct LLM 编排上限 **`VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS=12`**（与 vision cap 正交）。Review 用尽 → 接受 spec + `approved=false` marker → 人工 material gate。
 
 ## 目标链路
 
@@ -230,7 +230,9 @@ Copy 后可选校验 SHA256（与 marker.report.previewSha256 对比，不一致
 | Env | Default | 含义 |
 |-----|---------|------|
 | `VIDEOMAKER_MATERIAL_GATE_PROMOTE_ONLY` | `true` | Gate finalize 零 post LLM |
-| `VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS` | `5` | In-session lint+review 总 turn |
+| `VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS` | `2` | Vision 审片上限（ACP worker + ReAct tool） |
+| `VIDEOMAKER_COMPOSITION_ACP_DIALOGUE_SAFETY_MAX` | `15` | ACP conn.prompt 安全阀 |
+| `VIDEOMAKER_COMPOSITION_ACP_MAX_TURNS` | — | **Deprecated** → DIALOGUE_SAFETY_MAX fallback |
 | `VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION` | `true` | 生产应开启 |
 
 ## Out of Scope

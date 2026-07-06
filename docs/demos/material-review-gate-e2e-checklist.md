@@ -25,6 +25,9 @@
 - [ ] HF / `-finish` slots: agent review with video or vision route
 - [ ] ReAct/ACP auto-repair stays in single session (no new ACP session for repair)
 - [ ] Gate NL revise uses new author session + `existingMaterialSpec`
+- [ ] Gate NL「加核心文字/重新生成」：`revise-context.json` / ACP `task.json` 含非空 `authorContract.allowedDisplayCopy`
+- [ ] Gate regen 后 `specHash` 必须变化；未变化时 task 失败且 hint 含 `regression_unchanged_spec`
+- [ ] Gate regen 清 ACP scratch（`material-spec.json`、`material-review-marker.json`）；vision review 重跑，非旧 `text_only` 缓存
 - [ ] `approve-material` produces `master.wav` and final MP4
 - [ ] `VIDEOMAKER_HUMAN_REVIEW_MODE=false` skips material gate
 - [ ] Dual-variant: each generation pauses/resumes independently
