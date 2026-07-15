@@ -29,7 +29,7 @@ services/api/storage/projects/{projectId}/
 
 少数脚本/测试可能用仓库根 `storage/projects/`。若路径不存在，先 `Glob **/projects/{projectId}/generations/{generationId}` 定位真实 root。
 
-完整路径表见 [path-map.md](path-map.md)。常见失败判据见 [diagnosis-playbook.md](diagnosis-playbook.md)。
+完整路径表见 [path-map.md](path-map.md)。常见失败判据见 [diagnosis-playbook.md](diagnosis-playbook.md)。仓库总览见根目录 [`AGENTS.md`](../../../AGENTS.md)；百科级实现说明见 [`docs/guides/agents-reference.md`](../../../docs/guides/agents-reference.md)。
 
 ## Helper script（优先用）
 
