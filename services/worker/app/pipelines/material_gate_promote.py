@@ -22,18 +22,38 @@ PREVIEW_COMPOSITION_DIR = "preview-composition"
 
 
 def scratch_dir_for_slot(generation_root: Path, slot_id: str) -> Path:
+    """Preferred ACP scratch; prefer this when writing ACP artifacts."""
     return generation_root / "acp-author" / slot_id
 
 
+def author_scratch_dirs_for_slot(generation_root: Path, slot_id: str) -> list[Path]:
+    """ACP and ReAct author scratch roots for a slot (order: prefer first hit)."""
+    return [
+        generation_root / "acp-author" / slot_id,
+        generation_root / "react-author" / slot_id,
+    ]
+
+
 def load_scratch_review_marker(generation_root: Path, slot_id: str) -> dict[str, Any] | None:
-    path = scratch_dir_for_slot(generation_root, slot_id) / MARKER_FILENAME
-    if not path.is_file():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-    return payload if isinstance(payload, dict) else None
+    """Load in-session review marker from ACP or ReAct scratch (first match wins)."""
+    for scratch in author_scratch_dirs_for_slot(generation_root, slot_id):
+        path = scratch / MARKER_FILENAME
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def resolve_author_scratch_with_marker(generation_root: Path, slot_id: str) -> Path | None:
+    for scratch in author_scratch_dirs_for_slot(generation_root, slot_id):
+        if (scratch / MARKER_FILENAME).is_file():
+            return scratch
+    return None
 
 
 def should_promote_as_passed(marker: dict[str, Any] | None, *, spec: dict[str, Any]) -> bool:
@@ -52,10 +72,33 @@ def should_materialize_final(
         return "render" if isinstance(spec, dict) else "skip"
     preview_path = scratch_dir / PREVIEW_FILENAME
     if preview_path.is_file() and preview_path.stat().st_size > 0:
+        if isinstance(spec, dict):
+            marker = _load_marker_payload(scratch_dir)
+            if marker is not None:
+                current_hash = material_spec_content_hash(spec)
+                marker_hash = str(marker.get("specHash") or "")
+                if marker_hash and marker_hash != current_hash:
+                    return "render"
+                report = marker.get("report")
+                if isinstance(report, dict):
+                    report_hash = str(report.get("specHash") or "")
+                    if report_hash and report_hash != current_hash:
+                        return "render"
         return "copy_preview"
     if isinstance(spec, dict):
         return "render"
     return "skip"
+
+
+def _load_marker_payload(scratch_dir: Path) -> dict[str, Any] | None:
+    path = scratch_dir / MARKER_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 @dataclass(frozen=True)

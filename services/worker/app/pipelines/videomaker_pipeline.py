@@ -961,7 +961,52 @@ class VideoMakerPipeline:
         plan: dict[str, Any] | None = None
         slot_matches: list[dict[str, Any]] = []
 
-        if should_skip_generation_stage("analyzing_assets", checkpoint, generation_root, resume=resume):
+        from app.pipelines.material_review import use_material_review_gate
+        from app.pipelines.material_slot_revise import (
+            is_material_gate_revise_job,
+            load_gate_revise_resume_artifacts,
+        )
+
+        gate_revise_fast_path = (
+            is_material_gate_revise_job(generation_root, resume=resume)
+            and use_material_review_gate(
+                human_review=human_review,
+                revise_context=revise_context,
+            )
+        )
+        if gate_revise_fast_path:
+            loaded_inventory, loaded_plan, loaded_gap, loaded_slot_matches = (
+                load_gate_revise_resume_artifacts(generation_root)
+            )
+            if loaded_inventory is not None and loaded_plan is not None:
+                inventory = loaded_inventory
+                plan = loaded_plan
+                gap_report = loaded_gap
+                slot_matches = loaded_slot_matches
+                emit(
+                    status="running",
+                    stage="analyzing_assets",
+                    progress=10,
+                    message="(resumed) asset inventory ready",
+                )
+                emit(
+                    status="running",
+                    stage="mapping_slots",
+                    progress=35,
+                    message="(resumed) slot mapping ready",
+                )
+                emit(
+                    status="running",
+                    stage="planning_completion",
+                    progress=55,
+                    message="(resumed) generation plan ready",
+                )
+            else:
+                gate_revise_fast_path = False
+
+        if not gate_revise_fast_path and should_skip_generation_stage(
+            "analyzing_assets", checkpoint, generation_root, resume=resume
+        ):
             inventory = json.loads((generation_root / "asset-inventory.json").read_text(encoding="utf-8"))
             emit(
                 status="running",
@@ -969,7 +1014,7 @@ class VideoMakerPipeline:
                 progress=10,
                 message="(resumed) asset inventory ready",
             )
-        else:
+        elif not gate_revise_fast_path:
             emit(
                 status="running",
                 stage="analyzing_assets",
@@ -1025,7 +1070,9 @@ class VideoMakerPipeline:
             checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.save(checkpoint_path)
 
-        if should_skip_planning_completion_resumable(checkpoint, generation_root, resume=resume):
+        if not gate_revise_fast_path and should_skip_planning_completion_resumable(
+            checkpoint, generation_root, resume=resume
+        ):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             plan = normalize_generation_plan(
                 json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
@@ -1063,7 +1110,7 @@ class VideoMakerPipeline:
                 progress=55,
                 message="(resumed) generation plan ready",
             )
-        elif human_review:
+        elif not gate_revise_fast_path and human_review:
             if should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
                 gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
                 slot_matches_payload = json.loads(
@@ -1236,7 +1283,9 @@ class VideoMakerPipeline:
             )
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.save(checkpoint_path)
-        elif should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
+        elif not gate_revise_fast_path and should_skip_mapping_slots_resumable(
+            checkpoint, generation_root, resume=resume
+        ):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             slot_matches_payload = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
             slot_matches = list(slot_matches_payload.get("slotMatches", []))
@@ -1283,7 +1332,7 @@ class VideoMakerPipeline:
             )
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.save(checkpoint_path)
-        else:
+        elif not gate_revise_fast_path:
             emit(
                 status="running",
                 stage="mapping_slots",

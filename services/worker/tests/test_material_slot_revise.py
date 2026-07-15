@@ -8,7 +8,10 @@ from app.pipelines.material_slot_revise import (
     REVISE_CONTEXT_FILENAME,
     clear_acp_scratch_for_gate_revise,
     clear_material_gate_revise_context,
+    is_material_gate_revise_job,
+    load_gate_revise_resume_artifacts,
     prepare_material_slot_revise,
+    queue_material_slot_revise,
 )
 
 
@@ -180,3 +183,55 @@ def test_clear_material_gate_revise_context_preserves_fork_metadata(tmp_path: Pa
     assert MATERIAL_GATE_REVISE_KEY not in context
     assert context["materialReviewScope"] == "scoped"
     assert context["sourceGenerationId"] == "gen-source"
+
+
+def test_is_material_gate_revise_job_pending_queue(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    queue_material_slot_revise(
+        generation_root=generation_root,
+        generation_id="gen",
+        slot_id="slot-5",
+        instruction="更亮",
+    )
+    assert is_material_gate_revise_job(generation_root, resume=False) is True
+    assert is_material_gate_revise_job(generation_root, resume=True) is True
+
+
+def test_is_material_gate_revise_job_consumed_context(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    (generation_root / REVISE_CONTEXT_FILENAME).write_text(
+        json.dumps(
+            {
+                MATERIAL_GATE_REVISE_KEY: {
+                    "source": "material_gate_revise",
+                    "affectedSlotIds": ["slot-5"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert is_material_gate_revise_job(generation_root, resume=False) is False
+    assert is_material_gate_revise_job(generation_root, resume=True) is True
+
+
+def test_load_gate_revise_resume_artifacts(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    inventory = {"id": "inv-1", "projectId": "p1"}
+    plan = {"id": "gen", "completionActions": []}
+    (generation_root / "asset-inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    (generation_root / "generation-plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    (generation_root / "gap-report.json").write_text(json.dumps({"id": "gap-1"}), encoding="utf-8")
+    (generation_root / "slot-matches.json").write_text(
+        json.dumps({"slotMatches": [{"slotId": "slot-5"}]}),
+        encoding="utf-8",
+    )
+    loaded_inv, loaded_plan, loaded_gap, slot_matches = load_gate_revise_resume_artifacts(
+        generation_root
+    )
+    assert loaded_inv == inventory
+    assert loaded_plan == plan
+    assert loaded_gap == {"id": "gap-1"}
+    assert slot_matches == [{"slotId": "slot-5"}]

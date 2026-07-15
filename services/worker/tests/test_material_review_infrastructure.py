@@ -53,6 +53,6 @@ def test_infrastructure_waiver_report_matches_material_review_schema() -> None:
 
 def test_material_review_max_rounds_default_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", raising=False)
-    assert material_review_max_rounds() == 2
+    assert material_review_max_rounds() == 1
     monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "3")
     assert material_review_max_rounds() == 3

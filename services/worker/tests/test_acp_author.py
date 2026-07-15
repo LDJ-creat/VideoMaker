@@ -556,7 +556,7 @@ def test_acp_turn_loop_retries_on_hard_gate_review(
     )
     assert spec["durationSec"] == 7.15
     assert counters["prompts"] == 2
-    assert review_calls["n"] == 2
+    assert review_calls["n"] == 1
 
     payloads = [
         json.loads(path.read_text(encoding="utf-8"))
@@ -980,6 +980,100 @@ def test_acp_review_rounds_exhausted_accepts_spec(
     marker = json.loads(marker_path(scratch).read_text(encoding="utf-8"))
     assert marker["report"]["approved"] is False
     assert "review_rounds_exhausted" in marker["report"].get("issues", [])
+
+
+def test_acp_max_one_review_allows_repair_without_second_review(
+    tmp_path: Path,
+    repo_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.composition.acp import author as author_module
+    from composition.material_review.session import marker_path
+
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "1")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+    spec_payload = {
+        "template": "benefit-card",
+        "durationSec": 8,
+        "params": {
+            "title": "Review repair once",
+            "bullets": ["A"],
+            "colors": {"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
+        },
+    }
+    (scratch / "material-spec.json").write_text(json.dumps(spec_payload), encoding="utf-8")
+
+    review_calls = {"n": 0}
+    prompt_calls = {"n": 0}
+
+    class _Session:
+        session_id = "review-repair-once"
+
+    class _Conn:
+        async def initialize(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def new_session(self, **_kwargs: object) -> _Session:
+            return _Session()
+
+        async def prompt(self, *_args: object, **_kwargs: object) -> object:
+            prompt_calls["n"] += 1
+            return None
+
+        async def close_session(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_spawn(*_args: object, **_kwargs: object):
+        yield _Conn(), None
+
+    def fake_review(*_args: object, **_kwargs: object) -> tuple[dict[str, object], list[str], bool]:
+        review_calls["n"] += 1
+        report: dict[str, object] = {
+            "approved": False,
+            "hardGateFailed": False,
+            "issues": ["copy overlap on screen"],
+            "suggestions": ["Hide base sentence during keyword beat"],
+        }
+        from composition.material_review.session import write_review_marker
+
+        write_review_marker(scratch, spec=spec_payload, report=report)
+        return (report, ["copy overlap on screen"], True)
+
+    refresh_calls = {"n": 0}
+
+    def fake_refresh(*_args: object, **_kwargs: object) -> list[str]:
+        refresh_calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(author_module, "spawn_agent_process", fake_spawn)
+    monkeypatch.setattr(author_module, "_harvest_material_spec", lambda *_a, **_k: scratch / "material-spec.json")
+    monkeypatch.setattr(author_module, "_lint_spec_after_turn", lambda *_a, **_k: ([], False))
+    monkeypatch.setattr(author_module, "_review_spec_after_turn", fake_review)
+    monkeypatch.setattr(author_module, "_refresh_preview_after_repair", fake_refresh)
+
+    spec = author_material_spec_via_acp(
+        AuthorRequest(
+            project_id="proj-acp",
+            generation_id="gen-1",
+            slot={"role": "benefit_card"},
+            aspect_ratio="9:16",
+        ),
+        repo_root=repo_root,
+        scratch_dir=scratch,
+        agent_command=fake_agent_command(),
+    )
+    assert spec["params"]["title"] == "Review repair once"
+    assert review_calls["n"] == 1
+    assert prompt_calls["n"] == 2
+    assert refresh_calls["n"] == 1
+    marker = json.loads(marker_path(scratch).read_text(encoding="utf-8"))
+    assert marker["report"]["approved"] is False
+    assert "review_rounds_exhausted" not in " ".join(marker["report"].get("issues") or [])
 
 
 def test_mcp_server_env_disables_in_session_review(repo_root: Path, tmp_path: Path) -> None:

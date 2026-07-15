@@ -143,7 +143,7 @@ def _slot_by_id(structure: dict[str, Any], slot_id: str) -> dict[str, Any]:
 def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
     from composition.author.forbidden_copy_guard import normalize_author_slot
 
-    return normalize_author_slot(
+    normalized = normalize_author_slot(
         {
             "role": slot.get("role"),
             "scriptIntent": slot.get("scriptIntent", ""),
@@ -152,6 +152,11 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
             "requiredAssetType": list(slot.get("requiredAssetType") or []),
         }
     )
+    # Preserve id for react-author/acp-author scratch paths and review marker promote.
+    slot_id = str(slot.get("id") or slot.get("slotId") or "").strip()
+    if slot_id:
+        normalized["id"] = slot_id
+    return normalized
 
 
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
@@ -450,7 +455,11 @@ def _author_spec(
     )
     target_duration = float(slot_timing["durationSec"])
     prefer_duration: float | None = None
-    if material_edit_mode == "edit":
+    # Gate revise with mustChangeSpec: always honor canonical slotTiming (TTS window).
+    # Preferring a prior fallback durationSec (e.g. empty benefit-card = 3s) shrinks the
+    # render and trips preview_duration_drift vs narration_timing.
+    must_change = isinstance(author_contract, dict) and author_contract.get("mustChangeSpec") is True
+    if material_edit_mode == "edit" and not must_change:
         if isinstance(existing_material_spec, dict) and existing_material_spec.get("durationSec") is not None:
             prefer_duration = float(existing_material_spec["durationSec"])
         elif isinstance(author_finish_brief, dict) and author_finish_brief.get("durationSec") is not None:
@@ -779,12 +788,19 @@ class HyperFramesMaterialProvider:
                 )
 
         generation_root = _generation_root(ctx)
-        scratch_dir = generation_root / "acp-author" / slot_id
-        force_render = material_edit_mode == "edit"
         from app.pipelines.material_gate_promote import (
+            author_scratch_dirs_for_slot,
             materialize_final_to_generated,
+            resolve_author_scratch_with_marker,
             should_materialize_final,
         )
+
+        # Prefer scratch that holds in-session marker/preview (ACP or ReAct).
+        scratch_dir = resolve_author_scratch_with_marker(generation_root, slot_id)
+        if scratch_dir is None:
+            candidates = author_scratch_dirs_for_slot(generation_root, slot_id)
+            scratch_dir = next((p for p in candidates if p.is_dir()), candidates[0])
+        force_render = material_edit_mode == "edit"
 
         materialize_mode = should_materialize_final(
             scratch_dir=scratch_dir,
@@ -942,6 +958,10 @@ class HyperFramesMaterialProvider:
             generated_root=ctx.generated_root,
             final_source=final_source,  # type: ignore[arg-type]
             partial_harvest=partial_harvest,
+            runner=ctx.runner,
+            context=ctx.task_context,
+            gateway=ctx.gateway,
+            observability_sink=ctx.runner.observability_sink if ctx.runner is not None else None,
         )
         ctx.emit_progress(
             "reviewing_material",

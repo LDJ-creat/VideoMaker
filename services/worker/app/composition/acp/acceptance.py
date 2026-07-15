@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from app.pipelines.material_review import material_spec_content_hash
+from app.pipelines.material_slot_revise import scan_forbidden_acp_scratch_files
 
 _SESSION_MTIME_TOLERANCE_SEC = 1.0
 
@@ -60,5 +62,15 @@ def accept_acp_author_result(
     if partial_harvest and is_gate_revise and must_change:
         errors.append("Gate revise does not allow silent partial harvest")
         hint_codes.append("partial_harvest_blocked")
+
+    helper_block = os.getenv("VIDEOMAKER_ACP_HELPER_SCRIPT_BLOCK", "true").strip().lower()
+    if helper_block not in {"0", "false", "no", "off"}:
+        forbidden = scan_forbidden_acp_scratch_files(scratch_dir)
+        if forbidden:
+            errors.append(
+                "Forbidden helper scripts in scratch: "
+                + ", ".join(forbidden)
+            )
+            hint_codes.append("forbidden_helper_script")
 
     return (not errors, errors, hint_codes)

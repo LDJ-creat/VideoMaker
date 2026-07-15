@@ -27,6 +27,7 @@ from composition.types import AuthorRequest
 from app.composition.acp.agent_registry import fake_agent_command, resolve_acp_agent_command, resolve_acp_agent_label
 from app.composition.acp.fs_bridge import FsBridge
 from app.composition.acp.headless_client import HeadlessCompositionClient, client_capabilities
+from app.composition.acp.trace_policy import TracePolicyMonitor, build_policy_violation_followup
 from app.composition.acp.scratch_assets import (
     list_scratch_media,
     prepare_author_request_for_scratch,
@@ -179,8 +180,17 @@ def _build_in_session_followup(
         "forbiddenAction": "read_repo_source",
         "allowedMedia": list_scratch_media(scratch_dir),
         "scratchDir": scratch_dir_for_prompt(scratch_dir),
-        "nextStep": "fix spec, run composition_lint_draft, then write_material_spec",
+        "nextStep": "fix spec → draft.json → composition_lint_scratch_file → write_material_spec",
     }
+    hint = str(enriched.get("hintCode") or "")
+    if hint == "lint_timeout" or any("timed out" in str(item).lower() for item in sanitized):
+        payload["fixRecipe"] = (
+            "Write draft.json in scratch, then composition_lint_scratch_file(relative_path='draft.json'); "
+            "do not repeat composition_lint_draft with large inline JSON"
+        )
+        payload["nextStep"] = (
+            "fix spec → draft.json → composition_lint_scratch_file → write_material_spec"
+        )
     if "suggestedAllowedDisplayCopy" in enriched:
         payload["suggestedAllowedDisplayCopy"] = enriched["suggestedAllowedDisplayCopy"]
     if isinstance(author_payload, dict):
@@ -398,20 +408,21 @@ def _build_acp_task_instructions(
         contract_note = "Follow authorContract in user payload (displayCopy + mustChangeSpec)."
     return "\n".join(
         [
-            "Author one MaterialSpec. User payload JSON is the sole brief — do not infer from the repo.",
+            "Author one MaterialSpec. Use read_author_brief MCP (or scratch/AUTHOR_BRIEF.md) as the sole brief.",
             contract_note,
             "",
-            "Phase A: required skill_view → draft JSON → composition_lint_draft loop → write_material_spec.",
+            "Phase A: skill_view → read_author_brief → validate/lint loop → write_material_spec.",
             "Phase B: worker may run preview review once; only adjust spec/motion.",
             "Never call review_material_preview; worker owns vision review.",
-            "Forbidden: shell/python -c, Read/Grep repo source, VM_ACP_FIXTURE_LINT.",
+            "Forbidden: shell/python helpers (_invoke_mcp.py), Read/Grep repo source, VM_ACP_FIXTURE_LINT.",
             _lint_channel_note(agent),
             "",
             f"Template: {_template_requirement(template_mode, author_payload)}",
             "Output fields only: template, durationSec, params|composition.",
             media_note,
-            f"Scratch: {scratch_dir}",
-            f"Submit: write_material_spec → {scratch_dir / 'material-spec.json'}",
+            f"Scratch: {scratch_dir_for_prompt(scratch_dir)}",
+            "Bootstrap: AUTHOR_BRIEF.md and SKILLS_SUMMARY.md in scratch.",
+            f"Submit: write_material_spec → material-spec.json",
         ]
     )
 
@@ -448,8 +459,25 @@ def _scratch_dir(
 
 
 def _build_prompt_text(request: AuthorRequest, repo_root: Path, *, scratch_dir: Path) -> tuple[str, str, bool]:
+    from app.composition.acp.gate_revise_prompt import (
+        build_gate_revise_prompt_user_payload,
+        is_gate_revise_author_payload,
+    )
+
     payload = build_material_author_user_payload(request)
-    user = json.dumps(payload, ensure_ascii=False, indent=2)
+    generation_root = (
+        Path(request.generation_root).resolve()
+        if isinstance(request.generation_root, str) and request.generation_root.strip()
+        else None
+    )
+    if is_gate_revise_author_payload(payload):
+        user_payload = build_gate_revise_prompt_user_payload(
+            payload,
+            generation_root=generation_root,
+        )
+    else:
+        user_payload = payload
+    user = json.dumps(user_payload, ensure_ascii=False, indent=2)
     timing = payload.get("slotTiming") if isinstance(payload.get("slotTiming"), dict) else {}
     duration = timing.get("durationSec", 8)
     colors = payload.get("brandColors") if isinstance(payload.get("brandColors"), dict) else {}
@@ -635,6 +663,7 @@ def _mcp_server_env(
     storage_root: Path | None = None,
     acp_observability_run_id: str | None = None,
     generation_root: Path | None = None,
+    in_session_review: bool = False,
 ) -> list[EnvVariable]:
     composition_root = repo_root / "services" / "composition"
     worker_root = repo_root / "services" / "worker"
@@ -653,8 +682,11 @@ def _mcp_server_env(
         EnvVariable(name="VM_ASPECT_RATIO", value=aspect_ratio),
         EnvVariable(name="VIDEOMAKER_MCP_WRITE_SKIP_LINT", value=_mcp_write_skip_lint_default()),
         EnvVariable(name="VIDEOMAKER_MATERIAL_REVIEW_ENABLED", value=os.environ.get("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")),
-        # ACP agents must not MCP-review; worker post-turn vision uses _acp_in_session_review_enabled().
-        EnvVariable(name="VM_ACP_IN_SESSION_REVIEW", value="false"),
+        # Align MCP write_material_spec review-marker gate with worker in-session review mode.
+        EnvVariable(
+            name="VM_ACP_IN_SESSION_REVIEW",
+            value="true" if in_session_review else "false",
+        ),
         EnvVariable(name="PYTHONPATH", value=pythonpath),
     ]
     db_path, storage = _resolve_acp_gateway_env_paths(
@@ -734,6 +766,73 @@ def _write_review_rounds_exhausted_marker(
     write_review_marker(scratch_dir, spec=spec, report=report)
 
 
+def _render_preview_only(
+    spec: dict[str, Any],
+    *,
+    scratch_dir: Path,
+    repo_root: Path,
+    aspect_ratio: str,
+    asset_root: Path | None,
+) -> list[str]:
+    from app.pipelines.material_review import material_preview_profile
+    from composition.material_review.preview import render_material_preview_spec
+
+    result = render_material_preview_spec(
+        spec,
+        scratch_dir=scratch_dir,
+        repo_root=repo_root,
+        aspect_ratio=aspect_ratio,
+        asset_root=asset_root,
+        preview_profile=material_preview_profile(),
+    )
+    if not result.get("ok"):
+        error = result.get("error") if isinstance(result.get("error"), dict) else {}
+        message = str(error.get("message") or "preview render failed")
+        return [f"preview_render_failed:{message}"]
+    return []
+
+
+def _sync_marker_spec_hash(scratch_dir: Path, spec: dict[str, Any]) -> None:
+    from composition.material_review.session import marker_path, material_spec_content_hash
+
+    path = marker_path(scratch_dir)
+    if not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(payload, dict):
+        return
+    spec_hash = material_spec_content_hash(spec)
+    payload["specHash"] = spec_hash
+    report = payload.get("report")
+    if isinstance(report, dict):
+        report["specHash"] = spec_hash
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _refresh_preview_after_repair(
+    spec: dict[str, Any],
+    *,
+    scratch_dir: Path,
+    repo_root: Path,
+    aspect_ratio: str,
+    asset_root: Path | None,
+) -> list[str]:
+    errors = _render_preview_only(
+        spec,
+        scratch_dir=scratch_dir,
+        repo_root=repo_root,
+        aspect_ratio=aspect_ratio,
+        asset_root=asset_root,
+    )
+    if errors:
+        return errors
+    _sync_marker_spec_hash(scratch_dir, spec)
+    return []
+
+
 def _review_spec_after_turn(
     spec: dict[str, Any],
     *,
@@ -743,6 +842,7 @@ def _review_spec_after_turn(
     aspect_ratio: str,
     asset_root: Path | None,
 ) -> tuple[dict[str, Any] | None, list[str], bool]:
+    from app.pipelines.material_review import material_preview_profile
     from composition.material_review.preview import render_material_preview_spec, run_review_via_worker
     from composition.material_review.session import marker_path, validate_review_marker, write_review_marker
 
@@ -766,6 +866,7 @@ def _review_spec_after_turn(
         repo_root=repo_root,
         aspect_ratio=aspect_ratio,
         asset_root=asset_root,
+        preview_profile=material_preview_profile(),
     )
     if not render_result.get("ok"):
         error = render_result.get("error") if isinstance(render_result.get("error"), dict) else {}
@@ -999,19 +1100,30 @@ async def _run_single_acp_session_turn_loop(
                 trace.record_acp_protocol_session(session.session_id)
 
             mcp_tools: list[str] = []
+            mcp_tools_listed = False
             list_tools = getattr(conn, "list_mcp_tools", None) or getattr(conn, "list_tools", None)
             if callable(list_tools):
                 try:
                     tool_result = await list_tools(session.session_id)
+                    mcp_tools_listed = True
                     if isinstance(tool_result, list):
                         for item in tool_result:
                             name = getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None)
                             if name:
                                 mcp_tools.append(str(name))
                 except Exception as exc:
+                    mcp_tools_listed = True
                     LOGGER.warning("ACP MCP tool list failed: %s", exc)
-            required_tools = {"write_material_spec", "composition_lint_draft"}
-            if mcp_tools:
+            required_tools = {
+                "write_material_spec",
+                "composition_lint_draft",
+                "read_author_brief",
+                "composition_validate_draft",
+                "skill_view",
+            }
+            if mcp_tools_listed:
+                if not mcp_tools:
+                    raise RuntimeError("acp_mcp_tools_unavailable")
                 agent_diagnostics["mcpToolsAvailable"] = mcp_tools
                 missing = sorted(required_tools - set(mcp_tools))
                 if missing:
@@ -1025,6 +1137,13 @@ async def _run_single_acp_session_turn_loop(
             last_errors: list[str] = []
             dialogue_round = 0
             review_rounds_used = 0
+            review_repair_followups_sent = 0
+            repair_followup_max = 0
+            policy_followup_sent = False
+            if in_session_review:
+                from app.pipelines.material_review import material_review_repair_followup_max
+
+                repair_followup_max = material_review_repair_followup_max()
 
             while True:
                 dialogue_round += 1
@@ -1098,6 +1217,24 @@ async def _run_single_acp_session_turn_loop(
                     if agent_diagnostics:
                         LOGGER.error("ACP agent diagnostics after prompt failure: %s", agent_diagnostics)
                     raise
+
+                if client_impl.trace_policy is not None:
+                    if client_impl.trace_policy.should_abort():
+                        raise RuntimeError("acp_policy_violation:read_repo_source")
+                    if client_impl.trace_policy.needs_policy_followup() and not policy_followup_sent:
+                        policy_followup_sent = True
+                        if observability is not None:
+                            observability.record_turn_followup(
+                                turn=dialogue_round,
+                                dialogue_round=dialogue_round,
+                                errors=["acp_policy_violation:read_repo_source"],
+                            )
+                        user = build_policy_violation_followup(
+                            dialogue_round=dialogue_round,
+                            scratch_dir=scratch_dir,
+                            violation_path=client_impl.trace_policy.last_violation_path,
+                        )
+                        continue
 
                 spec_path = _harvest_material_spec(scratch_dir, repo_root, not_before=author_started - 5.0)
                 if spec_path is None or not spec_path.is_file():
@@ -1195,6 +1332,26 @@ async def _run_single_acp_session_turn_loop(
                         break
 
                     if review_rounds_used >= review_cap:
+                        if review_cap == 1 and review_repair_followups_sent > 0:
+                            preview_errors = _refresh_preview_after_repair(
+                                spec,
+                                scratch_dir=scratch_dir,
+                                repo_root=repo_root,
+                                aspect_ratio=aspect_ratio,
+                                asset_root=asset_root,
+                            )
+                            if observability is not None:
+                                observability.record_turn_review_gate(
+                                    turn=dialogue_round,
+                                    dialogue_round=dialogue_round,
+                                    errors=preview_errors,
+                                    hard_gate_failed=bool(preview_errors),
+                                    approved=False,
+                                    latency_ms=0.0,
+                                    review_rounds_used=review_rounds_used,
+                                    skipped_reason="review_cap_no_re_review",
+                                )
+                            break
                         _write_review_rounds_exhausted_marker(
                             scratch_dir=scratch_dir,
                             spec=spec,
@@ -1244,7 +1401,54 @@ async def _run_single_acp_session_turn_loop(
                                 review_rounds_used=review_rounds_used,
                             )
 
+                        if review_report and review_report.get("hardGateFailed"):
+                            if observability is not None:
+                                observability.record_turn_followup(
+                                    turn=dialogue_round,
+                                    dialogue_round=dialogue_round,
+                                    errors=review_errors,
+                                )
+                            user = _build_review_followup(
+                                review_report
+                                or {
+                                    "approved": False,
+                                    "hardGateFailed": True,
+                                    "issues": review_errors,
+                                    "suggestions": ["Fix preview render before creative review."],
+                                },
+                                dialogue_round,
+                                scratch_dir=scratch_dir,
+                            )
+                            continue
+
                         if review_rounds_used >= review_cap:
+                            can_repair = (
+                                review_cap == 1
+                                and review_repair_followups_sent < repair_followup_max
+                                and isinstance(review_report, dict)
+                                and not review_report.get("hardGateFailed")
+                                and not review_report.get("approved")
+                            )
+                            if can_repair:
+                                review_repair_followups_sent += 1
+                                if observability is not None:
+                                    observability.record_turn_followup(
+                                        turn=dialogue_round,
+                                        dialogue_round=dialogue_round,
+                                        errors=review_errors,
+                                    )
+                                user = _build_review_followup(
+                                    review_report
+                                    or {
+                                        "approved": False,
+                                        "hardGateFailed": True,
+                                        "issues": review_errors,
+                                        "suggestions": ["Fix preview render before creative review."],
+                                    },
+                                    dialogue_round,
+                                    scratch_dir=scratch_dir,
+                                )
+                                continue
                             if review_report and not review_report.get("approved"):
                                 _write_review_rounds_exhausted_marker(
                                     scratch_dir=scratch_dir,
@@ -1346,6 +1550,14 @@ async def _author_async(
     repo_root = repo_root.resolve()
     scratch_dir = scratch_dir.resolve()
     scratch_dir.mkdir(parents=True, exist_ok=True)
+    from app.pipelines.material_slot_revise import remove_forbidden_acp_scratch_files
+
+    removed_helpers = remove_forbidden_acp_scratch_files(scratch_dir)
+    if removed_helpers and observability is not None:
+        observability.record_client_event(
+            kind="scratch_cleanup",
+            payload={"removedForbiddenScripts": removed_helpers},
+        )
 
     staged_request, base_video_diagnostics = prepare_author_request_for_scratch(
         request,
@@ -1356,6 +1568,10 @@ async def _author_async(
 
     payload_path = scratch_dir / "task.json"
     author_payload = build_material_author_user_payload(staged_request)
+    from app.composition.acp.gate_revise_prompt import is_gate_revise_author_payload
+
+    if is_gate_revise_author_payload(author_payload):
+        author_payload.pop("existingMaterialSpec", None)
     if generated_root is not None:
         author_payload["generationRoot"] = str(generated_root)
     generation_root = _resolve_generation_root_for_revise(
@@ -1375,12 +1591,21 @@ async def _author_async(
         author_payload["baseVideoDiagnostics"] = base_video_diagnostics
     in_session_review = _acp_in_session_review_enabled(author_payload)
     payload_path.write_text(json.dumps(author_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    from app.composition.acp.scratch_bootstrap import bootstrap_acp_scratch
+
+    bootstrap_acp_scratch(
+        scratch_dir=scratch_dir,
+        author_payload=author_payload,
+        repo_root=repo_root,
+    )
 
     allowed_roots: list[Path] = [scratch_dir]
+    trace_policy = TracePolicyMonitor(scratch_dir=scratch_dir.resolve())
     client_impl = HeadlessCompositionClient(
         fs_bridge=FsBridge(allowed_roots=allowed_roots),
         trace=trace,
         observability=observability,
+        trace_policy=trace_policy,
     )
 
     command = agent_command or resolve_acp_agent_command()
@@ -1426,6 +1651,7 @@ async def _author_async(
             storage_root=storage_root,
             acp_observability_run_id=observability.run_id if observability is not None else None,
             generation_root=generation_root,
+            in_session_review=in_session_review,
         ),
     )
 

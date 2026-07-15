@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import json
 from pathlib import Path
 from typing import Any
@@ -40,7 +41,39 @@ _ACP_SCRATCH_ARTIFACTS = (
     "material-review-marker.json",
     "_draft_spec.json",
     "_mcp_call.py",
+    "_invoke_mcp.py",
 )
+
+FORBIDDEN_ACP_SCRATCH_GLOBS = (
+    "_invoke_mcp*.py",
+    "_mcp_call*.py",
+    "*handler*invoker*.py",
+)
+
+
+def scan_forbidden_acp_scratch_files(scratch_dir: Path) -> list[str]:
+    if not scratch_dir.is_dir():
+        return []
+    found: list[str] = []
+    for path in scratch_dir.iterdir():
+        if not path.is_file():
+            continue
+        name = path.name
+        if any(fnmatch.fnmatch(name, pattern) for pattern in FORBIDDEN_ACP_SCRATCH_GLOBS):
+            found.append(name)
+    return sorted(found)
+
+
+def remove_forbidden_acp_scratch_files(scratch_dir: Path) -> list[str]:
+    removed: list[str] = []
+    for name in scan_forbidden_acp_scratch_files(scratch_dir):
+        target = scratch_dir / name
+        try:
+            target.unlink(missing_ok=True)
+            removed.append(name)
+        except OSError:
+            continue
+    return removed
 
 
 def _load_revise_context_payload(generation_root: Path) -> dict[str, Any]:
@@ -118,6 +151,7 @@ def clear_acp_scratch_for_gate_revise(generation_root: Path, slot_id: str) -> No
         return
     for name in _ACP_SCRATCH_ARTIFACTS:
         (scratch / name).unlink(missing_ok=True)
+    remove_forbidden_acp_scratch_files(scratch)
 
 
 def queue_material_slot_revise(
@@ -137,6 +171,44 @@ def queue_material_slot_revise(
     }
     write_material_slot_revise_queue(generation_root, payload)
     return payload
+
+
+def is_material_gate_revise_job(generation_root: Path, *, resume: bool) -> bool:
+    """True when worker should take the gate NL revise fast path (skip planning stages)."""
+    queue = load_material_slot_revise_queue(generation_root)
+    if isinstance(queue, dict) and str(queue.get("status") or "") == "pending":
+        return True
+    if resume and load_material_gate_revise_slot_ids(generation_root):
+        return True
+    return False
+
+
+def _read_generation_artifact_json(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def load_gate_revise_resume_artifacts(
+    generation_root: Path,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    """Load on-disk planning artifacts for material gate NL revise resume."""
+    inventory = _read_generation_artifact_json(generation_root / "asset-inventory.json")
+    plan = _read_generation_artifact_json(generation_root / GENERATION_PLAN_FILENAME)
+    gap_report = _read_generation_artifact_json(generation_root / "gap-report.json")
+    slot_payload = _read_generation_artifact_json(generation_root / "slot-matches.json")
+    slot_matches = (
+        [item for item in slot_payload.get("slotMatches", []) if isinstance(item, dict)]
+        if slot_payload
+        else []
+    )
+    if inventory is None or plan is None:
+        return None, None, None, []
+    return inventory, plan, gap_report, slot_matches
 
 
 def consume_material_slot_revise_queue(generation_root: Path) -> dict[str, Any] | None:
