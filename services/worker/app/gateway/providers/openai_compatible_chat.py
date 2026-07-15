@@ -48,6 +48,7 @@ class OpenAICompatibleChatProvider:
         response_format: dict[str, str] | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
+        thinking: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not self.config.api_key:
             raise GatewayError(
@@ -68,6 +69,9 @@ class OpenAICompatibleChatProvider:
             body["tools"] = tools
         if tool_choice is not None:
             body["tool_choice"] = tool_choice
+        # DeepSeek V4: {"thinking": {"type": "enabled"|"disabled"}}
+        if isinstance(thinking, dict) and thinking:
+            body["thinking"] = thinking
         body["max_tokens"] = 16384
 
         headers = {
