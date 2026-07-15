@@ -215,6 +215,15 @@ python -m pytest tests/test_forbidden_copy_guard.py tests/test_acp_prompt.py tes
 
 ### 6.1 最高优先级：去掉意外浪费（预计每镜省 4–8 分钟）
 
+**2026-07-06 已实施**（`docs/superpowers/plans/2026-07-06-acp-agent-hardening-plan.md`）：
+
+| 做什么 | 状态 |
+|--------|------|
+| 禁止 scratch 里的自写 lint 脚本 | ✅ acceptance + scratch 清理 |
+| lint 超时强杀 | ✅ 已有 90s |
+| 限流时保留上一轮审片结论 | ⏳ 未做（单独计划） |
+| Cursor 工作目录改到 scratch | ✅ `VIDEOMAKER_ACP_SPAWN_CWD=scratch` |
+
 | 做什么 | 怎么做 | 预期效果 |
 |--------|--------|----------|
 | 禁止 scratch 里的自写 lint 脚本 | 收片验收发现 `_invoke_mcp.py` 等即失败；提示词强调只能用 MCP lint | 消除本次 4–6 分钟卡死 |
@@ -233,6 +242,15 @@ python -m pytest tests/test_forbidden_copy_guard.py tests/test_acp_prompt.py tes
 | 字体/浏览器预热 | 同一次生成多镜共享 HyperFrames 字体缓存 | 每镜 shave 数秒到十几秒 |
 
 ### 6.3 再次：压缩 Agent 编排（预计省 2–5 分钟，需实测）
+
+**2026-07-06 已部分实施：**
+
+| 做什么 | 状态 |
+|--------|------|
+| 技能文档摘要内联 | ✅ `AUTHOR_BRIEF.md` + `SKILLS_SUMMARY.md` bootstrap |
+| MCP `read_author_brief` / validate / lint_scratch_file | ✅ |
+| 监控越界读文件 | ✅ `trace_policy`（2 次 repo Read → abort） |
+| 审片 1 次 + repair 无再审 | ✅ 默认 cap=1 |
 
 | 做什么 | 怎么做 | 预期效果 |
 |--------|--------|----------|
