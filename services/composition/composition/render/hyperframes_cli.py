@@ -101,9 +101,18 @@ class HyperFramesCli:
             log_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
 
-    def render(self, composition_dir: Path, output_path: Path, log_path: Path) -> dict[str, Any]:
+    def render(
+        self,
+        composition_dir: Path,
+        output_path: Path,
+        log_path: Path,
+        *,
+        preview_profile: str = "full",
+    ) -> dict[str, Any]:
         started = time.perf_counter()
         command = self._cli("render", str(composition_dir), "--output", str(output_path))
+        if preview_profile == "fast":
+            command.extend(["--quality", "draft", "--fps", "24"])
         log: dict[str, Any] = {"command": command}
         try:
             version_result = self._command_runner(

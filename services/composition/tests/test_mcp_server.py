@@ -104,10 +104,77 @@ def test_mcp_lint_draft_returns_hint_code(mcp_scratch: tuple[Path, Path]) -> Non
     raw = asyncio.run(
         _call_tool(
             params,
-            "composition_lint_draft",
-            {"spec_json": spec, "schema_only": True},
+            "composition_validate_draft",
+            {"spec_json": spec},
         ),
     )
     payload = json.loads(raw)
     assert payload["ok"] is False
     assert payload.get("hintCode") in {"schema_invalid", "unknown"}
+
+
+def test_mcp_read_author_brief(mcp_scratch: tuple[Path, Path]) -> None:
+    scratch, payload_path = mcp_scratch
+    payload_path.write_text(
+        json.dumps(
+            {
+                "slotId": "slot-5",
+                "authorContract": {"allowedDisplayCopy": ["hello"]},
+                "editInstruction": "add headline",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "composition.mcp.server"],
+        env=_server_env(scratch, payload_path),
+        cwd=str(REPO_ROOT),
+    )
+    raw = asyncio.run(_call_tool(params, "read_author_brief", {}))
+    payload = json.loads(raw)
+    assert payload["ok"] is True
+    assert payload["brief"]["slotId"] == "slot-5"
+    assert payload["brief"]["editInstruction"] == "add headline"
+
+
+def test_mcp_lint_scratch_file(mcp_scratch: tuple[Path, Path]) -> None:
+    scratch, payload_path = mcp_scratch
+    draft = {
+        "template": "benefit-card",
+        "durationSec": 3,
+        "params": {
+            "title": "Test",
+            "bullets": ["One"],
+            "colors": {"primary": "#2563eb", "background": "#0f172a", "text": "#ffffff"},
+        },
+    }
+    (scratch / "draft.json").write_text(json.dumps(draft), encoding="utf-8")
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "composition.mcp.server"],
+        env=_server_env(scratch, payload_path),
+        cwd=str(REPO_ROOT),
+    )
+    raw = asyncio.run(
+        _call_tool(params, "composition_lint_scratch_file", {"relative_path": "draft.json"}),
+    )
+    payload = json.loads(raw)
+    assert payload["ok"] is True
+
+
+def test_mcp_lint_scratch_file_rejects_path_escape(mcp_scratch: tuple[Path, Path]) -> None:
+    scratch, payload_path = mcp_scratch
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "composition.mcp.server"],
+        env=_server_env(scratch, payload_path),
+        cwd=str(REPO_ROOT),
+    )
+    raw = asyncio.run(
+        _call_tool(params, "composition_lint_scratch_file", {"relative_path": "../task.json"}),
+    )
+    payload = json.loads(raw)
+    assert payload["ok"] is False
+    assert "scratch" in payload["errors"][0].lower()

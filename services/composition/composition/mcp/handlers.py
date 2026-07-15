@@ -95,6 +95,7 @@ def handle_composition_lint_draft(
             spec_json,
             lint_ctx,
             schema_only=schema_only,
+            skip_hf_if_cached=not schema_only,
             cli=_hyperframes_cli(ctx.repo_root),
         )
 
@@ -108,7 +109,10 @@ def handle_composition_lint_draft(
                     "ok": False,
                     "errors": [f"composition_lint_draft timed out after {lint_timeout_sec:.0f}s"],
                     "hintCode": "lint_timeout",
-                    "fixRecipe": "Retry composition_lint_draft once; do not read repo source",
+                    "fixRecipe": (
+                        "Write draft.json in scratch, then composition_lint_scratch_file(relative_path='draft.json'); "
+                        "do not repeat composition_lint_draft with large inline JSON"
+                    ),
                 },
                 ensure_ascii=False,
             )
@@ -123,6 +127,66 @@ def handle_composition_lint_draft(
     payload = spec_lint_result_to_json(result)
     payload["ok"] = True
     return json.dumps(payload, ensure_ascii=False)
+
+
+def handle_composition_validate_draft(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
+    return handle_composition_lint_draft(ctx, spec_json=spec_json, schema_only=True)
+
+
+def _resolve_scratch_relative_json(ctx: McpSessionContext, relative_path: str) -> tuple[Path | None, str | None]:
+    raw = str(relative_path or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or ".." in raw.split("/"):
+        return None, "relative_path must be a simple filename under scratch"
+    target = (ctx.scratch_dir / raw).resolve()
+    try:
+        target.relative_to(ctx.scratch_dir.resolve())
+    except ValueError:
+        return None, "relative_path escapes scratch directory"
+    if not target.is_file():
+        return None, f"file not found in scratch: {raw}"
+    return target, None
+
+
+def handle_composition_lint_scratch_file(
+    ctx: McpSessionContext,
+    *,
+    relative_path: str = "draft.json",
+) -> str:
+    target, error = _resolve_scratch_relative_json(ctx, relative_path)
+    if error or target is None:
+        return json.dumps({"ok": False, "errors": [error or "invalid path"]}, ensure_ascii=False)
+    try:
+        spec_json = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return json.dumps({"ok": False, "errors": [f"invalid spec json: {exc}"]}, ensure_ascii=False)
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec file must contain a JSON object"]}, ensure_ascii=False)
+    return handle_composition_lint_draft(ctx, spec_json=spec_json)
+
+
+def handle_read_author_brief(ctx: McpSessionContext) -> str:
+    payload = ctx.author_payload if isinstance(ctx.author_payload, dict) else {}
+    brief: dict[str, Any] = {}
+    for key in (
+        "slot",
+        "slotId",
+        "slotTiming",
+        "authorContract",
+        "renderPolicy",
+        "editInstruction",
+        "finishBrief",
+        "compositionAuthorBrief",
+        "visualStyleBible",
+        "materialGateRevise",
+        "existingSpecHash",
+        "mustChangeSpec",
+    ):
+        if key in payload:
+            brief[key] = payload[key]
+    contract = payload.get("authorContract")
+    if isinstance(contract, dict) and "mustChangeSpec" in contract:
+        brief["mustChangeSpec"] = contract.get("mustChangeSpec")
+    return json.dumps({"ok": True, "brief": brief}, ensure_ascii=False, indent=2)
 
 
 def lint_material_spec(

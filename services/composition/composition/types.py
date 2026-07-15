@@ -48,6 +48,7 @@ class RenderPaths:
     aspect_ratio: str = "9:16"
     lint_log_path: Path | None = None
     lint_reuse_scratch: Path | None = None
+    preview_profile: str = "full"
 
 
 @dataclass

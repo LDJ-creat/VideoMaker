@@ -29,6 +29,7 @@ def _build_executor(tmp_path: Path, repo_root: Path) -> CompositionToolExecutor:
 
 def test_submit_material_spec_rejects_without_review_marker(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_REQUIRE_BEFORE_SUBMIT", "true")
     repo_root = Path(__file__).resolve().parents[3]
     executor = _build_executor(tmp_path, repo_root)
     spec = {"template": "benefit-card", "durationSec": 3, "params": {"title": "A", "bullets": []}}
@@ -44,6 +45,7 @@ def test_submit_material_spec_rejects_without_review_marker(tmp_path, monkeypatc
 
 def test_submit_material_spec_rejects_mutated_spec_after_review(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_ENABLED", "true")
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_REQUIRE_BEFORE_SUBMIT", "true")
     repo_root = Path(__file__).resolve().parents[3]
     executor = _build_executor(tmp_path, repo_root)
     spec = {"template": "benefit-card", "durationSec": 3, "params": {"title": "A", "bullets": []}}

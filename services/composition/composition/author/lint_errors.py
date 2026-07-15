@@ -16,13 +16,17 @@ def classify_lint_error(message: str) -> str:
         return "forbidden_copy"
     if "not in renderpolicy.alloweddisplaycopy" in lowered:
         return "forbidden_copy"
+    if "gsap_from_opacity_noop" in lowered or ("opacity" in lowered and "gsap.from" in lowered):
+        return "gsap_opacity_noop"
+    if "spec_json must be" in lowered:
+        return "schema_invalid"
     if "html" in lowered or "composition.bodyhtml" in lowered or "safety" in lowered:
         return "html_safety"
     if "standalone composition" in lowered or "autoalpha:1 hold" in lowered or 'id="root"' in lowered:
         return "standalone_canvas"
     if "schema" in lowered or "invalid materialspec" in lowered:
         return "schema_invalid"
-    if "lint failed" in lowered or "hyperframes" in lowered:
+    if "lint failed" in lowered or "hyperframes" in lowered or "✗" in message or "error(s)" in lowered:
         return "hf_lint_failed"
     if "missing material" in lowered or "material-spec" in lowered:
         return "missing_spec"
@@ -37,16 +41,23 @@ def fix_recipe_for_hint(hint_code: str) -> str:
         ),
         "schema_invalid": "Run lint-spec --schema-only on scratch, fix JSON schema errors, then full lint",
         "hf_lint_failed": "Read lint-log.json in lint-draft, fix HTML/GSAP/video tags, re-run composition_lint_draft",
-        "forbidden_copy": "Only use strings from renderPolicy.allowedDisplayCopy; never render voiceover verbatim",
+        "forbidden_copy": (
+            "Paste exact strings from allowedDisplayCopy into bodyHtml (no truncation/rewrite); "
+            "highlight keywords with spans inside a full allowlisted sentence"
+        ),
         "forbidden_copy_empty_allowlist": (
             "Use authorContract.allowedDisplayCopy strings for on-screen copy; "
             "do NOT read repository source — update spec HTML with allowed phrases only"
         ),
+        "gsap_opacity_noop": (
+            "Do not set CSS opacity:0 on elements that also use gsap.from({opacity:0}); "
+            "leave CSS at opacity:1 (default) and let gsap.from hide→show"
+        ),
         "lint_timeout": "Retry composition_lint_draft once; do not read repo source",
         "html_safety": "Fix composition fragment: no script injection, valid GSAP timeline using shell tl",
         "standalone_canvas": (
-            "Use opaque --vm-bg on #root, avoid id=\"root\" in bodyHtml, and end timeline with "
-            "tl.set(..., { autoAlpha: 1 }) when content starts hidden"
+            "Do NOT put id=\"root\" in bodyHtml (shell already provides #root); use child ids like "
+            "#card / #quote-line; end with tl.set hold when content starts hidden"
         ),
         "missing_spec": "Call write_material_spec once with a valid MaterialSpec JSON object",
         "unknown": "Fix validation errors, run composition_lint_draft, then write_material_spec",
@@ -60,6 +71,14 @@ def primary_hint_code(errors: list[str]) -> str:
     return classify_lint_error(errors[0])
 
 
+def error_category_counts(errors: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for message in errors:
+        code = classify_lint_error(message)
+        counts[code] = counts.get(code, 0) + 1
+    return counts
+
+
 def enrich_lint_errors(
     errors: list[str],
     *,
@@ -70,19 +89,12 @@ def enrich_lint_errors(
         "errors": errors,
         "hintCode": hint,
         "fixRecipe": fix_recipe_for_hint(hint),
+        "errorCategories": error_category_counts(errors),
     }
     if author_payload and hint in {"forbidden_copy", "forbidden_copy_empty_allowlist"}:
-        contract = author_payload.get("authorContract")
-        if isinstance(contract, dict):
-            allowed = contract.get("allowedDisplayCopy")
-            if isinstance(allowed, list) and allowed:
-                payload["suggestedAllowedDisplayCopy"] = allowed
-        render_policy = author_payload.get("renderPolicy")
-        if isinstance(render_policy, dict):
-            allowed = render_policy.get("allowedDisplayCopy")
-            if isinstance(allowed, list) and allowed:
-                payload.setdefault(
-                    "suggestedAllowedDisplayCopy",
-                    [str(item) for item in allowed if str(item).strip()],
-                )
+        from composition.author.forbidden_copy_guard import allowed_display_copy_list
+
+        merged = allowed_display_copy_list(author_payload)
+        if merged:
+            payload["suggestedAllowedDisplayCopy"] = merged
     return payload

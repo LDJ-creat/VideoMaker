@@ -95,6 +95,57 @@ def test_check_forbidden_copy_allows_quote_line_from_allowlist() -> None:
     assert check_forbidden_copy_in_spec(spec, payload) == []
 
 
+def test_allowed_display_copy_merges_short_keywords_and_full_sentences() -> None:
+    from composition.author.forbidden_copy_guard import allowed_display_copy_list
+
+    payload = {
+        "compositionAuthorBrief": {
+            "displayCopyPolicy": {"allowed": ["试错", "不敢起步", "亏损"]},
+        },
+        "renderPolicy": {
+            "allowedDisplayCopy": [
+                "害怕试错不敢起步，本身就是最大的亏损。",
+                "本身就是最大的亏损",
+            ]
+        },
+        "authorContract": {
+            "allowedDisplayCopy": ["害怕试错不敢起步"],
+        },
+    }
+    allowed = allowed_display_copy_list(payload)
+    assert "试错" in allowed
+    assert "本身就是最大的亏损" in allowed
+    assert "害怕试错不敢起步" in allowed
+    # Substring of full allowlisted sentence should pass
+    spec = {
+        "template": "composition",
+        "durationSec": 4,
+        "composition": {
+            "bodyHtml": "<div id=\"line\">本身就是最大的亏损</div>",
+            "timelineScript": "tl.set('#line', { autoAlpha: 1 }, 0);",
+        },
+    }
+    assert check_forbidden_copy_in_spec(spec, payload) == []
+
+
+def test_forbidden_copy_error_includes_allowed_preview() -> None:
+    payload = {
+        "renderPolicy": {"allowedDisplayCopy": ["允许上屏的完整句"]},
+    }
+    spec = {
+        "template": "composition",
+        "durationSec": 3,
+        "composition": {
+            "bodyHtml": "<div id=\"x\">这段中文不在白名单里啊</div>",
+            "timelineScript": "tl.set('#x', { autoAlpha: 1 }, 0);",
+        },
+    }
+    errors = check_forbidden_copy_in_spec(spec, payload)
+    assert errors
+    assert "allowed=[" in errors[0]
+    assert "允许上屏的完整句" in errors[0]
+
+
 def test_user_payload_includes_field_semantics_and_render_policy() -> None:
     payload = build_material_author_user_payload(
         AuthorRequest(

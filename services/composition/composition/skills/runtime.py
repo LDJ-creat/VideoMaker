@@ -18,11 +18,12 @@ class SkillRuntime:
     ) -> None:
         self.repo_root = (repo_root or detect_repo_root()).resolve()
         self.storage_root = storage_root.resolve() if storage_root else None
+        # Prefer shorter skill injections for ReAct token budget (override via env).
         self.max_chars_per_view = max_chars_per_view or int(
-            os.getenv("VIDEOMAKER_SKILL_VIEW_MAX_CHARS", "8192")
+            os.getenv("VIDEOMAKER_SKILL_VIEW_MAX_CHARS", "4096")
         )
         self.max_total_chars = max_total_chars or int(
-            os.getenv("VIDEOMAKER_SKILL_VIEW_TOKEN_CAP", "6000")
+            os.getenv("VIDEOMAKER_SKILL_VIEW_TOKEN_CAP", "4000")
         ) * 4
         self._viewed_chars = 0
 

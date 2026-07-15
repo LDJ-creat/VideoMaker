@@ -23,6 +23,7 @@ def render_material_preview_spec(
     aspect_ratio: str = "9:16",
     asset_root: Path | None = None,
     engine: Any | None = None,
+    preview_profile: str = "full",
 ) -> dict[str, Any]:
     from composition.api import CompositionEngine
     from composition.types import RenderPaths
@@ -41,6 +42,7 @@ def render_material_preview_spec(
             log_path=log_path,
             asset_root=asset_root,
             aspect_ratio=aspect_ratio,
+            preview_profile=preview_profile if preview_profile in {"full", "fast"} else "full",
         ),
     )
     if not result.ok:
