@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import io
+import struct
+import wave
 from pathlib import Path
 from typing import Any, Callable
 
+from model_gateway.fixture import is_fixture_mode
 from app.agents.gap_planner import run_gap_planner
 from app.gateway.model_gateway import ModelGateway
 from app.gateway.providers.pluggable_video import VideoJobResult
@@ -38,8 +42,11 @@ from app.pipelines.asset_understanding import run_asset_understanding
 from app.pipelines.user_brief import build_baseline_extracted_facts, normalize_user_brief
 from app.pipelines.master_narration import apply_master_narration_to_storyboard, derive_master_from_storyboard
 from app.pipelines.narration_scene_timing import (
+    allocate_scene_windows_proportional,
     ensure_narration_preview,
+    estimate_narration_duration_sec,
     load_narration_preview,
+    load_narration_timing,
     narration_timing_payload,
     preview_wav_path,
     transcribe_preview_wav,
@@ -313,6 +320,7 @@ def run_agent_generation(
     database_path: Path | None = None,
     sample_analysis: dict[str, Any] | None = None,
     gateway_store: Any | None = None,
+    generation_root: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     if inventory is None:
         if inventory_baseline is None:
@@ -394,6 +402,7 @@ def run_agent_generation(
         variant=variant,
         revise_context=revise_context,
         knowledge_context=knowledge_context,
+        generation_root=generation_root,
     )
 
 
@@ -538,6 +547,59 @@ def _duration_target_from_structure(
     return {"targetSec": target_sec}
 
 
+def _resolve_planning_gateway(runner: AgentRunner) -> ModelGateway | FixtureMaterialGateway | None:
+    gateway = getattr(runner.llm, "gateway", None)
+    if gateway is not None:
+        return gateway
+    if getattr(runner.llm, "fixture_mode", False) or is_fixture_mode():
+        return FixtureMaterialGateway()
+    return None
+
+
+def _synthesize_canonical_after_briefs(
+    *,
+    runner: AgentRunner,
+    structure: dict[str, Any],
+    context: TaskContext,
+    generation_id: str,
+    generation_root: Path,
+    storyboard: list[dict[str, Any]],
+    draft: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Authoritative TTS runs after compositionAuthorBrief normalization."""
+    gateway = _resolve_planning_gateway(runner)
+    if gateway is None:
+        raise ValueError("canonical_tts_gateway_unavailable")
+
+    from app.pipelines.canonical_narration import run_canonical_narration_synthesis
+    from app.runtime.checkpoint import GenerationCheckpoint
+
+    draft_payload = dict(draft)
+    draft_payload["storyboard"] = storyboard
+    run_canonical_narration_synthesis(
+        gateway=gateway,
+        structure=structure,
+        context=context,
+        generation_id=generation_id,
+        generation_root=generation_root,
+        draft=draft_payload,
+        runner=runner,
+    )
+    checkpoint_path = generation_root / "checkpoint.json"
+    checkpoint = GenerationCheckpoint.load(checkpoint_path)
+    checkpoint.mark_stage_complete("synthesizing_canonical_narration")
+    checkpoint.mark_stage_complete("adapting_narration_density")
+    checkpoint.save(checkpoint_path)
+
+    reloaded = load_script_draft(generation_root)
+    if isinstance(reloaded, dict):
+        draft = reloaded
+        storyboard = [
+            dict(scene) for scene in reloaded.get("storyboard") or [] if isinstance(scene, dict)
+        ]
+    return storyboard, draft
+
+
 def run_automated_script_drafting(
     runner: AgentRunner,
     *,
@@ -582,20 +644,18 @@ def run_automated_script_drafting(
     preview_draft: dict[str, Any] = {
         "masterNarration": master_narration,
         "narrationVoProfile": master_output.get("narrationVoProfile"),
+        "durationTargetSec": float(resolved_duration.get("targetSec", 30.0)),
     }
-    narration_timing: dict[str, Any] | None = None
-    if generation_root is not None:
-        gateway = getattr(runner.llm, "gateway", None)
-        if gateway is not None:
-            preview = run_narration_preview(
-                gateway=gateway,
-                structure=structure,
-                context=context,
-                generation_id=generation_id,
-                generation_root=generation_root,
-                draft=preview_draft,
-            )
-            narration_timing = narration_timing_payload(preview)
+    duration_sec = estimate_narration_duration_sec(preview_draft, structure)
+    scene_timing = allocate_scene_windows_proportional(structure, total_duration_sec=duration_sec)
+    narration_timing = narration_timing_payload(
+        {
+            "durationSec": duration_sec,
+            "sceneTiming": scene_timing,
+            "alignmentMethod": "structure_estimate",
+            "warnings": ["layout_estimate_only"],
+        }
+    )
 
     context.emit_event(
         stage="drafting_storyboard",
@@ -644,11 +704,6 @@ def run_automated_script_drafting(
             float(resolved_duration.get("targetSec", 30.0))
         )
         draft["approvedBy"] = "automated"
-        if narration_timing is not None:
-            draft["narrationPreviewDurationSec"] = round(
-                float(narration_timing.get("durationSec", 0.0)),
-                3,
-            )
         save_script_draft(generation_root, draft)
 
     return master_narration, storyboard, visual_style_bible
@@ -755,8 +810,16 @@ def draft_storyboard_script(
     draft = load_script_draft(generation_root)
     if draft is None or not master_is_approved(draft):
         raise ValueError("Master narration must be approved before drafting storyboard")
-    preview = load_narration_preview(generation_root)
-    narration_timing = narration_timing_payload(preview) if preview else None
+    duration_sec = estimate_narration_duration_sec(draft, structure)
+    scene_timing = allocate_scene_windows_proportional(structure, total_duration_sec=duration_sec)
+    narration_timing = narration_timing_payload(
+        {
+            "durationSec": duration_sec,
+            "sceneTiming": scene_timing,
+            "alignmentMethod": "structure_estimate",
+            "warnings": ["layout_estimate_only"],
+        }
+    )
     context.emit_event(
         stage="drafting_storyboard",
         progress=50,
@@ -864,6 +927,21 @@ def run_planning_from_script_draft(
     )
     report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
 
+    if generation_root is not None:
+        draft = load_script_draft(generation_root)
+        if isinstance(draft, dict) and storyboard and (
+            storyboard_is_approved(draft) or master_is_approved(draft)
+        ):
+            storyboard, draft = _synthesize_canonical_after_briefs(
+                runner=runner,
+                structure=structure,
+                context=context,
+                generation_id=generation_id,
+                generation_root=generation_root,
+                storyboard=storyboard,
+                draft=draft,
+            )
+
     plan = assemble_generation_plan(
         structure=structure,
         inventory=inventory,
@@ -878,9 +956,18 @@ def run_planning_from_script_draft(
         generation_strategy=strategy,
         duration_target_sec=target_sec,
     )
-    preview = load_narration_preview(generation_root)
+    preview = load_narration_timing(generation_root) or load_narration_preview(generation_root)
     if preview is not None:
-        plan["narrationPreviewDurationSec"] = round(float(preview.get("durationSec", 0.0)), 3)
+        if preview.get("role") == "canonical":
+            plan["narrationDurationSec"] = round(float(preview.get("durationSec", 0.0)), 3)
+            plan["narrationTimingUri"] = "narration-timing.json"
+            drift_path = generation_root / "narration" / "drift-report.json"
+            if drift_path.is_file():
+                plan["narrationDriftReportUri"] = "narration/drift-report.json"
+        else:
+            plan["narrationPreviewDurationSec"] = round(float(preview.get("durationSec", 0.0)), 3)
+    elif draft.get("narrationDurationSec") is not None:
+        plan["narrationDurationSec"] = round(float(draft["narrationDurationSec"]), 3)
     elif draft.get("narrationPreviewDurationSec") is not None:
         plan["narrationPreviewDurationSec"] = round(float(draft["narrationPreviewDurationSec"]), 3)
     return inventory, slot_matches, gap_report, plan
@@ -975,6 +1062,21 @@ def run_planning_completion(
         emit_warning=_emit_brief_resync_warning,
     )
     report_composition_brief_warnings(brief_resync_warnings, emit_event=context.emit_event)
+
+    if generation_root is not None:
+        draft = load_script_draft(generation_root)
+        if isinstance(draft, dict) and storyboard and (
+            storyboard_is_approved(draft) or master_is_approved(draft)
+        ):
+            storyboard, draft = _synthesize_canonical_after_briefs(
+                runner=runner,
+                structure=structure,
+                context=context,
+                generation_id=generation_id,
+                generation_root=generation_root,
+                storyboard=storyboard,
+                draft=draft,
+            )
 
     plan = assemble_generation_plan(
         structure=structure,
@@ -1154,6 +1256,7 @@ class FixtureMaterialGateway:
     is_fixture = True
 
     def __init__(self) -> None:
+        self.observability = None
         self.config = type(
             "FixtureGatewayConfig",
             (),
@@ -1168,8 +1271,15 @@ class FixtureMaterialGateway:
         return b"\x89PNG\r\n\x1a\n\x00"
 
     def synthesize_speech(self, text: str, *, options: dict[str, Any] | None = None) -> bytes:
-        _ = text, options
-        return b"RIFF----WAVEfmt "
+        _ = options
+        seconds = min(30.0, max(0.5, len(str(text or "").strip()) / 12.0))
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(24000)
+            handle.writeframes(struct.pack("<h", 0) * int(24000 * seconds))
+        return buffer.getvalue()
 
     def submit_video_job(self, prompt: str, *, options: dict[str, Any] | None = None) -> str:
         _ = prompt, options

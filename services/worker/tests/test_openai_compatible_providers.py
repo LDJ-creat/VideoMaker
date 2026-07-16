@@ -47,6 +47,103 @@ def test_openai_chat_provider_parses_assistant_message() -> None:
     assert content == "assistant says hi"
 
 
+def test_complete_with_tools_preserves_reasoning_content() -> None:
+    """DeepSeek thinking-mode tool turns include reasoning_content that ReAct must echo."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "reasoning_content": "I should call skill_view first.",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "skill_view",
+                                        "arguments": json.dumps(
+                                            {
+                                                "location": "skills/private/videomaker-composition/SKILL.md"
+                                            }
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    gateway = ModelGateway(config=_gateway_config(), client=client)
+    result = gateway.complete_with_tools(
+        [{"role": "user", "content": "author a card"}],
+        tools=[{"type": "function", "function": {"name": "skill_view", "parameters": {}}}],
+        task="material_author",
+    )
+    assert result["reasoning_content"] == "I should call skill_view first."
+    assert result["tool_calls"][0]["name"] == "skill_view"
+    assert result["content"] == ""
+
+
+def test_complete_with_tools_disables_thinking_for_deepseek_material_author(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_AUTHOR_THINKING", "disabled")
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        seen["thinking"] = body.get("thinking")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "type": "function",
+                                    "function": {"name": "skill_view", "arguments": "{}"},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+
+    config = GatewayConfig(
+        text=ProviderConfig("https://api.deepseek.com/v1", "test-key", "deepseek-v4-flash"),
+        vision=ProviderConfig("https://api.deepseek.com/v1", "test-key", "deepseek-v4-flash"),
+        video_understanding=ProviderConfig(
+            "https://ark.example/v1",
+            "test-key",
+            "doubao-test",
+        ),
+        tts=ProviderConfig("https://api.example/v1", "test-key", "tts-1"),
+        image=ProviderConfig("https://api.example/v1", "test-key", "dall-e-3"),
+        video_driver="generic_job",
+        video=ProviderConfig("https://video.example/v1", "video-key", "video-model"),
+    )
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    gateway = ModelGateway(config=config, client=client)
+    gateway.complete_with_tools(
+        [{"role": "user", "content": "hi"}],
+        tools=[{"type": "function", "function": {"name": "skill_view", "parameters": {}}}],
+        task="material_author",
+    )
+    assert seen["thinking"] == {"type": "disabled"}
+
+
 def test_openai_tts_provider_returns_audio_bytes() -> None:
     wav = b"RIFF----WAVEfmt "
 

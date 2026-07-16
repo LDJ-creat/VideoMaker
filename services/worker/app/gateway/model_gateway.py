@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,25 @@ from app.observability.model_call_recorder import (
     tts_driver,
     video_driver,
 )
+
+
+def _thinking_toggle_for_task(task: str, model: str) -> dict[str, str] | None:
+    """DeepSeek V4 thinking mode toggle for multi-turn tool agents.
+
+    material_author defaults to disabled (faster, avoids huge reasoning tokens).
+    Only inject for DeepSeek-family models so other OpenAI-compatible providers
+    are not sent unknown fields.
+    """
+    model_l = (model or "").strip().lower()
+    if "deepseek" not in model_l:
+        return None
+    if task != "material_author":
+        return None
+    raw = os.getenv("VIDEOMAKER_MATERIAL_AUTHOR_THINKING", "disabled").strip().lower()
+    if raw in {"1", "true", "yes", "on", "enabled"}:
+        return {"type": "enabled"}
+    # default disabled
+    return {"type": "disabled"}
 
 
 def _parse_json_text(raw: str) -> dict[str, Any]:
@@ -92,17 +112,21 @@ class ModelGateway:
             "prompt": float(usage.get("prompt", 0)),
             "completion": float(usage.get("completion", 0)),
         }
-        if usage.get("total") is not None:
-            normalized["total"] = float(usage["total"])
-        else:
-            normalized["total"] = normalized["prompt"] + normalized["completion"]
         self.last_token_usage = normalized
         return normalized
 
     def _chat_usage_units(self) -> dict[str, Any] | None:
         from evaluation.usage_normalize import usage_units_from_tokens
 
-        return usage_units_from_tokens(self.last_token_usage)
+        units = usage_units_from_tokens(self.last_token_usage)
+        if (
+            isinstance(units, dict)
+            and "total" not in units
+            and "prompt" in units
+            and "completion" in units
+        ):
+            units = {**units, "total": units["prompt"] + units["completion"]}
+        return units
 
     def _chat_provider(self, profile: str) -> OpenAICompatibleChatProvider:
         if profile not in self._chat_providers:
@@ -500,14 +524,16 @@ class ModelGateway:
         task: str = "material_author",
         profile: str = "text",
     ) -> dict[str, Any]:
-        _ = task
         provider = self._chat_provider(profile)
         model = provider.config.model
+        thinking = _thinking_toggle_for_task(task, model)
         started = time.perf_counter()
         input_payload = {
             "messages": sanitize_messages(messages),
             "tools": tools,
         }
+        if thinking is not None:
+            input_payload["thinking"] = thinking
         output_payload: dict[str, Any] | None = None
         error: Exception | None = None
         try:
@@ -515,6 +541,7 @@ class ModelGateway:
                 messages,
                 model=model,
                 tools=tools,
+                thinking=thinking,
             )
             self.last_latency_ms = provider.last_latency_ms
             self._sync_chat_usage(provider)
@@ -546,7 +573,12 @@ class ModelGateway:
                     parsed_content = _parse_json_text(content)
                 except json.JSONDecodeError:
                     parsed_content = content
+            # DeepSeek (and similar) thinking-mode assistants return reasoning_content
+            # that MUST be echoed on the follow-up request after tool results.
             output_payload = {"content": parsed_content, "tool_calls": tool_calls}
+            reasoning = message.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning:
+                output_payload["reasoning_content"] = reasoning
             return output_payload
         except Exception as exc:
             error = exc

@@ -73,6 +73,7 @@ class FakeCompositionAgent:
             str(spec_path),
             session_id,
         )
+        (scratch / "material-spec.lint-passed").write_text("ok\n", encoding="utf-8")
         return PromptResponse(stop_reason="end_turn")
 
     async def cancel(self, session_id: str, **kwargs) -> None:

@@ -219,16 +219,17 @@ def test_resolve_slot_timing_prefers_generation_plan_over_narration_preview(tmp_
     assert timing["endSec"] == pytest.approx(28.986, abs=0.001)
 
 
-def test_resolve_slot_timing_falls_back_to_narration_preview_without_plan(tmp_path: Path) -> None:
+def test_resolve_slot_timing_falls_back_to_narration_timing_without_plan(tmp_path: Path) -> None:
     generation_root = tmp_path / "gen"
     generation_root.mkdir()
-    preview_path = generation_root / "narration-preview.json"
-    preview_path.write_text(
+    timing_path = generation_root / "narration-timing.json"
+    timing_path.write_text(
         json.dumps(
             {
+                "role": "canonical",
                 "sceneTiming": [
                     {"slotId": "slot-6", "startSec": 34.316, "endSec": 37.078},
-                ]
+                ],
             }
         ),
         encoding="utf-8",
@@ -236,6 +237,14 @@ def test_resolve_slot_timing_falls_back_to_narration_preview_without_plan(tmp_pa
     storyboard = [{"slotId": "slot-6", "startSec": 41.325, "endSec": 34.316}]
     timing = resolve_slot_timing_for_revise(generation_root, storyboard, "slot-6")
     assert timing["durationSec"] == pytest.approx(2.762, abs=0.001)
+
+
+def test_resolve_slot_timing_falls_back_to_storyboard_without_timing_artifact(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generation_root.mkdir()
+    storyboard = [{"slotId": "slot-6", "startSec": 41.325, "endSec": 34.316}]
+    timing = resolve_slot_timing_for_revise(generation_root, storyboard, "slot-6")
+    assert timing["durationSec"] == pytest.approx(7.009, abs=0.001)
 
 
 def test_rebind_plan_to_generation_rewrites_ids_and_paths() -> None:

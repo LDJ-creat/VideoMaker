@@ -368,3 +368,56 @@ def test_narration_end_sec_global_master(tmp_path: Path) -> None:
         },
     }
     assert narration_end_sec(plan, render_root=render_root) == 7.5
+
+
+def test_global_ripple_eliminates_overlapping_storyboard_windows(tmp_path: Path) -> None:
+    """Regression: scaled storyboard must not overlap when narration_end < planned span."""
+    render_root = tmp_path / "render"
+    _write_wav(render_root / "materials" / "master.wav", seconds=30.8)
+
+    storyboard = [
+        {"id": "scene-1", "slotId": "slot-1", "startSec": 0.0, "endSec": 5.0, "script": "a", "visual": "v", "source": "generated"},
+        {"id": "scene-2", "slotId": "slot-2", "startSec": 5.0, "endSec": 10.0, "script": "b", "visual": "v", "source": "generated"},
+        {"id": "scene-3", "slotId": "slot-3", "startSec": 10.0, "endSec": 15.0, "script": "c", "visual": "v", "source": "generated"},
+        {"id": "scene-4", "slotId": "slot-4", "startSec": 15.0, "endSec": 20.0, "script": "d", "visual": "v", "source": "generated"},
+        {"id": "scene-5", "slotId": "slot-5", "startSec": 20.0, "endSec": 32.895, "script": "e", "visual": "v", "source": "generated"},
+        {"id": "scene-6", "slotId": "slot-6", "startSec": 30.8, "endSec": 35.0, "script": "f", "visual": "v", "source": "generated"},
+    ]
+    plan = {
+        "ttsMode": "global",
+        "generationStrategy": "long_form_composed",
+        "storyboard": storyboard,
+        "timeline": {
+            "durationSec": 35.0,
+            "tracks": [
+                {
+                    "id": "track-video",
+                    "type": "video",
+                    "clips": [
+                        {"id": f"clip-{scene['slotId']}", "startSec": scene["startSec"], "endSec": scene["endSec"]}
+                        for scene in storyboard
+                    ],
+                },
+                {
+                    "id": "track-voiceover",
+                    "type": "voiceover",
+                    "clips": [
+                        {
+                            "id": "vo-master",
+                            "startSec": 0.0,
+                            "endSec": 30.8,
+                            "sourceRef": "materials/master.wav",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+    updated = sync_timeline_to_narration(plan, render_root=render_root, mode="global_ripple")
+    assert updated["timeline"]["durationSec"] == pytest.approx(30.8, abs=0.05)
+    scenes = sorted(updated["storyboard"], key=lambda item: float(item["startSec"]))
+    assert scenes[-1]["endSec"] == pytest.approx(30.8, abs=0.05)
+    for prev, current in zip(scenes, scenes[1:]):
+        assert current["startSec"] >= prev["endSec"] - 0.001
+        assert current["endSec"] > current["startSec"]

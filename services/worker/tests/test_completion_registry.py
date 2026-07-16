@@ -569,12 +569,11 @@ def test_apply_material_clamps_voiceover_end_to_wav_duration(tmp_path: Path) -> 
 
 def test_execute_tts_action(tmp_path: Path) -> None:
     from app.pipelines.tts_mode import MASTER_TTS_SLOT_ID
+    from tests.helpers.canonical_narration_fixture import write_canonical_fixture
 
-    wav = b"RIFF----WAVEfmt "
     gateway = MagicMock()
     gateway.config = MagicMock()
     gateway.config.tts_preferences = {}
-    gateway.synthesize_speech.return_value = wav
     ctx = _make_ctx(
         tmp_path,
         gateway=gateway,
@@ -591,6 +590,7 @@ def test_execute_tts_action(tmp_path: Path) -> None:
             }
         ],
     )
+    write_canonical_fixture(ctx, seconds=3.0)
     register_default_providers(ctx)
 
     results = execute_completion_plan(

@@ -1287,6 +1287,9 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
   );
 
   const [taskWatchKeys, setTaskWatchKeys] = useState<Record<string, number>>({});
+  const [materialSlotRegenByTask, setMaterialSlotRegenByTask] = useState<
+    Record<string, string[]>
+  >({});
 
   const bumpTaskWatchKey = useCallback((taskId: string) => {
     setTaskWatchKeys((previous) => ({
@@ -1413,6 +1416,38 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
     onTaskMilestone: handleGenerationMilestone,
     onAllTerminal: handleAllGenerationTerminal,
   });
+
+  useEffect(() => {
+    setMaterialSlotRegenByTask((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const regenTaskId of Object.keys(previous)) {
+        const taskEvent =
+          generationEvents[regenTaskId] ??
+          (event?.taskId === regenTaskId ? event : null);
+        if (!taskEvent) {
+          continue;
+        }
+        if (
+          taskEvent.status === "awaiting_review" &&
+          taskEvent.stage === "awaiting_material_review"
+        ) {
+          delete next[regenTaskId];
+          changed = true;
+          continue;
+        }
+        if (
+          taskEvent.status === "failed" ||
+          taskEvent.status === "cancelled" ||
+          taskEvent.status === "succeeded"
+        ) {
+          delete next[regenTaskId];
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [event, generationEvents]);
 
   const displayGenerationEvents = useMemo(() => {
     const liveEvents = { ...generationEvents };
@@ -2594,6 +2629,7 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                 onGoToScriptReview={() => setPanel("script-review")}
                 getMigrationContext={getMigrationContext}
                 taskWatchKeys={taskWatchKeys}
+                materialSlotRegenByTask={materialSlotRegenByTask}
               />
             ) : (
               <TaskProgressPanel
@@ -2649,6 +2685,13 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                     ? (taskWatchKeys[singleProgressTaskId] ?? 0)
                     : 0
                 }
+                regeneratingSlotIds={
+                  singleProgressTaskId
+                    ? materialSlotRegenByTask[singleProgressTaskId]
+                    : taskId
+                      ? materialSlotRegenByTask[taskId]
+                      : undefined
+                }
               />
             )}
             {lastAction === "revise" && reviseIntents && reviseIntents.length > 0 && (
@@ -2700,13 +2743,18 @@ export function ProjectWorkbench({ projectId }: ProjectWorkbenchProps) {
                   bumpTaskWatchKeys(approvedTaskIds);
                   setPanel("progress", "material-review:approved");
                 }}
-                onReviseStarted={(reviseTaskId) => {
+                onReviseStarted={(reviseTaskId, slotId) => {
                   applyGenerationStatusOverrides((previous) => {
                     const next = { ...previous };
                     delete next[reviseTaskId];
                     next[reviseTaskId] = "retrying";
                     return next;
                   });
+                  setMaterialSlotRegenByTask((previous) => ({
+                    ...previous,
+                    [reviseTaskId]: [slotId],
+                  }));
+                  setDataError(null);
                   bumpTaskWatchKey(reviseTaskId);
                   setPanel("progress", "material-review:slot-revise");
                 }}

@@ -17,7 +17,7 @@
       "slotId": "seg-cta-cta-1",
       "reason": "文案可覆盖 CTA，但转化导向的视觉包装不足",
       "impact": "high",
-      "suggestedFixes": ["asset_reuse"]
+      "suggestedFixes": ["hyperframes_material"]
     },
     {
       "slotId": "seg-hook-hook_text-2",
@@ -35,7 +35,7 @@
       "slotId": "seg-3-proof-1",
       "reason": "proof 槽位缺少实拍对比画面",
       "impact": "medium",
-      "suggestedFixes": ["asset_reuse"]
+      "suggestedFixes": ["hyperframes_material"]
     }
   ],
   "summary": "1 missing, 4 weak slots"

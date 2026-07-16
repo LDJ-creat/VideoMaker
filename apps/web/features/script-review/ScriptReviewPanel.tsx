@@ -22,6 +22,8 @@ import {
   nlReviseScriptDraft,
   updateScriptDraft,
 } from "@/lib/apiClient";
+import { NarrationDriftPanel } from "@/features/narration-drift/NarrationDriftPanel";
+import { canShowNarrationDriftPanel } from "@/features/narration-drift/narrationDriftVisibility";
 import { ScriptNlReviseBar } from "@/features/script-review/ScriptNlReviseBar";
 import {
   formatDurationSec,
@@ -223,6 +225,11 @@ export function ScriptReviewPanel({
   const draft = activeState?.draft;
   const masterReview = isMasterReviewStage(activeStage);
   const storyboardReview = isStoryboardReviewStage(activeStage);
+  const activeTaskEvent =
+    variants.find((entry) => entry.generationId === activeId)?.taskEvent ?? null;
+  const showNarrationDrift = canShowNarrationDriftPanel(activeTaskEvent, {
+    storyboardReview,
+  });
 
   const handleSaveMaster = async () => {
     if (!activeId) return;
@@ -502,7 +509,7 @@ export function ScriptReviewPanel({
 
         {storyboardReview && draft && (
           <div className="space-y-3">
-            {draft.narrationPreviewDurationSec != null && (
+            {draft.narrationPreviewDurationSec != null ? (
               <div
                 className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
                 data-testid="narration-preview-duration"
@@ -524,6 +531,10 @@ export function ScriptReviewPanel({
                   src={generationNarrationPreviewAudioUrl(projectId, activeId)}
                 />
               </div>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="narration-timing-estimate-note">
+                分镜时长为结构估算；定稿口播将在分镜审核通过后自动生成并对齐各镜窗口。
+              </p>
             )}
             <ScriptNlReviseBar
               scope="storyboard"
@@ -563,6 +574,15 @@ export function ScriptReviewPanel({
             </div>
           </div>
         )}
+
+        {showNarrationDrift ? (
+          <NarrationDriftPanel
+            projectId={projectId}
+            generationId={activeId}
+            enabled={showNarrationDrift}
+            onDraftUpdated={() => void loadDraft(activeId, true)}
+          />
+        ) : null}
 
         {!masterReview && !storyboardReview && !activeState?.loading && (
           <p className="text-sm text-muted-foreground">

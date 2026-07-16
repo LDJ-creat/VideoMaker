@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 
 from app.runtime.agent_run_store import AgentRunLog, AgentRunStore
 from app.runtime.model_call_store import ModelCallLog, ModelCallStore
+from app.runtime.token_usage import normalize_token_usage
 
 logger = logging.getLogger(__name__)
 
@@ -62,24 +63,29 @@ class LocalFileSink:
         if not project_id:
             raise ValueError("Agent run log requires projectId for LocalFileSink")
 
-        self._store.record(
-            project_id=str(project_id),
-            log=AgentRunLog(
-                agent_name=str(log["agentName"]),
-                prompt_version=str(log["promptVersion"]),
-                model=str(log["model"]),
-                task=str(log.get("task", "")),
-                input_summary=str(log.get("inputSummary", "")),
-                output_valid=bool(log["outputValid"]),
-                latency_ms=float(log["latencyMs"]),
-                task_id=log.get("taskId"),
-                generation_id=log.get("generationId"),
-                validation_errors=list(log.get("validationErrors", [])),
-                token_usage=log.get("tokenUsage"),
-                run_id=log.get("id"),
-                created_at=log.get("createdAt"),
-            ),
-        )
+        try:
+            self._store.record(
+                project_id=str(project_id),
+                log=AgentRunLog(
+                    agent_name=str(log["agentName"]),
+                    prompt_version=str(log["promptVersion"]),
+                    model=str(log["model"]),
+                    task=str(log.get("task", "")),
+                    input_summary=str(log.get("inputSummary", "")),
+                    output_valid=bool(log["outputValid"]),
+                    latency_ms=float(log["latencyMs"]),
+                    task_id=log.get("taskId"),
+                    generation_id=log.get("generationId"),
+                    validation_errors=list(log.get("validationErrors", [])),
+                    token_usage=normalize_token_usage(log.get("tokenUsage")),
+                    run_id=log.get("id"),
+                    created_at=log.get("createdAt"),
+                ),
+            )
+        except ValueError as exc:
+            if "Invalid AgentRunLog payload" not in str(exc):
+                raise
+            logger.warning("agent-run log skipped: %s", exc)
 
     def record_tool_run(self, log: dict) -> None:
         project_id = log.get("projectId")
@@ -127,7 +133,7 @@ class LocalFileSink:
                 job_id=log.get("jobId"),
                 input_payload=log.get("input"),
                 output_payload=log.get("output"),
-                token_usage=log.get("tokenUsage"),
+                token_usage=normalize_token_usage(log.get("tokenUsage")),
                 error=log.get("error"),
                 run_id=log.get("id"),
                 created_at=log.get("createdAt"),

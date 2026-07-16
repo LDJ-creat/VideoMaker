@@ -81,13 +81,24 @@ class CompositionEngine:
             material_edit_mode=request.material_edit_mode,
             edit_instruction=request.edit_instruction,
             existing_material_spec=request.existing_material_spec,
+            existing_spec_hash=request.existing_spec_hash,
+            author_contract=request.author_contract,
             review_gateway=request.review_gateway,
         )
+        lint_scratch = None
+        slot_id = str((request.slot or {}).get("id") or "").strip()
+        if request.generation_root is not None and slot_id:
+            gen_root = Path(request.generation_root)
+            # generation_root may be .../generated; author scratch lives under generation id dir
+            if gen_root.name == "generated":
+                gen_root = gen_root.parent
+            lint_scratch = gen_root / "react-author" / slot_id
         return author_material_spec(
             enriched,
             self.gateway,
             repo_root=self.repo_root,
             storage_root=self.storage_root,
+            lint_scratch_dir=lint_scratch,
             hyperframes_cli=self._cli,
             fixture_spec=self._fixture_spec,
             react_trace=enriched.react_trace,
@@ -191,7 +202,12 @@ class CompositionEngine:
             lint_skipped = False
 
         paths.output_clip.parent.mkdir(parents=True, exist_ok=True)
-        render_result = self._cli.render(composition_dir, paths.output_clip, paths.log_path)
+        render_result = self._cli.render(
+            composition_dir,
+            paths.output_clip,
+            paths.log_path,
+            preview_profile=paths.preview_profile,
+        )
         if not render_result.get("ok"):
             return RenderResult(
                 ok=False,

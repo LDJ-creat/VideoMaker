@@ -75,15 +75,16 @@ def update_slot_review_entry(
         raise FileNotFoundError("material-review-state.json missing")
     slots = dict(state.get("slots") or {})
     entry = dict(slots.get(slot_id) or {})
-    if report.get("reviewUnavailable"):
-        entry["status"] = "review_unavailable"
-    elif report.get("hardGateFailed"):
-        entry["status"] = "hard_gate_failed"
+    entry["status"] = _slot_status_from_report(report)
+    review_bypass = str(report.get("reviewBypass") or "").strip()
+    if review_bypass:
+        entry["reviewBypass"] = review_bypass
+    elif "reviewBypass" in entry:
+        entry.pop("reviewBypass", None)
+    if report.get("hardGateFailed"):
         entry["hardGateFailed"] = True
-    elif report.get("reviewInputs", {}).get("mode") == "skipped" and report.get("approved"):
-        entry["status"] = "skipped"
-    else:
-        entry["status"] = "agent_passed" if report.get("approved") else "agent_failed"
+    elif "hardGateFailed" in entry:
+        entry.pop("hardGateFailed", None)
     if spec_uri:
         entry["specUri"] = spec_uri
     if preview_artifact_ref:
@@ -94,6 +95,24 @@ def update_slot_review_entry(
     state["slots"] = slots
     save_material_review_state(generation_root, state)
     return state
+
+
+def _slot_status_from_report(report: dict[str, Any]) -> str:
+    if report.get("reviewUnavailable"):
+        return "review_unavailable"
+    if report.get("hardGateFailed"):
+        return "hard_gate_failed"
+    review_bypass = str(report.get("reviewBypass") or "").strip()
+    if review_bypass:
+        return "review_bypass"
+    issues = [str(item) for item in report.get("issues") or [] if str(item).strip()]
+    if any("review_rounds_exhausted" in item for item in issues):
+        return "review_exhausted"
+    if report.get("approved"):
+        if report.get("reviewInputs", {}).get("mode") == "skipped":
+            return "skipped"
+        return "agent_passed"
+    return "agent_failed"
 
 
 def approve_material_state(generation_root: Path, *, approved_by: str = "user") -> dict[str, Any]:

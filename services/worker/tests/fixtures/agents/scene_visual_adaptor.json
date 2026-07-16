@@ -1,0 +1,14 @@
+{
+  "compositionAuthorBrief": {
+    "mode": "hf_native",
+    "authorPrompt": "【时长适配】实测口播 2.1s（原估 5.0s）。动画须紧凑：≤2 个视觉 beat，快入快出。",
+    "timingContext": {
+      "measuredDurationSec": 2.1,
+      "estimatedDurationSec": 5.0,
+      "driftRatio": 0.42,
+      "motionDensity": "compact",
+      "beatCount": 2
+    }
+  },
+  "summary": "压缩动效节奏以匹配实测口播时长"
+}

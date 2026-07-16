@@ -19,6 +19,8 @@ class AuthorRequest:
     material_edit_mode: Literal["edit", "full"] | None = None
     edit_instruction: str | None = None
     existing_material_spec: dict[str, Any] | None = None
+    existing_spec_hash: str | None = None
+    author_contract: dict[str, Any] | None = None
     pattern_l0: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
     task_id: str | None = None
@@ -46,6 +48,7 @@ class RenderPaths:
     aspect_ratio: str = "9:16"
     lint_log_path: Path | None = None
     lint_reuse_scratch: Path | None = None
+    preview_profile: str = "full"
 
 
 @dataclass

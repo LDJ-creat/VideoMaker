@@ -78,19 +78,23 @@ describe("parallelMaterialActivity", () => {
     expect([...merged]).toEqual([]);
   });
 
-  it("drops active slots that are already completed on disk", () => {
+  it("keeps active slots even when disk marks them completed", () => {
     const activity = reduceParallelMaterialActivityFromMessages([
-      "Completing slot slot-1",
       "Completing slot slot-2",
-      "Completing slot slot-3",
     ]);
-    const resolved = reconcileMaterialSlotProgress(
+    const merged = mergeCompletedMaterialSlotIds(
       activity,
-      new Set(["slot-1", "slot-2"]),
+      new Set(["slot-1", "slot-3"]),
+      ["slot-2", "slot-4"],
+      { includeDisk: true },
     );
-    expect(resolved.activeSlots.has("slot-1")).toBe(false);
-    expect(resolved.activeSlots.has("slot-2")).toBe(false);
-    expect(resolved.activeSlots.has("slot-3")).toBe(true);
+    expect([...merged].sort()).toEqual(["slot-1", "slot-3", "slot-4"]);
+
+    const resolved = reconcileMaterialSlotProgress(activity, merged);
+    expect(resolved.activeSlots.has("slot-2")).toBe(true);
+    expect(resolved.completedSlots.has("slot-2")).toBe(false);
+    expect(resolved.completedSlots.has("slot-1")).toBe(true);
+    expect(resolved.completedSlots.has("slot-4")).toBe(true);
   });
 
   it("only infers disk completion during material/render stages", () => {
@@ -140,5 +144,19 @@ describe("parallelMaterialActivity", () => {
       "running",
     );
     expect(hint).toContain("合成完整视频");
+  });
+
+  it("suppresses post-material hint while gate slot regen is pending", () => {
+    const activity = reduceParallelMaterialActivity(
+      EMPTY_PARALLEL_MATERIAL_ACTIVITY,
+      "HyperFrames material ready for slot slot-6",
+    );
+    const hint = inferPostMaterialPipelineHint(
+      activity,
+      "rendering_material",
+      "retrying",
+      ["slot-2"],
+    );
+    expect(hint).toBeNull();
   });
 });

@@ -2,17 +2,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.agents.runner import AgentRunner
+    from app.gateway.model_gateway import ModelGateway
+    from app.runtime.task_context import TaskContext
 
 from app.pipelines.material_gate_promote import (
     FinalSource,
     marker_report_for_finalize,
 )
 from app.pipelines.material_review import (
+    build_failed_review_report,
     build_skipped_review_report,
     check_preview_hard_gates,
+    is_review_infrastructure_error,
+    load_gate_author_payload,
     material_review_enabled,
+    material_review_gate_llm_enabled,
     report_matches_review_artifacts,
+    run_slot_review,
     slot_needs_agent_review,
 )
 from app.pipelines.material_review_state import (
@@ -71,6 +81,82 @@ def _should_skip_finalize(
     return report_matches_review_artifacts(existing, spec=spec, preview_path=preview_path)
 
 
+def _maybe_run_gate_llm_review(
+    report: dict[str, Any],
+    *,
+    generation_root: Path,
+    generation_id: str,
+    project_id: str,
+    slot_id: str,
+    preview_path: Path,
+    spec: dict[str, Any],
+    provider: str,
+    slot_timing: dict[str, Any] | None,
+    final_source: FinalSource | None,
+    runner: AgentRunner | None = None,
+    context: TaskContext | None = None,
+    gateway: ModelGateway | None = None,
+    observability_sink: Any | None = None,
+) -> dict[str, Any]:
+    # Only orphan paths (no in-session marker) may run Gate LLM. Promoted markers
+    # (approved or failed-exhausted) must never trigger a second non-feedback review.
+    if report.get("reviewPhase") == "promoted" and report.get("reviewBypass") != "no_in_session_marker":
+        return report
+    if str((report.get("trace") or {}).get("reviewRoute") or "") == "promoted":
+        if report.get("reviewBypass") != "no_in_session_marker":
+            return report
+    if report.get("reviewBypass") != "no_in_session_marker":
+        return report
+    if not material_review_gate_llm_enabled():
+        return report
+    if gateway is None:
+        return report
+
+    author_payload = load_gate_author_payload(
+        generation_root,
+        slot_id,
+        slot_timing=slot_timing,
+        project_id=project_id,
+        generation_id=generation_id,
+    )
+    try:
+        reviewed = run_slot_review(
+            runner=runner,
+            context=context,
+            gateway=gateway,
+            store=None,
+            preview_path=preview_path,
+            spec=spec,
+            author_payload=author_payload,
+            slot_id=slot_id,
+            generation_id=generation_id,
+            generation_root=generation_root,
+            agent_review_round=1,
+            provider=provider,
+            observability_sink=observability_sink,
+        )
+    except Exception as exc:
+        reviewed = build_failed_review_report(
+            slot_id=slot_id,
+            generation_id=generation_id,
+            provider=provider,
+            error_message=str(exc),
+            gateway=gateway,
+        )
+        if is_review_infrastructure_error(str(exc)):
+            reviewed["reviewUnavailable"] = True
+            reviewed["approved"] = True
+            reviewed["issues"] = []
+
+    reviewed["reviewPhase"] = "gate_finalize"
+    if final_source:
+        reviewed["finalSource"] = final_source
+    trace = dict(reviewed.get("trace") or {})
+    trace["reviewRoute"] = "gate_finalize"
+    reviewed["trace"] = trace
+    return reviewed
+
+
 def finalize_slot_material_gate(
     *,
     generation_root: Path,
@@ -87,6 +173,10 @@ def finalize_slot_material_gate(
     generated_root: Path | None = None,
     final_source: FinalSource | None = None,
     partial_harvest: bool = False,
+    runner: AgentRunner | None = None,
+    context: TaskContext | None = None,
+    gateway: ModelGateway | None = None,
+    observability_sink: Any | None = None,
 ) -> dict[str, Any]:
     if not material_review_enabled():
         return build_skipped_review_report(
@@ -165,6 +255,22 @@ def finalize_slot_material_gate(
                     provider=provider,
                     final_source=resolved_source,
                     partial_harvest=partial_harvest,
+                )
+                report = _maybe_run_gate_llm_review(
+                    report,
+                    generation_root=generation_root,
+                    generation_id=generation_id,
+                    project_id=project_id,
+                    slot_id=slot_id,
+                    preview_path=preview_path,
+                    spec=spec,
+                    provider=provider,
+                    slot_timing=timing,
+                    final_source=resolved_source,
+                    runner=runner,
+                    context=context,
+                    gateway=gateway,
+                    observability_sink=observability_sink,
                 )
         elif not needs_agent:
             from material_disk import is_valid_visual_artifact

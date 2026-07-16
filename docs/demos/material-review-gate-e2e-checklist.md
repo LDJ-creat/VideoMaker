@@ -25,9 +25,62 @@
 - [ ] HF / `-finish` slots: agent review with video or vision route
 - [ ] ReAct/ACP auto-repair stays in single session (no new ACP session for repair)
 - [ ] Gate NL revise uses new author session + `existingMaterialSpec`
+- [ ] Gate NL「加核心文字/重新生成」：`revise-context.json` / ACP `task.json` 含非空 `authorContract.allowedDisplayCopy`
+- [ ] Gate regen 后 `specHash` 必须变化；未变化时 task 失败且 hint 含 `regression_unchanged_spec`
+- [ ] Gate regen 清 ACP scratch（`material-spec.json`、`material-review-marker.json`）；vision review 重跑，非旧 `text_only` 缓存
 - [ ] `approve-material` produces `master.wav` and final MP4
 - [ ] `VIDEOMAKER_HUMAN_REVIEW_MODE=false` skips material gate
 - [ ] Dual-variant: each generation pauses/resumes independently
+
+## ACP 硬化（2026-07-06）
+
+**Plan:** `docs/superpowers/plans/2026-07-06-acp-agent-hardening-plan.md`
+
+Gate 内 slot NL 改片 + ACP author 时：
+
+- [ ] `VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS=1`（默认）：`review_material_preview` **成功 billed 调用 = 1**
+- [ ] 创意未过：存在 **1 条** `IN_SESSION_REPAIR` + `hintCode=material_review`；repair 后 **无** 第二次 vision 审片
+- [ ] observability：`skipped_reason=review_cap_no_re_review`（repair 后跳过再审）
+- [ ] scratch **无** `_invoke_mcp.py` / `_mcp_call*.py`；收片非 `forbidden_helper_script`
+- [ ] `tool_calls.jsonl`：MCP lint ≥ 1（`composition_lint_draft` / `composition_validate_draft` / `composition_lint_scratch_file`）
+- [ ] bootstrap：`AUTHOR_BRIEF.md` + `SKILLS_SUMMARY.md` 在 scratch；优先 `read_author_brief` MCP
+- [ ] trace：Read/grep **无** `services/`、`tests/` 路径；第 2 次 repo Read → `acp_policy_violation:read_repo_source`
+- [ ] Terminal：**拒绝** `python -m composition.cli lint-spec`（须用 MCP lint）
+
+## Gate revise 降耗（2026-07-06）
+
+**Plan:** `docs/superpowers/plans/2026-07-06-gate-revise-latency-plan.md`  
+**前置：** API + Web 已启动；generation 处于 `awaiting_material_review`；ACP + video understanding 已配置（in-session 开模式）。
+
+### Fast path（Phase 1）
+
+- [ ] 门内 NL 改片 retry 后 task events **无** `producing_media`
+- [ ] **有** `generating_material`；`(resumed) generation plan ready` 出现
+
+### Lint 收敛（Phase 2）
+
+- [ ] `tool_calls.jsonl`：`composition_lint_draft` + `composition_lint_scratch_file` **合计 ≤ 3**
+- [ ] 无 `_invoke_mcp*.py`；MCP lint 缓存同 specHash 返回 `cached: true`
+
+### In-session 开关（Phase 3）
+
+**用例 A — `VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION_REVISE=true`（默认）**
+
+- [ ] `review_material_preview` billed = **1**；repair 后有 `review_cap_no_re_review`
+- [ ] repair 后 `preview.mp4` mtime **晚于** repair turn；`should_materialize_final` 非 stale copy
+
+**用例 B — `VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION_REVISE=false`**
+
+- [ ] trace **无** in-session preview/vision
+- [ ] 仍回到 `awaiting_material_review`
+
+### 耗时目标（对比 trace `5b2c2e658455`）
+
+| 指标 | 基线 | 目标 |
+|------|------|------|
+| 总 wall | ~13.2 min | A: ≤8 min；B: ≤6 min |
+| producing_media | ~2.6 min | 0 |
+| lint_draft 次数 | 10 | ≤3 |
 
 ## Observability
 

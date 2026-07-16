@@ -22,6 +22,9 @@
     },
     "issues": { "type": "array", "items": { "type": "string" } },
     "suggestions": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "specHash": { "type": "string", "minLength": 1 },
+    "previewSha256": { "type": "string", "minLength": 1 },
     "reviewInputs": {
       "type": "object",
       "required": ["mode"],
@@ -70,7 +73,11 @@
         "modelCallId": { "type": "string" },
         "agentRunId": { "type": "string" },
         "promptVersion": { "type": "string" },
-        "parentObservabilityRunId": { "type": "string" }
+        "parentObservabilityRunId": { "type": "string" },
+        "reviewClassification": {
+          "type": "string",
+          "enum": ["approved", "creative", "infrastructure", "unknown", "infrastructure_waived"]
+        }
       },
       "additionalProperties": false
     }

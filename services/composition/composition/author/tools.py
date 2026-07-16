@@ -22,13 +22,38 @@ def _material_review_tools_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
+def material_review_max_rounds() -> int:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "1").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
+
+
+def _coerce_spec_json(raw: Any) -> dict[str, Any] | None:
+    """Accept object or JSON-encoded object string for tool-call robustness."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
 def tool_definitions() -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
                 "name": "skill_view",
-                "description": "Read a SKILL.md or references file by location path from available_skills.",
+                "description": (
+                    "Read a SKILL.md or references file by location path from available_skills. "
+                    "Prefer section= for long files; keep total skill_view calls low (required paths only)."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -57,7 +82,10 @@ def tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "composition_lint_draft",
-                "description": "Build composition from MaterialSpec and run hyperframes lint.",
+                "description": (
+                    "Build composition from MaterialSpec and run hyperframes lint. "
+                    "Pass spec_json as a JSON object (not a string). When ok=true, call submit_material_spec next."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {"spec_json": {"type": "object"}},
@@ -132,6 +160,7 @@ class CompositionToolExecutor:
         self._author_payload = author_payload or {}
         self._review_gateway = review_gateway
         self._last_review_report: dict[str, Any] | None = None
+        self._review_rounds_used = 0
 
     def execute(self, name: str, arguments: dict[str, Any]) -> str:
         if name == "skill_view":
@@ -157,11 +186,27 @@ class CompositionToolExecutor:
                 filtered.append(block)
             return json.dumps(filtered, ensure_ascii=False)
         if name == "composition_lint_draft":
-            spec = arguments.get("spec_json")
-            if not isinstance(spec, dict):
-                return json.dumps({"ok": False, "errors": ["spec_json must be object"]})
-            schema_only = bool(arguments.get("schema_only"))
+            from composition.author.lint_errors import enrich_lint_errors
             from composition.paths import detect_repo_root
+
+            spec = _coerce_spec_json(arguments.get("spec_json"))
+            if not isinstance(spec, dict):
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "errors": [
+                            "spec_json must be a JSON object (MaterialSpec), "
+                            "not a string/array/null — pass object "
+                            '{"template":"composition","durationSec":N,"composition":{...}}'
+                        ],
+                        **enrich_lint_errors(
+                            ["spec_json must be a JSON object"],
+                            author_payload=self._author_payload,
+                        ),
+                    },
+                    ensure_ascii=False,
+                )
+            schema_only = bool(arguments.get("schema_only"))
 
             repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
             lint_ctx = LintContext(
@@ -178,14 +223,23 @@ class CompositionToolExecutor:
                 cli=self._cli,
             )
             if result is None:
-                return json.dumps({"ok": False, "errors": errors or ["lint failed"]}, ensure_ascii=False)
+                errs = errors or ["lint failed"]
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "errors": errs,
+                        **enrich_lint_errors(errs, author_payload=self._author_payload),
+                    },
+                    ensure_ascii=False,
+                )
             payload = spec_lint_result_to_json(result)
             payload["ok"] = not errors
             if errors:
                 payload["errors"] = errors
+                payload.update(enrich_lint_errors(errors, author_payload=self._author_payload))
             return json.dumps(payload, ensure_ascii=False)
         if name == "render_material_preview":
-            spec = arguments.get("spec_json")
+            spec = _coerce_spec_json(arguments.get("spec_json"))
             if not isinstance(spec, dict):
                 return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
             from composition.paths import detect_repo_root
@@ -200,21 +254,49 @@ class CompositionToolExecutor:
             )
             return json.dumps(payload, ensure_ascii=False)
         if name == "review_material_preview":
-            spec = arguments.get("spec_json")
+            spec = _coerce_spec_json(arguments.get("spec_json"))
             if not isinstance(spec, dict):
                 return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
             from composition.paths import detect_repo_root
 
             repo = self._repo_root.resolve() if self._repo_root else detect_repo_root()
-            observation = review_material_preview_tool(
-                spec_json=spec,
-                scratch_dir=self._lint_root.resolve(),
-                repo_root=repo,
-                author_payload=self._author_payload,
-                aspect_ratio=self._build_ctx.aspect_ratio,
-                asset_root=self._build_ctx.asset_root,
-                review_gateway=self._review_gateway,
-            )
+            scratch = self._lint_root.resolve()
+            if validate_review_marker(scratch, spec) is None:
+                observation = review_material_preview_tool(
+                    spec_json=spec,
+                    scratch_dir=scratch,
+                    repo_root=repo,
+                    author_payload=self._author_payload,
+                    aspect_ratio=self._build_ctx.aspect_ratio,
+                    asset_root=self._build_ctx.asset_root,
+                    review_gateway=self._review_gateway,
+                )
+            elif self._review_rounds_used >= material_review_max_rounds():
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": "review_rounds_exhausted",
+                        "reviewRoundsUsed": self._review_rounds_used,
+                        "reviewMaxRounds": material_review_max_rounds(),
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                observation = review_material_preview_tool(
+                    spec_json=spec,
+                    scratch_dir=scratch,
+                    repo_root=repo,
+                    author_payload=self._author_payload,
+                    aspect_ratio=self._build_ctx.aspect_ratio,
+                    asset_root=self._build_ctx.asset_root,
+                    review_gateway=self._review_gateway,
+                )
+                try:
+                    parsed = json.loads(observation)
+                    if not parsed.get("cached") and not parsed.get("skipped"):
+                        self._review_rounds_used += 1
+                except json.JSONDecodeError:
+                    self._review_rounds_used += 1
             try:
                 parsed = json.loads(observation)
                 if isinstance(parsed, dict) and isinstance(parsed.get("report"), dict):
@@ -229,13 +311,36 @@ class CompositionToolExecutor:
                 pass
             return observation
         if name == "submit_material_spec":
-            spec = arguments.get("spec_json")
+            spec = _coerce_spec_json(arguments.get("spec_json"))
             if not isinstance(spec, dict):
                 return json.dumps(
-                    {"accepted": False, "error": "spec_json must be object"},
+                    {
+                        "accepted": False,
+                        "error": (
+                            "spec_json must be a JSON object (MaterialSpec), "
+                            "not a string/array/null"
+                        ),
+                    },
                     ensure_ascii=False,
                 )
-            if _material_review_tools_enabled():
+            # Align duration to authoritative slotTiming when present (hard-gate drift).
+            timing = self._author_payload.get("slotTiming")
+            if isinstance(timing, dict):
+                try:
+                    duration = float(timing.get("durationSec"))
+                    if duration > 0:
+                        spec = dict(spec)
+                        spec["durationSec"] = duration
+                except (TypeError, ValueError):
+                    pass
+            # Default false: worker/gate post-turn review is authoritative for ReAct.
+            # Set VIDEOMAKER_MATERIAL_REVIEW_REQUIRE_BEFORE_SUBMIT=true to force
+            # in-session review_material_preview before submit (stricter loops).
+            require_marker = os.getenv(
+                "VIDEOMAKER_MATERIAL_REVIEW_REQUIRE_BEFORE_SUBMIT",
+                "false",
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            if _material_review_tools_enabled() and require_marker:
                 review_error = validate_review_marker(self._lint_root.resolve(), spec)
                 if review_error:
                     return json.dumps(

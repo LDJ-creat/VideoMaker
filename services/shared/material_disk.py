@@ -19,7 +19,14 @@ MIN_STOCK_VIDEO_BYTES = 100_000
 MIN_HYPERFRAMES_VIDEO_BYTES = 15_000
 
 MATERIAL_REVIEW_APPROVABLE_SLOT_STATUSES = frozenset(
-    {"agent_passed", "agent_failed", "skipped", "review_unavailable"}
+    {
+        "agent_passed",
+        "agent_failed",
+        "skipped",
+        "review_unavailable",
+        "review_bypass",
+        "review_exhausted",
+    }
 )
 
 

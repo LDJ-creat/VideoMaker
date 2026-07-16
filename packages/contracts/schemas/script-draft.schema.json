@@ -58,6 +58,11 @@
     },
     "durationTargetSec": { "type": "number", "minimum": 1 },
     "narrationPreviewDurationSec": { "type": "number", "minimum": 0 },
+    "narrationDurationSec": { "type": "number", "minimum": 0 },
+    "narrationTimingStatus": {
+      "type": "string",
+      "enum": ["draft", "canonical", "stale"]
+    },
     "masterApprovedAt": { "type": "string", "format": "date-time" },
     "storyboardApprovedAt": { "type": "string", "format": "date-time" },
     "approvedBy": { "type": "string" }

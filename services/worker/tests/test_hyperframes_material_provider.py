@@ -109,9 +109,10 @@ def test_hyperframes_provider_with_prefilled_spec(tmp_path: Path) -> None:
     assert result["ok"] is True
     assert result["artifactRef"]["type"] == "video"
     assert (generated_root / "action-benefit-card.mp4").exists()
-    assert ctx._progress_events == [  # type: ignore[attr-defined]
-        ("rendering_material", "HyperFrames material ready for slot seg-2-benefit_card-1")
-    ]
+    events = ctx._progress_events  # type: ignore[attr-defined]
+    assert ("rendering_material", "HyperFrames material ready for slot seg-2-benefit_card-1") in events
+    # Gate finalize may emit reviewing_material after preview is ready.
+    assert events[0][0] == "rendering_material"
 
 
 def test_finish_resolves_normalized_stock_video_src(

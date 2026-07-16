@@ -27,6 +27,12 @@ Copy [`services/api/.env.example`](../api/.env.example) → `services/api/.env` 
 | `VIDEOMAKER_ACP_SMOKE_SIMPLE` | **`false`** | **Production E2E must be `false`**; smoke scripts set `true` |
 | `VIDEOMAKER_MCP_WRITE_LINT_FOR_ACP` | `true` | MCP `write_material_spec` runs lint with `hintCode` / `fixRecipe` |
 | `VIDEOMAKER_MCP_WRITE_SKIP_LINT` | `false` (ACP) | When `true`, skips MCP lint; worker turn gate remains |
+| `VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS` | `1` | Max billed vision review per slot session |
+| `VIDEOMAKER_MATERIAL_REVIEW_REPAIR_FOLLOWUP_MAX` | `1` | Creative repair follow-up after first review fail; no re-review |
+| `VIDEOMAKER_ACP_SPAWN_CWD` | `scratch` | Agent spawn cwd confined to scratch |
+| `VIDEOMAKER_ACP_TRACE_POLICY_ENABLED` | `true` | Abort session on 2nd repo source Read |
+| `VIDEOMAKER_ACP_HELPER_SCRIPT_BLOCK` | `true` | Reject `_invoke_mcp*.py` in scratch at acceptance |
+| `VIDEOMAKER_FIXTURE_MODE` | `false` | **`true` only for CI/smoke**; enables fixture HyperFrames lint. **`VM_ACP_FIXTURE_LINT` is not passed to ACP MCP in production.** |
 
 ### Concurrency (dual-layer)
 
@@ -52,7 +58,19 @@ python -m pytest tests/test_hyperframes_material_provider.py::test_hyperframes_p
 
 ## B. MCP smoke (no external agent)
 
-Layer B covered by `test_mcp_server.py` (`skill_view`, `write_material_spec` with fixture lint).
+Layer B covered by `test_mcp_server.py` (`skill_view`, `write_material_spec`, `read_author_brief`, `composition_validate_draft`, `composition_lint_scratch_file` with fixture lint).
+
+## B1. ACP 硬化自动化
+
+```powershell
+cd services/worker
+python -m pytest tests/test_acp_acceptance.py tests/test_trace_policy.py tests/test_terminal_bridge.py -q
+
+cd ../composition
+python -m pytest tests/test_mcp_server.py -q
+```
+
+**Pass:** forbidden helper script rejected; trace policy detects repo Read; terminal denies `python -m composition.cli lint-spec`.
 
 ## B2. CLI lint-spec smoke
 
@@ -63,7 +81,7 @@ New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 @'
 {"template":"benefit-card","durationSec":3,"params":{"title":"Cli","bullets":["A"],"colors":{"primary":"#2563eb","background":"#0f172a","text":"#ffffff"}}}
 '@ | Set-Content -Encoding utf8 "$scratch\material-spec.json"
-$env:VM_ACP_FIXTURE_LINT="1"
+$env:VIDEOMAKER_FIXTURE_MODE="true"
 $env:PYTHONPATH="services\composition;services\shared"
 python -m composition.cli lint-spec --scratch $scratch --repo-root . --schema-only --json
 python -m composition.cli lint-spec --scratch $scratch --repo-root . --json

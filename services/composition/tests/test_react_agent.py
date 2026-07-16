@@ -139,3 +139,113 @@ def test_react_exhausted_turns_falls_back_to_video_composition(
     )
     assert spec["template"] == "composition"
     assert 'id="base-video"' in spec["composition"]["bodyHtml"]
+
+
+class _ReasoningGateway:
+    """Captures multi-turn messages to assert DeepSeek reasoning_content echo."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.second_turn_messages: list[dict] | None = None
+
+    def complete_with_tools(self, messages, tools, *, task: str) -> dict:
+        _ = tools, task
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "content": "",
+                "reasoning_content": "plan: read skill then draft",
+                "tool_calls": [
+                    {
+                        "id": "call-skill-1",
+                        "name": "skill_view",
+                        "arguments": {
+                            "location": "skills/private/videomaker-composition/SKILL.md"
+                        },
+                    },
+                    {
+                        "id": "call-skill-2",
+                        "name": "skill_view",
+                        "arguments": {
+                            "location": "skills/private/videomaker-visual-craft/SKILL.md"
+                        },
+                    },
+                ],
+            }
+        self.second_turn_messages = [dict(m) for m in messages]
+        return {"tool_calls": [], "content": None}
+
+    def complete_json(self, task, inputs, schema_name):
+        raise AssertionError("complete_json should not be called in react test")
+
+
+def test_react_echoes_reasoning_content_on_assistant_tool_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DeepSeek thinking mode rejects follow-ups that drop reasoning_content."""
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AGENT_MODE", "react")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS", "2")
+    gateway = _ReasoningGateway()
+    author_material_spec(
+        AuthorRequest(slot={"role": "benefit_card", "scriptIntent": "a", "visualIntent": "b"}),
+        gateway,
+        fixture_spec=None,
+        hyperframes_cli=MagicMock(),
+    )
+    assert gateway.calls == 2
+    assert gateway.second_turn_messages is not None
+    assistant_msgs = [
+        m
+        for m in gateway.second_turn_messages
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert len(assistant_msgs) == 1
+    assistant = assistant_msgs[0]
+    assert assistant.get("reasoning_content") == "plan: read skill then draft"
+    assert len(assistant.get("tool_calls") or []) == 2
+    tool_msgs = [m for m in gateway.second_turn_messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+
+
+class _SkillCapGateway:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.tool_results: list[str] = []
+
+    def complete_with_tools(self, messages, tools, *, task: str) -> dict:
+        _ = tools, task
+        self.calls += 1
+        # Capture last tool observation from prior turn
+        for m in messages:
+            if m.get("role") == "tool":
+                self.tool_results.append(str(m.get("content") or ""))
+        if self.calls <= 3:
+            return {
+                "tool_calls": [
+                    {
+                        "id": f"call-skill-{self.calls}",
+                        "name": "skill_view",
+                        "arguments": {
+                            "location": "skills/private/videomaker-composition/SKILL.md"
+                        },
+                    }
+                ]
+            }
+        return {"tool_calls": [], "content": None}
+
+    def complete_json(self, task, inputs, schema_name):
+        raise AssertionError("complete_json should not be called")
+
+
+def test_react_skill_view_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_AGENT_MODE", "react")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_REACT_MAX_TURNS", "4")
+    monkeypatch.setenv("VIDEOMAKER_COMPOSITION_REACT_SKILL_VIEW_MAX", "2")
+    gateway = _SkillCapGateway()
+    author_material_spec(
+        AuthorRequest(slot={"role": "benefit_card", "scriptIntent": "a", "visualIntent": "b"}),
+        gateway,
+        fixture_spec=None,
+        hyperframes_cli=MagicMock(),
+    )
+    assert any("skill_view_cap_exceeded" in item for item in gateway.tool_results)

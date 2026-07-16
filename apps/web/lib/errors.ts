@@ -70,3 +70,13 @@ export function isGenerationPlanNotReadyError(err: unknown): boolean {
   if (err.status !== 404) return false;
   return err.message.includes("Generation plan not ready");
 }
+
+/** Expected 404 before canonical TTS runs (e.g. storyboard review gate). */
+export function isNarrationTimingNotReadyError(err: unknown): boolean {
+  if (!(err instanceof ApiClientError)) return false;
+  if (err.status !== 404) return false;
+  return (
+    err.message.includes("Narration timing not found") ||
+    err.message.includes("Narration drift report not found")
+  );
+}

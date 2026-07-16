@@ -116,6 +116,30 @@ export function getActiveMaterialSlotIds(
   return new Set(activity.activeSlots.keys());
 }
 
+/** Optimistic active slots right after gate slot revise, before worker SSE arrives. */
+export function seedRegeneratingMaterialSlots(
+  activity: ParallelMaterialActivity,
+  slotIds: Iterable<string> | undefined,
+  options?: { actionLabel?: string },
+): ParallelMaterialActivity {
+  if (slotIds == null) {
+    return activity;
+  }
+  const ids = [...slotIds].filter((slotId) => slotId.trim().length > 0);
+  if (ids.length === 0) {
+    return activity;
+  }
+  const activeSlots = new Map(activity.activeSlots);
+  const completedSlots = new Set(activity.completedSlots);
+  const actionLabel = options?.actionLabel ?? "素材补全";
+  for (const rawSlotId of ids) {
+    const key = slotKey(rawSlotId);
+    activeSlots.set(key, { slotId: rawSlotId, actionLabel });
+    completedSlots.delete(key);
+  }
+  return { activeSlots, completedSlots };
+}
+
 export function shouldInferDiskCompletedSlots(
   progressGroup: import("@/features/structure-migration/generationMigrationStages").MigrationStageGroup,
 ): boolean {
@@ -138,6 +162,10 @@ export function mergeCompletedMaterialSlotIds(
       merged.add(normalized);
     }
   }
+  // Gate revise / regen may leave stale on-disk artifacts; live SSE active slots win.
+  for (const key of activity.activeSlots.keys()) {
+    merged.delete(key);
+  }
   return merged;
 }
 
@@ -146,14 +174,21 @@ export function reconcileMaterialSlotProgress(
   completedSlotIds: Set<string>,
 ): ParallelMaterialActivity {
   const activeSlots = new Map(activity.activeSlots);
-  for (const slotId of completedSlotIds) {
-    const key = normalizeMigrationSlotId(slotId) ?? slotId;
-    activeSlots.delete(key);
+  const effectiveCompleted = new Set(completedSlotIds);
+  for (const key of activeSlots.keys()) {
+    effectiveCompleted.delete(key);
   }
   const completedSlots = new Set(activity.completedSlots);
-  for (const slotId of completedSlotIds) {
+  for (const slotId of effectiveCompleted) {
     const key = normalizeMigrationSlotId(slotId) ?? slotId;
+    if (activeSlots.has(key)) {
+      continue;
+    }
     completedSlots.add(key);
+    activeSlots.delete(key);
+  }
+  for (const key of activeSlots.keys()) {
+    completedSlots.delete(key);
   }
   return { activeSlots, completedSlots };
 }
@@ -189,7 +224,11 @@ export function inferPostMaterialPipelineHint(
   activity: ParallelMaterialActivity,
   stage: string | undefined,
   status: string | undefined,
+  regeneratingSlotIds?: string[],
 ): string | null {
+  if (regeneratingSlotIds != null && regeneratingSlotIds.length > 0) {
+    return null;
+  }
   if (status !== "running" && status !== "retrying") {
     return null;
   }

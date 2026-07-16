@@ -29,6 +29,19 @@ def test_should_materialize_final_force_render(tmp_path: Path) -> None:
     assert should_materialize_final(scratch_dir=scratch, spec=spec, force_render=True) == "render"
 
 
+def test_should_materialize_final_stale_marker_forces_render(tmp_path: Path) -> None:
+    scratch = tmp_path / "acp-author" / "slot-1"
+    scratch.mkdir(parents=True)
+    (scratch / "preview.mp4").write_bytes(b"preview")
+    spec = {"template": "composition", "durationSec": 5.0, "composition": {"bodyHtml": "<div/>"}}
+    stale_hash = "deadbeef"
+    (scratch / "material-review-marker.json").write_text(
+        json.dumps({"specHash": stale_hash, "approved": False, "report": {"specHash": stale_hash}}),
+        encoding="utf-8",
+    )
+    assert should_materialize_final(scratch_dir=scratch, spec=spec) == "render"
+
+
 def test_materialize_final_copy_preview(tmp_path: Path) -> None:
     scratch = tmp_path / "acp-author" / "slot-1"
     scratch.mkdir(parents=True)

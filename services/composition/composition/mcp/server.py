@@ -5,6 +5,9 @@ from mcp.server.fastmcp import FastMCP
 from composition.mcp.context import McpSessionContext
 from composition.mcp.handlers import (
     handle_composition_lint_draft,
+    handle_composition_lint_scratch_file,
+    handle_composition_validate_draft,
+    handle_read_author_brief,
     handle_registry_list,
     handle_render_material_preview,
     handle_review_material_preview,
@@ -32,9 +35,32 @@ def registry_list(category: str | None = None, role: str | None = None) -> str:
 
 
 @mcp.tool()
+def read_author_brief() -> str:
+    """Return author brief JSON (slot, authorContract, editInstruction) from scratch task payload."""
+    return handle_read_author_brief(_ctx())
+
+
+@mcp.tool()
+def composition_validate_draft(spec_json: dict) -> str:
+    """Fast schema + copy-guard validation only (no HyperFrames render)."""
+    return handle_composition_validate_draft(_ctx(), spec_json=spec_json)
+
+
+@mcp.tool()
 def composition_lint_draft(spec_json: dict) -> str:
-    """Build composition from MaterialSpec and run hyperframes lint."""
+    """Build composition from MaterialSpec and run hyperframes lint.
+
+    WHEN: After drafting or editing MaterialSpec JSON.
+    NEVER: shell python, Read repo source, VM_ACP_FIXTURE_LINT.
+    TIMEOUT: 90s.
+    """
     return handle_composition_lint_draft(_ctx(), spec_json=spec_json)
+
+
+@mcp.tool()
+def composition_lint_scratch_file(relative_path: str = "draft.json") -> str:
+    """Lint a JSON spec file under scratch (relative path only). NEVER use shell python."""
+    return handle_composition_lint_scratch_file(_ctx(), relative_path=relative_path)
 
 
 @mcp.tool()

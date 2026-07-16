@@ -28,6 +28,7 @@ MATERIAL_SPEC_FILENAME = "material-spec.json"
 _CENTER_KEYWORDS = ("居中", "中心", "中部", "核心区域", "center", "centre", "middle")
 
 NARRATION_PREVIEW_FILENAME = "narration-preview.json"
+NARRATION_TIMING_FILENAME = "narration-timing.json"
 GENERATION_PLAN_FILENAME = "generation-plan.json"
 _ROOT_DURATION_RE = re.compile(r'data-duration="([0-9.]+)"', re.IGNORECASE)
 _ROOT_INNER_HTML_RE = re.compile(
@@ -183,6 +184,30 @@ def _copy_file_if_exists(source: Path, dest: Path) -> bool:
     return True
 
 
+def load_narration_timing_slot_timing(generation_root: Path, slot_id: str) -> dict[str, float] | None:
+    timing_path = generation_root / NARRATION_TIMING_FILENAME
+    if not timing_path.is_file():
+        return None
+    try:
+        timing = json.loads(timing_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(timing, dict):
+        return None
+    scene_timing = timing.get("sceneTiming")
+    if not isinstance(scene_timing, list):
+        return None
+    for entry in scene_timing:
+        if not isinstance(entry, dict) or str(entry.get("slotId") or "") != slot_id:
+            continue
+        start, end, duration = normalize_scene_start_end(
+            float(entry.get("startSec", 0.0)),
+            float(entry.get("endSec", 0.0)),
+        )
+        return {"startSec": start, "endSec": end, "durationSec": duration}
+    return None
+
+
 def load_narration_preview_timing(generation_root: Path, slot_id: str) -> dict[str, float] | None:
     preview_path = generation_root / NARRATION_PREVIEW_FILENAME
     if not preview_path.is_file():
@@ -244,7 +269,9 @@ def apply_narration_preview_to_storyboard(
         slot_id = str(scene.get("slotId") or "")
         if slot_id not in slot_ids:
             continue
-        timing = load_narration_preview_timing(generation_root, slot_id)
+        timing = load_narration_timing_slot_timing(generation_root, slot_id)
+        if timing is None:
+            timing = load_narration_preview_timing(generation_root, slot_id)
         if timing is None:
             continue
         scene["startSec"] = timing["startSec"]
@@ -312,24 +339,11 @@ def resolve_slot_timing_for_material_author(
 ) -> dict[str, float]:
     timing = resolve_slot_timing_from_generation_plan(generation_root, slot_id)
     if timing is None:
-        preview_timing = load_narration_preview_timing(generation_root, slot_id)
-        if preview_timing is not None:
-            timing = preview_timing
+        timing = load_narration_timing_slot_timing(generation_root, slot_id)
     if timing is None and storyboard_fallback:
         timing = resolve_slot_timing_from_storyboard(storyboard_fallback, slot_id)
     if timing is None:
         timing = {"startSec": 0.0, "endSec": 4.0, "durationSec": 4.0}
-
-    prefer_duration: float | None = None
-    if isinstance(existing_spec, dict) and existing_spec.get("durationSec") is not None:
-        prefer_duration = float(existing_spec["durationSec"])
-    elif isinstance(finish_brief, dict) and finish_brief.get("durationSec") is not None:
-        prefer_duration = float(finish_brief["durationSec"])
-
-    if prefer_duration is not None and prefer_duration > timing["durationSec"]:
-        timing = dict(timing)
-        timing["durationSec"] = round(max(0.5, prefer_duration), 3)
-        timing["endSec"] = round(timing["startSec"] + timing["durationSec"], 3)
     return timing
 
 
@@ -401,7 +415,7 @@ def discover_material_spec_for_slot(
     slot_id: str,
     hf_action_id: str | None,
 ) -> dict[str, Any] | None:
-    preview_duration = load_narration_preview_timing(generation_root, slot_id)
+    preview_duration = load_narration_timing_slot_timing(generation_root, slot_id)
     preferred_duration = preview_duration["durationSec"] if preview_duration else None
 
     if hf_action_id:
@@ -464,7 +478,7 @@ def resolve_spec_duration_sec(
     spec_duration = spec.get("durationSec")
     base = float(spec_duration) if spec_duration is not None else float(fallback_duration_sec)
     if prefer_duration_sec is not None:
-        base = max(base, float(prefer_duration_sec))
+        base = min(base, float(prefer_duration_sec))
     return round(max(0.5, base), 3)
 
 

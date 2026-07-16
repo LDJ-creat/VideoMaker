@@ -188,6 +188,114 @@ def test_finalize_partial_harvest_sets_review_bypass(tmp_path: Path) -> None:
         )
     assert report["reviewBypass"] == "partial_harvest"
     state = load_material_review_state(generation_root)
+    assert state["slots"][slot_id]["status"] == "review_bypass"
+
+
+def test_finalize_no_marker_sets_review_bypass_status(tmp_path: Path) -> None:
+    generation_root = tmp_path / "gen"
+    generated_root = generation_root / "generated"
+    action_id = "action-slot-2"
+    slot_id = "slot-2"
+    generated_root.mkdir(parents=True)
+    preview_path = generated_root / f"{action_id}.mp4"
+    preview_path.write_bytes(b"\x00" * 20_000)
+    spec = {
+        "template": "composition",
+        "durationSec": 4.0,
+        "composition": {"bodyHtml": "<div/>"},
+    }
+    _write_spec(generated_root, action_id, spec)
+    plan = {
+        "id": "gen-1",
+        "completionActions": [
+            {"id": action_id, "slotId": slot_id, "provider": "hyperframes_material"},
+        ],
+    }
+
+    with patch(
+        "app.pipelines.material_gate_finalize.check_preview_hard_gates",
+        return_value=[],
+    ):
+        report = finalize_slot_material_gate(
+            generation_root=generation_root,
+            generation_id="gen-1",
+            project_id="proj",
+            variant="high_click",
+            action=plan["completionActions"][0],
+            plan=plan,
+            preview_path=preview_path,
+            spec_uri=f"generated/{action_id}/material-spec.json",
+            artifact_ref=None,
+            generated_root=generated_root,
+            final_source="render",
+        )
+    assert report["reviewBypass"] == "no_in_session_marker"
+    state = load_material_review_state(generation_root)
+    assert state["slots"][slot_id]["status"] == "review_bypass"
+    assert state["slots"][slot_id]["reviewBypass"] == "no_in_session_marker"
+
+
+def test_finalize_no_marker_runs_gate_llm_when_gateway_present(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("VIDEOMAKER_MATERIAL_REVIEW_GATE_LLM", "true")
+    generation_root = tmp_path / "gen"
+    generated_root = generation_root / "generated"
+    action_id = "action-slot-5"
+    slot_id = "slot-5"
+    generated_root.mkdir(parents=True)
+    preview_path = generated_root / f"{action_id}.mp4"
+    preview_path.write_bytes(b"\x00" * 20_000)
+    spec = {
+        "template": "composition",
+        "durationSec": 4.0,
+        "composition": {"bodyHtml": "<div>价值对等</div>"},
+    }
+    _write_spec(generated_root, action_id, spec)
+    plan = {
+        "id": "gen-1",
+        "completionActions": [
+            {"id": action_id, "slotId": slot_id, "provider": "hyperframes_material"},
+        ],
+    }
+    gateway = MagicMock()
+    llm_report = {
+        "slotId": slot_id,
+        "generationId": "gen-1",
+        "approved": False,
+        "issues": ["beat timing"],
+        "suggestions": ["tighten motion"],
+        "reviewInputs": {"mode": "video"},
+        "provider": "hyperframes_material",
+        "trace": {"reviewRoute": "video"},
+    }
+    run_slot_review = MagicMock(return_value=llm_report)
+
+    with patch(
+        "app.pipelines.material_gate_finalize.check_preview_hard_gates",
+        return_value=[],
+    ), patch(
+        "app.pipelines.material_gate_finalize.run_slot_review",
+        run_slot_review,
+    ):
+        report = finalize_slot_material_gate(
+            generation_root=generation_root,
+            generation_id="gen-1",
+            project_id="proj",
+            variant="high_click",
+            action=plan["completionActions"][0],
+            plan=plan,
+            preview_path=preview_path,
+            spec_uri=f"generated/{action_id}/material-spec.json",
+            artifact_ref=None,
+            generated_root=generated_root,
+            final_source="render",
+            gateway=gateway,
+        )
+
+    run_slot_review.assert_called_once()
+    assert report["reviewPhase"] == "gate_finalize"
+    assert report["trace"]["reviewRoute"] == "gate_finalize"
+    assert "review_bypass" not in report.get("issues", [])
+    state = load_material_review_state(generation_root)
     assert state["slots"][slot_id]["status"] == "agent_failed"
 
 

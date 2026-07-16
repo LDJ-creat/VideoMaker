@@ -23,10 +23,11 @@ from composition.render.hyperframes_cli import HyperFramesCli, fixture_command_r
 from composition.schema_loader import validate_contract
 from composition.skills.runtime import SkillRuntime
 from composition.types import BuildContext
+from composition.lint_pipeline import fixture_lint_enabled
 
 
 def _hyperframes_cli(repo_root: Path) -> HyperFramesCli:
-    if os.getenv("VM_ACP_FIXTURE_LINT", "").strip().lower() in {"1", "true", "yes"}:
+    if fixture_lint_enabled():
         return HyperFramesCli(command_runner=fixture_command_runner(), repo_root=repo_root)
     return HyperFramesCli(repo_root=repo_root)
 
@@ -83,23 +84,109 @@ def handle_composition_lint_draft(
 ) -> str:
     if not isinstance(spec_json, dict):
         return json.dumps({"ok": False, "errors": ["spec_json must be object"]}, ensure_ascii=False)
-    lint_ctx = _lint_context(ctx)
-    errors, result = lint_material_spec_full(
-        spec_json,
-        lint_ctx,
-        schema_only=schema_only,
-        cli=_hyperframes_cli(ctx.repo_root),
-    )
+
+    import concurrent.futures
+
+    lint_timeout_sec = 90.0
+
+    def _run_lint() -> tuple[list[str], Any]:
+        lint_ctx = _lint_context(ctx)
+        return lint_material_spec_full(
+            spec_json,
+            lint_ctx,
+            schema_only=schema_only,
+            skip_hf_if_cached=not schema_only,
+            cli=_hyperframes_cli(ctx.repo_root),
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_run_lint)
+        try:
+            errors, result = future.result(timeout=lint_timeout_sec)
+        except concurrent.futures.TimeoutError:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "errors": [f"composition_lint_draft timed out after {lint_timeout_sec:.0f}s"],
+                    "hintCode": "lint_timeout",
+                    "fixRecipe": (
+                        "Write draft.json in scratch, then composition_lint_scratch_file(relative_path='draft.json'); "
+                        "do not repeat composition_lint_draft with large inline JSON"
+                    ),
+                },
+                ensure_ascii=False,
+            )
+
     if result is None:
         return json.dumps({"ok": False, "errors": errors or ["lint failed"]}, ensure_ascii=False)
     if errors:
         payload = spec_lint_result_to_json(result)
         payload["ok"] = False
-        payload.update(enrich_lint_errors(errors))
+        payload.update(enrich_lint_errors(errors, author_payload=ctx.author_payload))
         return json.dumps(payload, ensure_ascii=False)
     payload = spec_lint_result_to_json(result)
     payload["ok"] = True
     return json.dumps(payload, ensure_ascii=False)
+
+
+def handle_composition_validate_draft(ctx: McpSessionContext, *, spec_json: dict[str, Any]) -> str:
+    return handle_composition_lint_draft(ctx, spec_json=spec_json, schema_only=True)
+
+
+def _resolve_scratch_relative_json(ctx: McpSessionContext, relative_path: str) -> tuple[Path | None, str | None]:
+    raw = str(relative_path or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or ".." in raw.split("/"):
+        return None, "relative_path must be a simple filename under scratch"
+    target = (ctx.scratch_dir / raw).resolve()
+    try:
+        target.relative_to(ctx.scratch_dir.resolve())
+    except ValueError:
+        return None, "relative_path escapes scratch directory"
+    if not target.is_file():
+        return None, f"file not found in scratch: {raw}"
+    return target, None
+
+
+def handle_composition_lint_scratch_file(
+    ctx: McpSessionContext,
+    *,
+    relative_path: str = "draft.json",
+) -> str:
+    target, error = _resolve_scratch_relative_json(ctx, relative_path)
+    if error or target is None:
+        return json.dumps({"ok": False, "errors": [error or "invalid path"]}, ensure_ascii=False)
+    try:
+        spec_json = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return json.dumps({"ok": False, "errors": [f"invalid spec json: {exc}"]}, ensure_ascii=False)
+    if not isinstance(spec_json, dict):
+        return json.dumps({"ok": False, "errors": ["spec file must contain a JSON object"]}, ensure_ascii=False)
+    return handle_composition_lint_draft(ctx, spec_json=spec_json)
+
+
+def handle_read_author_brief(ctx: McpSessionContext) -> str:
+    payload = ctx.author_payload if isinstance(ctx.author_payload, dict) else {}
+    brief: dict[str, Any] = {}
+    for key in (
+        "slot",
+        "slotId",
+        "slotTiming",
+        "authorContract",
+        "renderPolicy",
+        "editInstruction",
+        "finishBrief",
+        "compositionAuthorBrief",
+        "visualStyleBible",
+        "materialGateRevise",
+        "existingSpecHash",
+        "mustChangeSpec",
+    ):
+        if key in payload:
+            brief[key] = payload[key]
+    contract = payload.get("authorContract")
+    if isinstance(contract, dict) and "mustChangeSpec" in contract:
+        brief["mustChangeSpec"] = contract.get("mustChangeSpec")
+    return json.dumps({"ok": True, "brief": brief}, ensure_ascii=False, indent=2)
 
 
 def lint_material_spec(
@@ -182,7 +269,7 @@ def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, A
     gate_errors = validate_spec_gate(spec_json, ctx.author_payload)
     if gate_errors:
         payload = {"ok": False, "errors": gate_errors}
-        payload.update(enrich_lint_errors(gate_errors))
+        payload.update(enrich_lint_errors(gate_errors, author_payload=ctx.author_payload))
         return json.dumps(payload, ensure_ascii=False)
 
     skip_lint = os.getenv("VIDEOMAKER_MCP_WRITE_SKIP_LINT", "").strip().lower() in {"1", "true", "yes"}
@@ -190,7 +277,7 @@ def handle_write_material_spec(ctx: McpSessionContext, *, spec_json: dict[str, A
         lint_errors = lint_material_spec(ctx, spec_json=spec_json)
         if lint_errors:
             payload = {"ok": False, "errors": lint_errors}
-            payload.update(enrich_lint_errors(lint_errors))
+            payload.update(enrich_lint_errors(lint_errors, author_payload=ctx.author_payload))
             return json.dumps(payload, ensure_ascii=False)
 
     target = ctx.material_spec_path

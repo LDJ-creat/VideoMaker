@@ -73,6 +73,24 @@ describe("buildSlotMigrationRows", () => {
     expect(productRow?.status).toBe("completing");
   });
 
+  it("prefers completing over completed when slot is actively regenerating", () => {
+    const rows = buildSlotMigrationRows({
+      structure: fixtureVideoStructure,
+      gapReport: fixtureGapReport,
+      completionActions: fixtureGenerationPlan.completionActions,
+      mode: "progress",
+      progressGroup: "completing",
+      activeSlotId: "slot-cta",
+      completedSlotIds: new Set(["slot-cta", "slot-benefit"]),
+    });
+
+    const ctaRow = rows.find((row) => row.slotId === "slot-cta");
+    const benefitRow = rows.find((row) => row.slotId === "slot-benefit");
+
+    expect(ctaRow?.status).toBe("completing");
+    expect(benefitRow?.status).toBe("completed");
+  });
+
   it("marks only the active slot as completing during material stage", () => {
     const rows = buildSlotMigrationRows({
       structure: fixtureVideoStructure,

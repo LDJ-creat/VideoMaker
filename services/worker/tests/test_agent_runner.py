@@ -47,6 +47,27 @@ def test_agent_run_store_record_creates_log_file(tmp_path: Path) -> None:
     assert payload["taskId"] == "task-1"
 
 
+def test_agent_run_store_strips_token_usage_total(tmp_path: Path) -> None:
+    store = AgentRunStore(tmp_path)
+    from app.runtime.agent_run_store import AgentRunLog
+
+    log_path = store.record(
+        project_id="project-1",
+        log=AgentRunLog(
+            agent_name="material_reviewer",
+            prompt_version="abc12345",
+            model="gpt-test",
+            task="material_reviewer",
+            input_summary="{}",
+            output_valid=True,
+            latency_ms=9.0,
+            token_usage={"prompt": 100, "completion": 50, "total": 150},
+        ),
+    )
+    payload = json.loads(log_path.read_text(encoding="utf-8"))
+    assert payload["tokenUsage"] == {"prompt": 100.0, "completion": 50.0}
+
+
 def test_agent_runner_fixture_mode_returns_valid_structure(tmp_path: Path) -> None:
     runner = AgentRunner(
         llm=LLMTool(fixture_mode=True, fixtures=load_agent_fixtures(_fixtures_dir())),

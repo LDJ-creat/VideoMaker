@@ -21,6 +21,7 @@ from acp.schema import (
 from app.composition.acp.fs_bridge import FsBridge, PathConfinementError
 from app.composition.acp.terminal_bridge import TerminalBridge, _auto_approve_enabled
 from app.composition.acp.trace import AcpAuthorTraceRecorder
+from app.composition.acp.trace_policy import TracePolicyMonitor
 from app.observability.acp_author_recorder import AcpAuthorObservabilityContext
 
 
@@ -36,6 +37,7 @@ class HeadlessCompositionClient:
     fs_bridge: FsBridge
     trace: AcpAuthorTraceRecorder | None = None
     observability: AcpAuthorObservabilityContext | None = None
+    trace_policy: TracePolicyMonitor | None = None
     terminal_bridge: TerminalBridge = field(default_factory=TerminalBridge)
     _terminals: dict[str, _TerminalState] = field(default_factory=dict)
 
@@ -71,6 +73,17 @@ class HeadlessCompositionClient:
         if self.trace is None and self.observability is None:
             return
         payload = update.model_dump(by_alias=True) if hasattr(update, "model_dump") else {"update": str(update)}
+        if self.trace_policy is not None and isinstance(payload, dict):
+            violation_path = self.trace_policy.inspect_session_update(payload)
+            if violation_path and self.trace is not None:
+                self.trace.record_tool_call(
+                    {
+                        "kind": "policy_violation",
+                        "policyViolation": "read_repo_source",
+                        "path": violation_path,
+                        "violationCount": self.trace_policy.violation_count,
+                    }
+                )
         if self.trace is not None:
             self.trace.record_tool_call({"kind": "session_update", "update": payload})
         if self.observability is not None:

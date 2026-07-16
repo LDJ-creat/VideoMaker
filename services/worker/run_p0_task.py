@@ -50,6 +50,8 @@ def _default_stage(mode: str) -> str:
         return "parsing_edit_intent"
     if mode == "revise_script_draft":
         return "running_agent"
+    if mode == "fix_narration_script":
+        return "adapting_narration_density"
     if mode == "run_revise":
         return "parsing_edit_intent"
     if mode == "execute_revise_patch":
@@ -213,6 +215,31 @@ def main() -> int:
                 context=context,
                 structure=payload.get("structure"),
                 database_path=getattr(pipeline, "_database_path", None),
+            )
+        elif mode == "fix_narration_script":
+            from app.pipelines.narration_drift import run_slot_script_revise_and_resync
+            from app.runtime.task_context import TaskContext
+
+            generation_id = str(payload["generationId"])
+            slot_id = str(payload["slotId"])
+            context = TaskContext(
+                project_id=project_id,
+                task_id=task_id,
+                storage_root=storage_root,
+            )
+            structure = payload.get("structure") or {}
+            gateway = pipeline._build_material_gateway()  # noqa: SLF001
+            runner = pipeline._build_runner(context=context, generation_id=generation_id)  # noqa: SLF001
+            generation_root = storage_root / "projects" / project_id / "generations" / generation_id
+            result = run_slot_script_revise_and_resync(
+                generation_root=generation_root,
+                structure=structure,
+                context=context,
+                generation_id=generation_id,
+                runner=runner,
+                slot_id=slot_id,
+                instruction=payload.get("instruction"),
+                gateway=gateway,
             )
         elif mode == "knowledge_selector":
             from app.agents.knowledge_selector import run_knowledge_selector

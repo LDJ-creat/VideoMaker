@@ -532,6 +532,13 @@ class FFmpegTool:
         if probe.get("code"):
             return probe
         current = float(probe.get("durationSec") or 0.0)
+        if current > target + 0.05:
+            return self.trim_clip(
+                resolved_input,
+                resolved_output,
+                start_sec=0.0,
+                duration_sec=target,
+            )
         if current >= target - 0.05:
             if resolved_input != resolved_output:
                 resolved_output.write_bytes(resolved_input.read_bytes())

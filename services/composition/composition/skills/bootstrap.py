@@ -8,9 +8,11 @@ from composition.skills.usage_requirements import visual_craft_bootstrap_section
 
 _ACP_EXECUTION_BLOCK = """\
 # ACP execution
-One pass: required skill_view → draft spec → lint → write_material_spec.
-Forbidden: exploring repo source, schemas, CLI/MCP internals, other scratch dirs, or example specs.
-Use only videomaker-composition MCP tools + terminal lint-spec; no search/shell/node_repl unless repair cites a file."""
+Phase A (this session): required skill_view → draft spec → composition_lint_draft loop → write_material_spec.
+Phase B (after submit): worker runs preview review and may send one repair follow-up; only adjust spec/motion.
+Forbidden: exploring repo source, reading .py implementation files, schemas, CLI/MCP internals, or other scratch dirs.
+Use only videomaker-composition MCP tools for lint/write; skill_view only for paths listed in available_skills.
+write_material_spec does not require a review marker; never call review_material_preview."""
 
 
 def build_bootstrap_system_prompt(
@@ -50,6 +52,15 @@ def build_bootstrap_system_prompt(
         "# Output",
         "Use submit_material_spec with JSON matching material-spec schema.",
         "Prefer template=composition with composition.bodyHtml for rich motion graphics.",
+        "",
+        "# ReAct execution (hard rules)",
+        "1) skill_view only required private skills/references (cap ~6 total) — no skill thrashing.",
+        "2) Draft MaterialSpec quickly; composition_lint_draft with spec_json as OBJECT.",
+        "3) When lint ok=true → immediately submit_material_spec (same JSON). Do not re-lint.",
+        "4) bodyHtml: NEVER set id=\"root\" (shell already has #root). Use child ids (#card, #line1).",
+        "5) GSAP: do NOT pair CSS opacity:0 with gsap.from({opacity:0}) — causes 0→0 noop. Leave CSS visible; animate from opacity 0 via GSAP only.",
+        "6) On-screen Chinese: paste EXACT strings from renderPolicy/authorContract allowedDisplayCopy (full sentence ok; no truncation/rewrite).",
+        "7) durationSec MUST equal slotTiming.durationSec.",
         "",
         "# Pattern reuse",
         "When a composition_pattern skill is listed, read composition-skill.md first, then spec.template.json.",

@@ -9,11 +9,10 @@ from typing import Any, Literal
 from app.agents.runner import AgentRunner
 from app.agents.storyboard_writer import run_storyboard_writer
 from app.knowledge.context_resolver import resolve_knowledge_context
+from app.pipelines.canonical_narration import invalidate_narration_timing
 from app.pipelines.narration_scene_timing import (
-    clear_narration_preview,
-    load_narration_preview,
+    load_narration_timing,
     narration_timing_payload,
-    unmark_checkpoint_stage,
 )
 from app.pipelines.script_draft import load_script_draft, save_script_draft
 from app.runtime.checkpoint import generation_artifact_root
@@ -275,8 +274,8 @@ def revise_script_draft(
         writer_kwargs["current_storyboard"] = [
             dict(scene) for scene in draft.get("storyboard") or [] if isinstance(scene, dict)
         ]
-        preview = load_narration_preview(generation_root)
-        narration_timing = narration_timing_payload(preview) if preview else None
+        timing = load_narration_timing(generation_root)
+        narration_timing = narration_timing_payload(timing) if timing else None
         if narration_timing is not None:
             writer_kwargs["narration_timing"] = narration_timing
     if isinstance(draft.get("visualStyleBible"), dict):
@@ -306,12 +305,12 @@ def revise_script_draft(
             else:
                 merged.pop("narrationVoProfile", None)
             merged["masterNarrationStatus"] = "draft"
-            clear_narration_preview(generation_root)
-            unmark_checkpoint_stage(generation_root, "narration_preview")
+            invalidate_narration_timing(generation_root)
             merged.pop("narrationPreviewDurationSec", None)
         else:
             merged["storyboard"] = list(writer_output.get("storyboard") or [])
             merged["storyboardStatus"] = "draft"
+            invalidate_narration_timing(generation_root)
 
         saved = save_script_draft(generation_root, merged)
         meta = {**meta_base, "outputValid": True}

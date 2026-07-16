@@ -22,19 +22,22 @@ description: VideoMaker MaterialSpec 交卷约束、composition shell、沙箱�
   "template": "composition",
   "durationSec": 3,
   "composition": {
-    "bodyHtml": "<div id=\"root\">...</div>",
-    "styles": ".card { opacity: 0; }",
-    "timelineScript": "tl.set('#root', { autoAlpha: 1 }, 0);",
-    "registryBlocks": ["caption-style-minimal"]
+    "bodyHtml": "<div id=\"card\" class=\"card\"><span id=\"line1\">…</span></div>",
+    "styles": ":root { --vm-bg:#1a1410; --vm-fg:#f5f0e8; --vm-accent:#d4a017; } .card { color: var(--vm-fg); }",
+    "timelineScript": "tl.from('#line1', { opacity: 0, y: 20, duration: 0.4 }, 0); tl.set('#card', { autoAlpha: 1 }, 0);",
+    "registryBlocks": []
   }
 }
 ```
+
+> Shell **已经提供** `#root`。`bodyHtml` 只写 `#root` **内部**子节点，**禁止**再写 `id="root"`。
 
 ## timelineScript 规则（HyperFrames shell）
 
 - Shell **已注入** GSAP timeline 变量 `tl` — **禁止**在 `timelineScript` 里写 `const tl`、`let tl` 或 `gsap.timeline()`
 - 直接使用 `tl.set(...)` / `tl.from(...)` / `tl.to(...)` 即可
 - 若需注册 timeline，可写 `window.__timelines['main'] = tl;`，且 `main` 必须与根节点 `data-composition-id` 一致
+- **禁止** CSS `opacity: 0` 与 `gsap.from({ opacity: 0 })` 叠用（会 0→0 永不显示）。入场隐藏只交给 GSAP `from`，CSS 保持默认可见
 
 ## Video 底片规则（lint 必过）
 
@@ -52,7 +55,7 @@ description: VideoMaker MaterialSpec 交卷约束、composition shell、沙箱�
 
 - 禁止输出完整 `<!doctype html>` 或 `<html>` 文档 — shell 由 builder 注入
 - 禁止 `javascript:` URL、`eval`、`fetch` 到外部域
-- `bodyHtml` 仅允许槽位片段（`#root` 或 composition 容器内 markup）
+- `bodyHtml` 仅允许槽位片段（挂在 shell `#root` 下的子节点；**禁止** `id="root"`）
 - 不要内联 `<script src=...>` 加载外部库 — 使用 shell 已提供的 GSAP / HyperFrames 适配器
 
 ## 环境约束与画幅适配
@@ -75,7 +78,8 @@ description: VideoMaker MaterialSpec 交卷约束、composition shell、沙箱�
 
 - `creativeBrief` / `finishIntent` / `slot.creativeDirection` / `packagingRequirements` → **执行规格**，禁止 verbatim 写入 DOM 或 `params.title/bullets`。
 - **口播**（`voiceoverContext.line` / `storyboardScene.script`）→ 仅 timing/情绪参考；成片字幕由 timeline 轨烧录，**HF 槽位内禁止任何口播文字**。
-- 唯一允许的上屏中文：`renderPolicy.allowedDisplayCopy`（非口播包装短文案）；无此项时默认 **零可读文本**，用动效/图形/底片表达。
+- 唯一允许的上屏中文：`renderPolicy.allowedDisplayCopy` ∪ `authorContract.allowedDisplayCopy` ∪ `displayCopyPolicy.allowed`（合并白名单）；无此项时默认 **零可读文本**，用动效/图形/底片表达。
+- **必须整句/整词粘贴白名单字符串**，禁止截断改写（如白名单是「本身就是最大的亏损」则不可写成「本身就是最大的」）。关键词高亮用 `<span>` 包在完整句内。
 - finish 润色 overlay 示例：无字 lower-third 条、角标框、emphasis 动效 — 不是把「添加逐句字幕」这句话打字到画面。
 
 ## Finish 润色（`finishBrief` + video 底片）

@@ -11,6 +11,7 @@ const emptyArtifacts: GenerationMigrationArtifacts = {
   gapReport: null,
   completionActions: [],
   materialState: null,
+  completedSlotIds: [],
 };
 
 describe("resolveEffectiveMigrationGroup", () => {
@@ -26,6 +27,28 @@ describe("resolveEffectiveMigrationGroup", () => {
         "running_agent",
         "Authoring HyperFrames material spec for slot-2",
         null,
+      ),
+    ).toBe("completing");
+  });
+
+  it("forces completing while gate slot regen is pending", () => {
+    expect(
+      resolveEffectiveMigrationGroup(
+        "awaiting_material_review",
+        undefined,
+        emptyArtifacts,
+        { taskStatus: "awaiting_review", regeneratingSlotIds: ["slot-2"] },
+      ),
+    ).toBe("completing");
+  });
+
+  it("forces completing when retrying from material review gate", () => {
+    expect(
+      resolveEffectiveMigrationGroup(
+        "awaiting_material_review",
+        undefined,
+        emptyArtifacts,
+        { taskStatus: "retrying" },
       ),
     ).toBe("completing");
   });

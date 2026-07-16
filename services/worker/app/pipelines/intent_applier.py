@@ -26,6 +26,8 @@ PIPELINE_STAGE_ORDER = (
     "mapping_slots",
     "drafting_master_script",
     "drafting_storyboard",
+    "synthesizing_canonical_narration",
+    "adapting_narration_density",
     "planning_completion",
     "generating_material",
     "building_timeline",

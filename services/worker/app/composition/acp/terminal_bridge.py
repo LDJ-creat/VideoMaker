@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 
@@ -20,20 +19,9 @@ def _auto_approve_enabled() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
-def _is_lint_spec_cli_invocation(args: list[str] | None) -> bool:
-    if not args or len(args) < 3:
-        return False
-    if args[0] != "-m":
-        return False
-    return args[1] == "composition.cli" and args[2] == "lint-spec"
-
-
 def is_terminal_command_allowed(command: str, args: list[str] | None = None) -> bool:
     if _auto_approve_enabled():
         base = Path(command).name.lower()
-        python_names = {Path(sys.executable).name.lower(), "python", "python.exe", "python3", "python3.exe"}
-        if base in python_names and _is_lint_spec_cli_invocation(args):
-            return True
         if any(pattern.match(base) for pattern in _TERMINAL_ALLOWLIST):
             return True
     _ = args

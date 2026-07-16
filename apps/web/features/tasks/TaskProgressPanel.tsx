@@ -27,14 +27,12 @@ import {
 } from "@/lib/assetUnderstandingRouteLabels";
 import { formatTaskError } from "@/lib/formatTaskError";
 import { scriptReviewGateLabel } from "@/lib/durationTargetLabels";
-import { deriveCompletedSlotIds } from "@/lib/deriveCompletedSlotIds";
 import {
   buildUnifiedMaterialProgressSummary,
   inferPostMaterialPipelineHint,
-  mergeCompletedMaterialSlotIds,
-  reconcileMaterialSlotProgress,
-  shouldInferDiskCompletedSlots,
+  type ParallelMaterialActivity,
 } from "@/lib/parallelMaterialActivity";
+import { resolveMaterialProgressView } from "@/lib/resolveMaterialProgressView";
 import { formatTaskMessage } from "@/lib/taskMessageLabels";
 import {
   getTaskStatusBadgeVariant,
@@ -63,6 +61,8 @@ type TaskProgressPanelProps = {
   migrationContext?: MigrationProgressContext;
   /** Bump after cancel/retry so migration/material UI drops stale state. */
   progressResetKey?: number;
+  /** Gate slot NL revise: optimistic active slots before worker SSE catches up. */
+  regeneratingSlotIds?: string[];
 };
 
 function shortTaskId(taskId: string): string {
@@ -87,6 +87,7 @@ export function TaskProgressPanel({
   onGoToScriptReview,
   migrationContext,
   progressResetKey = 0,
+  regeneratingSlotIds,
 }: TaskProgressPanelProps) {
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [lastFailedSummary, setLastFailedSummary] = useState<string | null>(null);
@@ -105,26 +106,26 @@ export function TaskProgressPanel({
     event,
     enabled: Boolean(migrationContext?.projectId && migrationContext?.generationId),
     resetKey: progressResetKey,
+    regeneratingSlotIds,
   });
   const migrationProgressGroup = resolveEffectiveMigrationGroup(
     event?.stage,
     event?.message,
     migrationArtifacts.artifacts,
+    {
+      taskStatus: event?.status,
+      regeneratingSlotIds,
+    },
   );
-  const completedFromActions = deriveCompletedSlotIds(
-    migrationArtifacts.artifacts?.completionActions ?? [],
-    migrationArtifacts.artifacts?.materialState?.completedActionIds,
-  );
-  const completedSlotIds = mergeCompletedMaterialSlotIds(
+  const materialProgressView = resolveMaterialProgressView({
     materialActivity,
-    completedFromActions,
-    migrationArtifacts.artifacts?.completedSlotIds,
-    { includeDisk: shouldInferDiskCompletedSlots(migrationProgressGroup) },
-  );
-  const resolvedMaterialActivity = reconcileMaterialSlotProgress(
-    materialActivity,
-    completedSlotIds,
-  );
+    regeneratingSlotIds,
+    completionActions: migrationArtifacts.artifacts?.completionActions ?? [],
+    completedActionIds: migrationArtifacts.artifacts?.materialState?.completedActionIds,
+    diskCompletedSlotIds: migrationArtifacts.artifacts?.completedSlotIds,
+    progressGroup: migrationProgressGroup,
+  });
+  const resolvedMaterialActivity = materialProgressView.resolvedActivity;
   const materialProgress = buildUnifiedMaterialProgressSummary(
     resolvedMaterialActivity,
     event?.message,
@@ -133,6 +134,7 @@ export function TaskProgressPanel({
     resolvedMaterialActivity,
     event?.stage,
     event?.status,
+    regeneratingSlotIds,
   );
   const showCancel =
     Boolean(onCancel) && event != null && isTaskCancellable(event.status);
@@ -275,8 +277,9 @@ export function TaskProgressPanel({
           <GenerationMigrationProgressPanel
             context={migrationContext}
             event={event}
-            materialActivity={resolvedMaterialActivity}
+            materialActivity={materialActivity}
             progressResetKey={progressResetKey}
+            regeneratingSlotIds={regeneratingSlotIds}
             defaultExpanded
           />
         ) : null}

@@ -143,7 +143,7 @@ def _slot_by_id(structure: dict[str, Any], slot_id: str) -> dict[str, Any]:
 def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
     from composition.author.forbidden_copy_guard import normalize_author_slot
 
-    return normalize_author_slot(
+    normalized = normalize_author_slot(
         {
             "role": slot.get("role"),
             "scriptIntent": slot.get("scriptIntent", ""),
@@ -152,6 +152,11 @@ def _material_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
             "requiredAssetType": list(slot.get("requiredAssetType") or []),
         }
     )
+    # Preserve id for react-author/acp-author scratch paths and review marker promote.
+    slot_id = str(slot.get("id") or slot.get("slotId") or "").strip()
+    if slot_id:
+        normalized["id"] = slot_id
+    return normalized
 
 
 def _duration_for_slot(ctx: MaterialContext, slot_id: str) -> float:
@@ -216,7 +221,82 @@ def _resolve_material_asset_refs(
     return [base]
 
 
+def _is_gate_revise_must_change(ctx: MaterialContext, slot_id: str) -> bool:
+    generation_root = _generation_root(ctx)
+    context_path = generation_root / "revise-context.json"
+    if not context_path.is_file():
+        return False
+    try:
+        payload = json.loads(context_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    gate = payload.get("materialGateRevise")
+    if not isinstance(gate, dict) or gate.get("source") != "material_gate_revise":
+        return False
+    contract = gate.get("authorContract")
+    return isinstance(contract, dict) and bool(contract.get("mustChangeSpec"))
+
+
+def _build_gate_revise_author_contract(
+    finish_brief: dict[str, Any] | None,
+    *,
+    edit_instruction: str,
+    material_edit_mode: MaterialEditMode,
+    storyboard: list[dict[str, Any]],
+    slot_id: str,
+) -> dict[str, Any] | None:
+    from app.pipelines.display_copy_policy import (
+        apply_display_copy_to_finish_brief,
+        build_author_contract,
+        derive_allowed_display_copy,
+    )
+
+    if not edit_instruction:
+        return None
+    scene = None
+    for item in storyboard:
+        if isinstance(item, dict) and str(item.get("slotId") or "") == slot_id:
+            scene = item
+            break
+    brief = apply_display_copy_to_finish_brief(
+        dict(finish_brief) if isinstance(finish_brief, dict) else {},
+        edit_instruction=edit_instruction,
+        storyboard_scene=scene,
+    )
+    allowed = derive_allowed_display_copy(
+        finish_brief=brief,
+        edit_instruction=edit_instruction,
+        storyboard_scene=scene,
+    )
+    return build_author_contract(
+        allowed_display_copy=allowed,
+        material_edit_mode=material_edit_mode,
+        must_change_spec=True,
+    )
+
+
+def _resolve_existing_spec_hash(
+    existing_material_spec: dict[str, Any] | None,
+    *,
+    generation_root: Path,
+    slot_id: str,
+) -> str | None:
+    from app.pipelines.material_review import material_spec_content_hash
+    from app.pipelines.revise_material_edit import load_archived_material_spec
+
+    if isinstance(existing_material_spec, dict) and existing_material_spec:
+        return material_spec_content_hash(existing_material_spec)
+    archived = load_archived_material_spec(generation_root, slot_id)
+    if isinstance(archived, dict) and archived:
+        return material_spec_content_hash(archived)
+    return None
+
+
 def _try_harvest_acp_partial_spec(ctx: MaterialContext, slot_id: str) -> dict[str, Any] | None:
+    if _is_gate_revise_must_change(ctx, slot_id):
+        return None
     generation_root = _generation_root(ctx)
     scratch = generation_root / "acp-author" / slot_id
     spec_path = scratch / "material-spec.json"
@@ -338,6 +418,33 @@ def _author_spec(
     elif material_edit_mode == "full" and edit_instruction:
         author_finish_brief = build_edit_finish_brief(finish_brief, instruction=edit_instruction)
 
+    author_contract: dict[str, Any] | None = None
+    existing_spec_hash: str | None = None
+    if edit_instruction:
+        from app.pipelines.display_copy_policy import apply_display_copy_to_finish_brief
+
+        scene = None
+        for item in list(ctx.storyboard):
+            if isinstance(item, dict) and str(item.get("slotId") or "") == slot_id:
+                scene = item
+                break
+        author_finish_brief = apply_display_copy_to_finish_brief(
+            author_finish_brief if isinstance(author_finish_brief, dict) else {},
+            edit_instruction=edit_instruction,
+            storyboard_scene=scene,
+        )
+        author_contract = _build_gate_revise_author_contract(
+            author_finish_brief,
+            edit_instruction=edit_instruction,
+            material_edit_mode=material_edit_mode,
+            storyboard=list(ctx.storyboard),
+            slot_id=slot_id,
+        )
+        existing_spec_hash = _resolve_existing_spec_hash(
+            existing_material_spec,
+            generation_root=_generation_root(ctx),
+            slot_id=slot_id,
+        )
     generation_root = _generation_root(ctx)
     slot_timing = resolve_slot_timing_for_revise(
         generation_root,
@@ -348,13 +455,17 @@ def _author_spec(
     )
     target_duration = float(slot_timing["durationSec"])
     prefer_duration: float | None = None
-    if material_edit_mode == "edit":
+    # Gate revise with mustChangeSpec: always honor canonical slotTiming (TTS window).
+    # Preferring a prior fallback durationSec (e.g. empty benefit-card = 3s) shrinks the
+    # render and trips preview_duration_drift vs narration_timing.
+    must_change = isinstance(author_contract, dict) and author_contract.get("mustChangeSpec") is True
+    if material_edit_mode == "edit" and not must_change:
         if isinstance(existing_material_spec, dict) and existing_material_spec.get("durationSec") is not None:
             prefer_duration = float(existing_material_spec["durationSec"])
         elif isinstance(author_finish_brief, dict) and author_finish_brief.get("durationSec") is not None:
             prefer_duration = float(author_finish_brief["durationSec"])
         if prefer_duration is not None:
-            target_duration = max(target_duration, prefer_duration)
+            target_duration = min(prefer_duration, float(slot_timing["durationSec"]))
     started = time.perf_counter()
     errors: list[str] = []
     trace_dir: str | None = None
@@ -437,6 +548,8 @@ def _author_spec(
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
+                            author_contract=author_contract,
+                            existing_spec_hash=existing_spec_hash,
                         ),
                         storage_root=ctx.storage_root,
                         generated_root=ctx.generated_root,
@@ -484,6 +597,8 @@ def _author_spec(
                             material_edit_mode=material_edit_mode,
                             edit_instruction=edit_instruction or None,
                             existing_material_spec=existing_material_spec,
+                            author_contract=author_contract,
+                            existing_spec_hash=existing_spec_hash,
                             review_gateway=ctx.gateway,
                         )
                     ),
@@ -650,13 +765,42 @@ class HyperFramesMaterialProvider:
                                 f"槽位 {slot_id}: {fallback_warning}",
                             )
 
+        if isinstance(spec, dict):
+            slot_timing = _slot_timing_for_slot(ctx, slot_id)
+            from app.pipelines.composition_validator import validate_material_spec_duration
+
+            spec = _enforce_spec_duration(
+                spec,
+                float(slot_timing["durationSec"]),
+                prefer_duration_sec=float(slot_timing["durationSec"]),
+            )
+            duration_errors = validate_material_spec_duration(
+                spec=spec,
+                slot_timing=slot_timing,
+            )
+            if duration_errors:
+                return _failure(
+                    action,
+                    slot_id,
+                    code="material_spec_duration_exceeded",
+                    message=duration_errors[0],
+                    retryable=False,
+                )
+
         generation_root = _generation_root(ctx)
-        scratch_dir = generation_root / "acp-author" / slot_id
-        force_render = material_edit_mode == "edit"
         from app.pipelines.material_gate_promote import (
+            author_scratch_dirs_for_slot,
             materialize_final_to_generated,
+            resolve_author_scratch_with_marker,
             should_materialize_final,
         )
+
+        # Prefer scratch that holds in-session marker/preview (ACP or ReAct).
+        scratch_dir = resolve_author_scratch_with_marker(generation_root, slot_id)
+        if scratch_dir is None:
+            candidates = author_scratch_dirs_for_slot(generation_root, slot_id)
+            scratch_dir = next((p for p in candidates if p.is_dir()), candidates[0])
+        force_render = material_edit_mode == "edit"
 
         materialize_mode = should_materialize_final(
             scratch_dir=scratch_dir,
@@ -814,6 +958,10 @@ class HyperFramesMaterialProvider:
             generated_root=ctx.generated_root,
             final_source=final_source,  # type: ignore[arg-type]
             partial_harvest=partial_harvest,
+            runner=ctx.runner,
+            context=ctx.task_context,
+            gateway=ctx.gateway,
+            observability_sink=ctx.runner.observability_sink if ctx.runner is not None else None,
         )
         ctx.emit_progress(
             "reviewing_material",

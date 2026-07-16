@@ -35,6 +35,9 @@ def normalize_author_slot(slot: dict[str, Any]) -> dict[str, Any]:
     required = slot.get("requiredAssetType")
     if isinstance(required, list) and required:
         normalized["requiredAssetType"] = list(required)
+    slot_id = str(slot.get("id") or slot.get("slotId") or "").strip()
+    if slot_id:
+        normalized["id"] = slot_id
     return normalized
 
 
@@ -101,29 +104,57 @@ def collect_forbidden_copy_phrases(payload: dict[str, Any]) -> list[str]:
     return phrases
 
 
-def _allowed_display_copy(payload: dict[str, Any]) -> list[str]:
+def _extend_allowed(merged: list[str], seen: set[str], raw: Any) -> None:
+    if not isinstance(raw, list):
+        return
+    for item in raw:
+        text = str(item).strip()
+        if text and text not in seen:
+            seen.add(text)
+            merged.append(text)
+
+
+def allowed_display_copy_list(payload: dict[str, Any]) -> list[str]:
+    """Union of all allowlist sources (short keywords + full sentences).
+
+    Earlier implementations returned the first non-empty source only, so
+    ``displayCopyPolicy.allowed`` short tokens could hide full-sentence entries
+    from ``renderPolicy`` / ``authorContract`` and reject legitimate half-line
+    highlights that are substrings of allowed full lines.
+    """
+    merged: list[str] = []
+    seen: set[str] = set()
+
     composition_brief = payload.get("compositionAuthorBrief")
     if isinstance(composition_brief, dict):
         policy = composition_brief.get("displayCopyPolicy")
         if isinstance(policy, dict):
-            allowed = policy.get("allowed")
-            if isinstance(allowed, list):
-                cleaned = [str(item).strip() for item in allowed if str(item).strip()]
-                if cleaned:
-                    return cleaned
+            _extend_allowed(merged, seen, policy.get("allowed"))
+
     render_policy = payload.get("renderPolicy")
     if isinstance(render_policy, dict):
-        allowed = render_policy.get("allowedDisplayCopy")
-        if isinstance(allowed, list):
-            return [str(item).strip() for item in allowed if str(item).strip()]
+        _extend_allowed(merged, seen, render_policy.get("allowedDisplayCopy"))
+
     finish = payload.get("finishBrief")
     if isinstance(finish, dict):
         nested = finish.get("renderPolicy")
         if isinstance(nested, dict):
-            allowed = nested.get("allowedDisplayCopy")
-            if isinstance(allowed, list):
-                return [str(item).strip() for item in allowed if str(item).strip()]
-    return []
+            _extend_allowed(merged, seen, nested.get("allowedDisplayCopy"))
+        finish_brief = finish.get("compositionAuthorBrief")
+        if isinstance(finish_brief, dict):
+            policy = finish_brief.get("displayCopyPolicy")
+            if isinstance(policy, dict):
+                _extend_allowed(merged, seen, policy.get("allowed"))
+
+    contract = payload.get("authorContract")
+    if isinstance(contract, dict):
+        _extend_allowed(merged, seen, contract.get("allowedDisplayCopy"))
+
+    return merged
+
+
+def _allowed_display_copy(payload: dict[str, Any]) -> list[str]:
+    return allowed_display_copy_list(payload)
 
 
 def _strip_html_text(raw: str) -> str:
@@ -163,6 +194,9 @@ def check_forbidden_copy_in_spec(
     allowed = _allowed_display_copy(payload)
     allowed_set = set(allowed)
     errors: list[str] = []
+    allowed_preview = " | ".join(allowed[:8])
+    if len(allowed) > 8:
+        allowed_preview += f" | …(+{len(allowed) - 8} more)"
 
     for phrase in collect_forbidden_copy_phrases(payload):
         if phrase in allowed_set:
@@ -172,12 +206,22 @@ def check_forbidden_copy_in_spec(
                 f"Forbidden brief or voiceover copy rendered verbatim: {phrase[:80]}"
             )
 
-    if not allowed:
-        cjk_runs = re.findall(r"[\u4e00-\u9fff]{4,}", rendered)
-        if len(cjk_runs) >= 3:
+    cjk_runs = re.findall(r"[\u4e00-\u9fff]{4,}", rendered)
+    if allowed:
+        for run in cjk_runs:
+            if any(run in item or item in run for item in allowed):
+                continue
             errors.append(
-                "Readable Chinese copy detected without renderPolicy.allowedDisplayCopy — "
-                "prefer text-free packaging overlays."
+                "Display copy not in renderPolicy.allowedDisplayCopy: "
+                f"{run[:80]} — use exact allowlisted strings only (no truncation/rewrite). "
+                f"allowed=[{allowed_preview}]"
             )
+        return errors
+
+    if len(cjk_runs) >= 3:
+        errors.append(
+            "Readable Chinese copy detected without renderPolicy.allowedDisplayCopy "
+            "(empty_allowlist) — add allowed strings via authorContract or prefer text-free overlays."
+        )
 
     return errors

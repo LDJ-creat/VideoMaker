@@ -5,7 +5,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.pipelines.material_review_finalize import _resolve_gateway_store
+from app.pipelines.material_review_finalize import (
+    _resolve_gateway_store,
+    infer_storage_root_from_generation_root,
+    resolve_database_path,
+)
 from app.runtime.task_context import TaskContext
 
 
@@ -53,3 +57,46 @@ def test_resolve_gateway_store_prefers_gateway_store_attribute() -> None:
 
     store = _resolve_gateway_store(gateway, None)
     assert store is expected
+
+
+def test_infer_storage_root_from_generation_root(tmp_path: Path) -> None:
+    generation_root = (
+        tmp_path
+        / "storage"
+        / "projects"
+        / "project-1"
+        / "generations"
+        / "gen-1"
+    )
+    generation_root.mkdir(parents=True)
+    inferred = infer_storage_root_from_generation_root(generation_root)
+    assert inferred == tmp_path / "storage"
+
+
+def test_resolve_database_path_from_storage_root_sibling(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    storage_root.mkdir()
+    db_path = storage_root / "videomaker.sqlite3"
+    db_path.write_bytes(b"")
+
+    resolved = resolve_database_path(None, storage_root=storage_root)
+    assert resolved == db_path
+
+
+def test_resolve_gateway_store_from_generation_root_and_db_sibling(tmp_path: Path) -> None:
+    storage_root = tmp_path / "storage"
+    generation_root = storage_root / "projects" / "project-1" / "generations" / "gen-1"
+    generation_root.mkdir(parents=True)
+    db_path = storage_root / "videomaker.sqlite3"
+    db_path.write_bytes(b"")
+
+    store = _resolve_gateway_store(
+        None,
+        None,
+        storage_root=storage_root,
+        generation_root=generation_root,
+    )
+    assert store is not None
+    status = store.get_status()
+    assert isinstance(status, dict)
+    assert "providers" in status

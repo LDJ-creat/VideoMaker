@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videomaker.local/schemas/narration-drift-report.schema.json",
+  "title": "NarrationDriftReport",
+  "type": "object",
+  "required": ["generationId", "contentHash", "totalDurationSec", "slots"],
+  "properties": {
+    "generationId": { "type": "string", "minLength": 1 },
+    "contentHash": { "type": "string", "minLength": 1 },
+    "durationTargetSec": { "type": "number", "minimum": 0 },
+    "totalDurationSec": { "type": "number", "minimum": 0 },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "slotId",
+          "estimatedSec",
+          "measuredSec",
+          "driftRatio",
+          "charCount",
+          "charsPerSec",
+          "rootCause",
+          "resolutionPath"
+        ],
+        "properties": {
+          "slotId": { "type": "string", "minLength": 1 },
+          "estimatedSec": { "type": "number", "minimum": 0 },
+          "measuredSec": { "type": "number", "minimum": 0 },
+          "driftRatio": { "type": "number", "minimum": 0 },
+          "charCount": { "type": "integer", "minimum": 0 },
+          "charsPerSec": { "type": "number", "minimum": 0 },
+          "wpmBudget": {
+            "type": "object",
+            "properties": {
+              "min": { "type": "integer", "minimum": 0 },
+              "max": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          },
+          "slotRole": { "type": "string" },
+          "rootCause": {
+            "type": "string",
+            "enum": [
+              "pace_mismatch",
+              "word_count_low",
+              "word_count_high",
+              "within_budget"
+            ]
+          },
+          "resolutionPath": {
+            "type": "string",
+            "enum": [
+              "rules_only",
+              "visual_adapt",
+              "script_revise",
+              "user_pending"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -52,3 +52,24 @@ def test_normalize_tool_call_preserves_openai_shape() -> None:
     }
     normalized = normalize_tool_call_for_api(item)
     assert normalized["function"]["arguments"] == "{}"
+
+
+def test_normalize_messages_preserves_reasoning_content() -> None:
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "must-echo-on-followup",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "name": "skill_view",
+                    "arguments": {"location": "skills/private/videomaker-composition/SKILL.md"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": "{}"},
+    ]
+    normalized = normalize_messages_for_chat_api(messages)
+    assert normalized[0]["reasoning_content"] == "must-echo-on-followup"
+    assert normalized[0]["tool_calls"][0]["type"] == "function"

@@ -63,6 +63,9 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
         "validationErrors": request.validation_errors,
         "fieldSemantics": FIELD_SEMANTICS,
     }
+    raw_slot_id = str(request.slot.get("id") or request.slot.get("slotId") or "").strip()
+    if raw_slot_id:
+        payload["slotId"] = raw_slot_id
     if isinstance(request.finish_brief, dict):
         payload["finishBrief"] = request.finish_brief
         composition_brief = request.finish_brief.get("compositionAuthorBrief")
@@ -91,6 +94,10 @@ def build_material_author_user_payload(request: AuthorRequest) -> dict[str, Any]
         payload["materialEditMode"] = request.material_edit_mode
     if isinstance(request.edit_instruction, str) and request.edit_instruction.strip():
         payload["editInstruction"] = request.edit_instruction.strip()
+    if isinstance(request.author_contract, dict) and request.author_contract:
+        payload["authorContract"] = request.author_contract
+    if isinstance(request.existing_spec_hash, str) and request.existing_spec_hash.strip():
+        payload["existingSpecHash"] = request.existing_spec_hash.strip()
     if (
         request.material_edit_mode == "edit"
         and isinstance(request.existing_material_spec, dict)

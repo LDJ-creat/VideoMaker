@@ -42,7 +42,6 @@ from app.pipelines.generation_pipeline import (
     run_generating_material,
     run_mapping_and_gap,
     run_planning_completion,
-    run_narration_preview,
     run_planning_from_script_draft,
     sync_material_results_to_plan,
 )
@@ -962,7 +961,52 @@ class VideoMakerPipeline:
         plan: dict[str, Any] | None = None
         slot_matches: list[dict[str, Any]] = []
 
-        if should_skip_generation_stage("analyzing_assets", checkpoint, generation_root, resume=resume):
+        from app.pipelines.material_review import use_material_review_gate
+        from app.pipelines.material_slot_revise import (
+            is_material_gate_revise_job,
+            load_gate_revise_resume_artifacts,
+        )
+
+        gate_revise_fast_path = (
+            is_material_gate_revise_job(generation_root, resume=resume)
+            and use_material_review_gate(
+                human_review=human_review,
+                revise_context=revise_context,
+            )
+        )
+        if gate_revise_fast_path:
+            loaded_inventory, loaded_plan, loaded_gap, loaded_slot_matches = (
+                load_gate_revise_resume_artifacts(generation_root)
+            )
+            if loaded_inventory is not None and loaded_plan is not None:
+                inventory = loaded_inventory
+                plan = loaded_plan
+                gap_report = loaded_gap
+                slot_matches = loaded_slot_matches
+                emit(
+                    status="running",
+                    stage="analyzing_assets",
+                    progress=10,
+                    message="(resumed) asset inventory ready",
+                )
+                emit(
+                    status="running",
+                    stage="mapping_slots",
+                    progress=35,
+                    message="(resumed) slot mapping ready",
+                )
+                emit(
+                    status="running",
+                    stage="planning_completion",
+                    progress=55,
+                    message="(resumed) generation plan ready",
+                )
+            else:
+                gate_revise_fast_path = False
+
+        if not gate_revise_fast_path and should_skip_generation_stage(
+            "analyzing_assets", checkpoint, generation_root, resume=resume
+        ):
             inventory = json.loads((generation_root / "asset-inventory.json").read_text(encoding="utf-8"))
             emit(
                 status="running",
@@ -970,7 +1014,7 @@ class VideoMakerPipeline:
                 progress=10,
                 message="(resumed) asset inventory ready",
             )
-        else:
+        elif not gate_revise_fast_path:
             emit(
                 status="running",
                 stage="analyzing_assets",
@@ -1026,7 +1070,9 @@ class VideoMakerPipeline:
             checkpoint.mark_stage_complete("analyzing_assets")
             checkpoint.save(checkpoint_path)
 
-        if should_skip_planning_completion_resumable(checkpoint, generation_root, resume=resume):
+        if not gate_revise_fast_path and should_skip_planning_completion_resumable(
+            checkpoint, generation_root, resume=resume
+        ):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             plan = normalize_generation_plan(
                 json.loads((generation_root / "generation-plan.json").read_text(encoding="utf-8"))
@@ -1064,7 +1110,7 @@ class VideoMakerPipeline:
                 progress=55,
                 message="(resumed) generation plan ready",
             )
-        elif human_review:
+        elif not gate_revise_fast_path and human_review:
             if should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
                 gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
                 slot_matches_payload = json.loads(
@@ -1164,21 +1210,6 @@ class VideoMakerPipeline:
                 script_draft = load_script_draft(generation_root)
                 if not storyboard_is_approved(script_draft):
                     if not should_skip_generation_stage(
-                        "narration_preview", checkpoint, generation_root, resume=resume
-                    ):
-                        material_gateway = self._build_material_gateway()
-                        run_narration_preview(
-                            gateway=material_gateway,
-                            structure=structure,
-                            context=context,
-                            generation_id=generation_id,
-                            generation_root=generation_root,
-                            draft=script_draft or {},
-                        )
-                        checkpoint.mark_stage_complete("narration_preview")
-                        checkpoint.save(checkpoint_path)
-                        script_draft = load_script_draft(generation_root)
-                    if not should_skip_generation_stage(
                         "drafting_storyboard", checkpoint, generation_root, resume=resume
                     ) or not (script_draft and script_draft.get("storyboard")):
                         draft_storyboard_script(
@@ -1213,6 +1244,7 @@ class VideoMakerPipeline:
 
                 checkpoint.close_human_gate("awaiting_storyboard_review")
                 checkpoint.awaitingGate = None
+                script_draft = load_script_draft(generation_root)
                 emit(
                     status="running",
                     stage="producing_media",
@@ -1251,7 +1283,9 @@ class VideoMakerPipeline:
             )
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.save(checkpoint_path)
-        elif should_skip_mapping_slots_resumable(checkpoint, generation_root, resume=resume):
+        elif not gate_revise_fast_path and should_skip_mapping_slots_resumable(
+            checkpoint, generation_root, resume=resume
+        ):
             gap_report = json.loads((generation_root / "gap-report.json").read_text(encoding="utf-8"))
             slot_matches_payload = json.loads((generation_root / "slot-matches.json").read_text(encoding="utf-8"))
             slot_matches = list(slot_matches_payload.get("slotMatches", []))
@@ -1298,7 +1332,7 @@ class VideoMakerPipeline:
             )
             checkpoint.mark_stage_complete("planning_completion")
             checkpoint.save(checkpoint_path)
-        else:
+        elif not gate_revise_fast_path:
             emit(
                 status="running",
                 stage="mapping_slots",
@@ -1323,6 +1357,7 @@ class VideoMakerPipeline:
                     database_path=self._database_path,
                     sample_analysis=sample_analysis_for_gen,
                     gateway_store=gateway_store,
+                    generation_root=generation_root,
                 )
                 slot_matches = mapping_slot_matches
             except _AGENT_FAILURES as exc:
@@ -1692,15 +1727,24 @@ class VideoMakerPipeline:
                 hyperframes_tool=render_tool,
                 ffmpeg_tool=ffmpeg_tool,
             )
+            timeline_for_render = dict(plan["timeline"]) if isinstance(plan.get("timeline"), dict) else {}
+            if plan.get("narrationDurationSec") is not None:
+                timeline_for_render["narrationDurationSec"] = plan["narrationDurationSec"]
             render_output = backend.render(
                 RenderOptions(
                     project_id=project_id,
                     generation_id=generation_id,
-                    timeline=plan["timeline"],
+                    timeline=timeline_for_render,
                     storage_root=self._storage_root,
                     emit_progress=render_progress,
                     aspect_ratio=str(plan.get("aspectRatio") or "9:16"),
                     tts_mode=str(plan.get("ttsMode") or "") or None,
+                    storyboard=[
+                        dict(scene)
+                        for scene in (plan.get("storyboard") or [])
+                        if isinstance(scene, dict)
+                    ]
+                    or None,
                 )
             )
 

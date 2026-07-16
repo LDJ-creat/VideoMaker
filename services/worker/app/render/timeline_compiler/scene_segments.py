@@ -102,5 +102,49 @@ def extract_scene_segments(
     return segments
 
 
+_MIN_SEGMENT_DURATION_SEC = 0.05
+
+
+def normalize_non_overlapping_segments(
+    segments: list[SceneSegment],
+    target_duration_sec: float,
+) -> list[SceneSegment]:
+    """Sequentialize overlapping timeline segments and cap total span at target duration."""
+    if not segments:
+        return []
+
+    target = max(_MIN_SEGMENT_DURATION_SEC, float(target_duration_sec))
+    ordered = sorted(segments, key=lambda item: (item.start_sec, item.clip_id))
+    cursor = 0.0
+    normalized: list[SceneSegment] = []
+
+    for index, segment in enumerate(ordered):
+        start = max(float(segment.start_sec), cursor)
+        if start >= target - _MIN_SEGMENT_DURATION_SEC:
+            break
+
+        next_start = (
+            float(ordered[index + 1].start_sec)
+            if index + 1 < len(ordered)
+            else target
+        )
+        end = min(float(segment.end_sec), target, next_start)
+        if end <= start + _MIN_SEGMENT_DURATION_SEC:
+            continue
+
+        normalized.append(
+            SceneSegment(
+                clip_id=segment.clip_id,
+                start_sec=round(start, 3),
+                end_sec=round(end, 3),
+                source_ref=segment.source_ref,
+                media_kind=segment.media_kind,
+            )
+        )
+        cursor = end
+
+    return normalized
+
+
 def resolve_segment_media_path(render_root: Path, segment: SceneSegment) -> Path | None:
     return _resolve_source_path(render_root, segment.source_ref)

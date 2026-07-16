@@ -11,6 +11,10 @@ import {
   resolveGenerationByTask,
   reviseMaterialSlot,
 } from "@/lib/apiClient";
+import {
+  materialReviewVerdictLabel,
+  slotStatusDisplay,
+} from "@/features/material-review/reviewLabels";
 
 type MaterialReviewPanelProps = {
   projectId: string;
@@ -20,7 +24,7 @@ type MaterialReviewPanelProps = {
   refreshKey?: number;
   onApproved?: () => void;
   /** Fired after slot NL revise is queued so progress SSE/polling resets. */
-  onReviseStarted?: (taskId: string) => void;
+  onReviseStarted?: (taskId: string, slotId: string) => void;
 };
 
 export function MaterialReviewPanel({
@@ -129,7 +133,17 @@ export function MaterialReviewPanel({
     };
   }, [visible, awaitingSlotRegen, taskId, load]);
 
-  const slotIds = useMemo(() => Object.keys(state?.slots ?? {}), [state]);
+  const slotIds = useMemo(() => {
+    const ids = Object.keys(state?.slots ?? {});
+    return ids.sort((left, right) => {
+      const leftMatch = /^slot-(\d+)$/.exec(left);
+      const rightMatch = /^slot-(\d+)$/.exec(right);
+      if (leftMatch && rightMatch) {
+        return Number(leftMatch[1]) - Number(rightMatch[1]);
+      }
+      return left.localeCompare(right, undefined, { numeric: true });
+    });
+  }, [state]);
 
   useEffect(() => {
     if (!selectedSlotId && slotIds.length > 0) {
@@ -142,6 +156,7 @@ export function MaterialReviewPanel({
   }, [slotIds, selectedSlotId, reviseContext]);
 
   const selectedReport = selectedSlotId ? reports[selectedSlotId] : undefined;
+  const selectedSlotEntry = selectedSlotId ? state?.slots?.[selectedSlotId] : undefined;
   const selectedPreviewUrl = selectedSlotId ? previewUrls[selectedSlotId] : undefined;
   const selectedPreviewKey =
     selectedSlotId && selectedPreviewUrl
@@ -159,7 +174,7 @@ export function MaterialReviewPanel({
         instruction.trim(),
       );
       if (result.data.taskId) {
-        onReviseStarted?.(result.data.taskId);
+        onReviseStarted?.(result.data.taskId, selectedSlotId);
       }
       setInstruction("");
       setAwaitingSlotRegen(true);
@@ -208,7 +223,11 @@ export function MaterialReviewPanel({
       <div className="flex flex-wrap gap-2">
         {slotIds.map((slotId) => {
           const entry = state?.slots?.[slotId];
+          const report = reports[slotId];
           const active = slotId === selectedSlotId;
+          const displayStatus = report?.reviewBypass
+            ? "review_bypass"
+            : entry?.status;
           const inherited =
             reviseContext &&
             affectedSlotIds.size > 0 &&
@@ -223,7 +242,7 @@ export function MaterialReviewPanel({
               onClick={() => setSelectedSlotId(slotId)}
             >
               {slotId}
-              {entry?.status ? ` · ${entry.status}` : ""}
+              {displayStatus ? ` · ${slotStatusDisplay(displayStatus)}` : ""}
               {inherited ? " · 继承" : reviseTarget ? " · 改片" : ""}
             </button>
           );
@@ -248,9 +267,12 @@ export function MaterialReviewPanel({
       {selectedReport ? (
         <div className="rounded-md border border-border p-3 text-sm space-y-2">
           <p>
-            审阅结果：
-            {selectedReport.approved ? "通过" : "未通过"}
-            {selectedReport.reviewInputs?.mode ? ` (${selectedReport.reviewInputs.mode})` : ""}
+            审阅结果：{materialReviewVerdictLabel(selectedReport, selectedSlotEntry)}
+            {selectedReport.reviewInputs?.mode &&
+            selectedSlotEntry?.status !== "review_bypass" &&
+            selectedSlotEntry?.status !== "review_exhausted"
+              ? ` (${selectedReport.reviewInputs.mode})`
+              : ""}
           </p>
           {selectedReport.issues?.length ? (
             <ul className="list-disc pl-5">

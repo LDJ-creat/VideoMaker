@@ -111,6 +111,88 @@ def use_material_review_gate(
     return "generating_material" in stages
 
 
+def material_review_max_rounds() -> int:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_ROUNDS", "1").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
+
+
+def material_review_repair_followup_max() -> int:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_REPAIR_FOLLOWUP_MAX", "1").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 1
+
+
+def material_review_acp_in_session_enabled(*, revise: bool = False) -> bool:
+    """Worker post-turn vision for ACP author (first generation vs revise paths)."""
+    if revise:
+        raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION_REVISE", "true").strip().lower()
+    else:
+        raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_ACP_IN_SESSION", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def material_review_gate_llm_enabled() -> bool:
+    """Run material_reviewer LLM at gate finalize when no in-session marker exists."""
+    raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_GATE_LLM", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def load_gate_author_payload(
+    generation_root: Path,
+    slot_id: str,
+    *,
+    slot_timing: dict[str, Any] | None,
+    project_id: str,
+    generation_id: str,
+) -> dict[str, Any]:
+    scratch = generation_root / "acp-author" / slot_id
+    task_path = scratch / "task.json"
+    if task_path.is_file():
+        try:
+            payload = json.loads(task_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                payload.setdefault("projectId", project_id)
+                payload.setdefault("generationId", generation_id)
+                payload.setdefault("slotId", slot_id)
+                if slot_timing and not payload.get("slotTiming"):
+                    payload["slotTiming"] = slot_timing
+                return payload
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    payload: dict[str, Any] = {
+        "slotId": slot_id,
+        "projectId": project_id,
+        "generationId": generation_id,
+    }
+    if slot_timing:
+        payload["slotTiming"] = slot_timing
+
+    revise_path = generation_root / "revise-context.json"
+    if revise_path.is_file():
+        try:
+            revise_context = json.loads(revise_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            revise_context = None
+        if isinstance(revise_context, dict):
+            payload["reviseContext"] = revise_context
+            gate = revise_context.get("materialGateRevise")
+            if isinstance(gate, dict):
+                payload["materialGateRevise"] = gate
+                contract = gate.get("authorContract")
+                if isinstance(contract, dict):
+                    payload["authorContract"] = contract
+                edit = gate.get("editInstruction")
+                if edit and not payload.get("editInstruction"):
+                    payload["editInstruction"] = edit
+    return payload
+
+
 def material_review_max_frames() -> int:
     raw = os.getenv("VIDEOMAKER_MATERIAL_REVIEW_MAX_FRAMES", "4").strip()
     try:
@@ -133,6 +215,11 @@ def material_review_video_max_mb() -> float:
         return max(1.0, float(raw))
     except ValueError:
         return 50.0
+
+
+def material_preview_profile() -> str:
+    raw = os.getenv("VIDEOMAKER_MATERIAL_PREVIEW_PROFILE", "full").strip().lower()
+    return raw if raw in {"full", "fast"} else "full"
 
 
 def material_review_provider_allowlist() -> set[str]:
@@ -565,6 +652,14 @@ def run_slot_review(
     set_material_review_slot_context(gateway, slot_id)
     project_id = str(context.project_id if context is not None else author_payload.get("projectId") or "")
     task_id = str(context.task_id if context is not None else author_payload.get("taskId") or "") or None
+    if store is None:
+        from app.pipelines.material_review_finalize import _resolve_gateway_store
+
+        store = _resolve_gateway_store(
+            gateway,
+            context,
+            generation_root=generation_root,
+        )
     route = resolve_material_review_route(store=store, preview_path=preview_path)
     text_payload = _build_text_payload(
         spec=spec,
@@ -763,6 +858,8 @@ def build_failed_review_report(
     }
     if review_unavailable:
         report["reviewUnavailable"] = True
+        report["approved"] = True
+        report["issues"] = []
     return report
 
 
@@ -782,5 +879,7 @@ def is_review_infrastructure_error(error_message: str) -> bool:
         "llmtoolconfigerror",
         "no modelgateway",
         "gatewayerror",
+        "invalid agentrunlog",
+        "tokenusage",
     )
     return any(marker in lowered for marker in markers)

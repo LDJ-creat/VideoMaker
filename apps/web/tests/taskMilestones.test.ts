@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TaskStatus } from "@videomaker/contracts";
+import type { TaskEvent, TaskStatus, TaskStage } from "@videomaker/contracts";
 
 import { fixtureTaskEvent } from "@/fixtures";
 import {
@@ -23,11 +23,11 @@ describe("taskMilestones", () => {
   });
 
   it("detects status and stage changes as milestones", () => {
-    const previous = { ...fixtureTaskEvent, status: "running" as TaskStatus, stage: "a" };
-    const next = {
+    const previous: TaskEvent = { ...fixtureTaskEvent, status: "running", stage: "mapping_slots" };
+    const next: TaskEvent = {
       ...fixtureTaskEvent,
       status: "awaiting_review" as TaskStatus,
-      stage: "b",
+      stage: "awaiting_master_review" as TaskStage,
     };
     expect(isTaskMilestone(previous, next)).toBe(true);
     expect(isTaskMilestone(next, next)).toBe(false);

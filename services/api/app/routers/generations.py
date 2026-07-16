@@ -78,6 +78,17 @@ class ScriptDraftNlReviseRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_REVISE_INSTRUCTION_LEN)
 
 
+class FixNarrationScriptRequest(BaseModel):
+    instruction: str | None = Field(default=None, max_length=MAX_REVISE_INSTRUCTION_LEN)
+
+
+def _read_json_artifact(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
 def _generation_root(storage_root: Path, project_id: str, generation_id: str) -> Path:
     return storage_root / "projects" / project_id / "generations" / generation_id
 
@@ -443,6 +454,115 @@ def nl_revise_script_draft(
     if result.get("summary"):
         response["summary"] = result["summary"]
     return response
+
+
+@router.get("/{generation_id}/narration-timing")
+def get_narration_timing(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    timing_path = _generation_root(storage_root, project_id, generation_id) / "narration-timing.json"
+    timing = _read_json_artifact(timing_path)
+    if timing is None:
+        raise HTTPException(status_code=404, detail="Narration timing not found")
+    return timing
+
+
+@router.get("/{generation_id}/narration-drift")
+def get_narration_drift(generation_id: str, request: Request) -> dict[str, Any]:
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    drift_path = _generation_root(storage_root, project_id, generation_id) / "narration" / "drift-report.json"
+    report = _read_json_artifact(drift_path)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Narration drift report not found")
+    return report
+
+
+FIX_NARRATION_SCRIPT_BLOCKED_STAGES = frozenset({
+    "generating_material",
+    "assembling_final",
+    "building_timeline",
+    "rendering",
+    "awaiting_material_review",
+})
+
+
+def _fix_narration_script_allowed(request: Request, task_id: str) -> None:
+    task = _task_events(request).get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    status = str(task.get("status") or "")
+    stage = str(task.get("stage") or "")
+    if status == "running" and stage in FIX_NARRATION_SCRIPT_BLOCKED_STAGES:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot fix narration script while material or render is in progress",
+        )
+    if status == "awaiting_review" and stage == "awaiting_material_review":
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot fix narration script during material review",
+        )
+
+
+@router.post("/{generation_id}/narration-slots/{slot_id}/fix-script", status_code=status.HTTP_202_ACCEPTED)
+def fix_narration_script_slot(
+    generation_id: str,
+    slot_id: str,
+    payload: FixNarrationScriptRequest,
+    request: Request,
+) -> dict[str, Any]:
+    validate_storage_segment(slot_id, field="slot_id")
+    store = _project_store(request)
+    record = store.get_generation(generation_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    storage_root: Path = request.app.state.storage_root
+    project_id = str(record["projectId"])
+    task_id = str(record["taskId"])
+    _fix_narration_script_allowed(request, task_id)
+    generation_root = _generation_root(storage_root, project_id, generation_id)
+    drift = _read_json_artifact(generation_root / "narration" / "drift-report.json")
+    if drift is None:
+        raise HTTPException(status_code=404, detail="Narration drift report not found")
+    slot_entry = next(
+        (item for item in drift.get("slots") or [] if isinstance(item, dict) and str(item.get("slotId")) == slot_id),
+        None,
+    )
+    if not isinstance(slot_entry, dict):
+        raise HTTPException(status_code=404, detail="Slot not found in drift report")
+    resolution = str(slot_entry.get("resolutionPath") or "")
+    if resolution not in {"user_pending", "script_revise"}:
+        raise HTTPException(status_code=400, detail="Slot does not require script density fix")
+    structure = store.get_latest_sample_structure(project_id)
+    runner = _pipeline_runner(request)
+    try:
+        fix_task_id = runner.start_fix_narration_script(
+            project_id=project_id,
+            generation_id=generation_id,
+            task_id=task_id,
+            slot_id=slot_id,
+            instruction=(payload.instruction or "").strip() or None,
+            structure=structure,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "generationId": generation_id,
+        "taskId": fix_task_id,
+        "slotId": slot_id,
+        "queued": True,
+    }
 
 
 @router.post("/{generation_id}/approve-master", status_code=status.HTTP_202_ACCEPTED)

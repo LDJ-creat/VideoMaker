@@ -29,6 +29,8 @@ export type TaskStage =
   | "awaiting_master_review"
   | "synthesizing_narration_preview"
   | "aligning_narration_timing"
+  | "synthesizing_canonical_narration"
+  | "adapting_narration_density"
   | "drafting_storyboard"
   | "awaiting_storyboard_review"
   | "producing_media"
@@ -224,6 +226,12 @@ export type MaterialReviewTrace = {
   agentRunId?: string;
   promptVersion?: string;
   parentObservabilityRunId?: string;
+  reviewClassification?:
+    | "approved"
+    | "creative"
+    | "infrastructure"
+    | "unknown"
+    | "infrastructure_waived";
 };
 
 export type MaterialReviewReport = {
@@ -235,6 +243,9 @@ export type MaterialReviewReport = {
   scores?: MaterialReviewScores;
   issues: string[];
   suggestions: string[];
+  warnings?: string[];
+  specHash?: string;
+  previewSha256?: string;
   reviewInputs: MaterialReviewInputs;
   agentReviewRound?: number;
   provider?: string;
@@ -252,7 +263,9 @@ export type MaterialReviewSlotStatus =
   | "agent_failed"
   | "skipped"
   | "hard_gate_failed"
-  | "review_unavailable";
+  | "review_unavailable"
+  | "review_bypass"
+  | "review_exhausted";
 
 export type MaterialReviewSlotEntry = {
   status: MaterialReviewSlotStatus;
@@ -262,6 +275,7 @@ export type MaterialReviewSlotEntry = {
   agentReviewRounds?: number;
   userReviseCount?: number;
   hardGateFailed?: boolean;
+  reviewBypass?: string;
 };
 
 export type MaterialReviewState = {
@@ -354,7 +368,7 @@ export type AgentRunLog = {
   outputValid: boolean;
   validationErrors?: string[];
   latencyMs: number;
-  tokenUsage?: { prompt: number; completion: number };
+  tokenUsage?: { prompt: number; completion: number; total?: number };
   createdAt: string;
 };
 
